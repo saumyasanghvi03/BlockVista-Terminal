@@ -77,9 +77,7 @@ def fetch_stock_data(symbol, period, interval):
     data = yf.download(f"{symbol}.NS", period=period, interval=interval)
     if len(data) == 0:
         return None
-    # All indicators with robust guards
     data['RSI'] = ta.rsi(data['Close'], length=14) if len(data) > 0 else np.nan
-    
     # MACD
     macd = ta.macd(data['Close'])
     if isinstance(macd, pd.DataFrame) and not macd.empty:
@@ -88,53 +86,60 @@ def fetch_stock_data(symbol, period, interval):
     else:
         for col in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']:
             data[col] = np.nan
-    
     data['SMA21'] = ta.sma(data['Close'], length=21) if len(data) > 0 else np.nan
     data['EMA9'] = ta.ema(data['Close'], length=9) if len(data) > 0 else np.nan
-
-    # BBands
     bbands = ta.bbands(data['Close'], length=20)
     for label, key in zip(['BOLL_L', 'BOLL_M', 'BOLL_U'], ['BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']):
         data[label] = bbands[key] if isinstance(bbands, pd.DataFrame) and key in bbands else np.nan
-    
     atr = ta.atr(data['High'], data['Low'], data['Close'], length=14)
     data['ATR'] = atr if isinstance(atr, pd.Series) else np.nan
-
     adx = ta.adx(data['High'], data['Low'], data['Close'], length=14)
     data['ADX'] = adx['ADX_14'] if isinstance(adx, pd.DataFrame) and 'ADX_14' in adx else np.nan
-
     stochrsi = ta.stochrsi(data['Close'], length=14)
     data['STOCHRSI'] = stochrsi["STOCHRSIk_14_14_3_3"] if isinstance(stochrsi, pd.DataFrame) and "STOCHRSIk_14_14_3_3" in stochrsi else np.nan
-
     # Supertrend
     supertrend = ta.supertrend(data['High'], data['Low'], data['Close'])
     if isinstance(supertrend, pd.DataFrame) and not supertrend.empty:
         for col in supertrend.columns:
             data[col] = supertrend[col]
-    # VWAP
     data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume']) if len(data) > 0 else np.nan
-    # Heikin-Ashi
     ha = ta.ha(data['Open'], data['High'], data['Low'], data['Close'])
     for c in ['open','high','low','close']:
         ha_key = f'HA_{c}'
         data[ha_key] = ha[ha_key] if isinstance(ha, pd.DataFrame) and ha_key in ha else np.nan
     return data
 
+def try_scalar(val):
+    # Return a float, or np.nan if not possible
+    if isinstance(val, pd.Series) and len(val) == 1:
+        val = val.iloc[0]
+    if isinstance(val, (float, int, np.floating, np.integer)):
+        return val
+    try:
+        return float(val)
+    except Exception:
+        return np.nan
+
 def get_signals(data):
     latest = data.iloc[-1]
     signals = {}
-    signals['RSI Signal'] = 'Overbought' if latest['RSI'] > 70 else ('Oversold' if latest['RSI'] < 30 else 'Neutral')
-    signals['MACD Signal'] = 'Bullish' if latest.get('MACD_12_26_9',np.nan) > latest.get('MACDs_12_26_9',np.nan) else (
-        'Bearish' if latest.get('MACD_12_26_9',np.nan) < latest.get('MACDs_12_26_9',np.nan) else 'Neutral')
+    rsi = try_scalar(latest.get('RSI', np.nan))
+    macd = try_scalar(latest.get('MACD_12_26_9', np.nan))
+    macds = try_scalar(latest.get('MACDs_12_26_9', np.nan))
     supertrend_col = [c for c in data.columns if c.startswith('SUPERT_') and not c.endswith('_dir')]
-    if supertrend_col:
-        signals['Supertrend'] = 'Bullish' if latest[supertrend_col[0]] < latest['Close'] else (
-            'Bearish' if latest[supertrend_col[0]] > latest['Close'] else 'Neutral')
-    else:
-        signals['Supertrend'] = 'Unknown'
-    signals['ADX Trend'] = 'Strong' if latest.get('ADX',np.nan) > 25 else 'Weak'
-    signals['STOCHRSI Signal'] = 'Overbought' if latest.get('STOCHRSI',np.nan) > 0.8 else (
-        'Oversold' if latest.get('STOCHRSI',np.nan) < 0.2 else 'Neutral')
+    supertrend = try_scalar(latest[supertrend_col[0]]) if supertrend_col else np.nan
+    close = try_scalar(latest.get('Close', np.nan))
+    adx = try_scalar(latest.get('ADX', np.nan))
+    stochrsi = try_scalar(latest.get('STOCHRSI', np.nan))
+    signals['RSI Signal'] = 'Overbought' if rsi > 70 else ('Oversold' if rsi < 30 else 'Neutral')
+    signals['MACD Signal'] = 'Bullish' if macd > macds else ('Bearish' if macd < macds else 'Neutral')
+    signals['Supertrend'] = (
+        'Bullish' if not np.isnan(supertrend) and not np.isnan(close) and supertrend < close else
+        'Bearish' if not np.isnan(supertrend) and not np.isnan(close) and supertrend > close else
+        'Unknown'
+    )
+    signals['ADX Trend'] = 'Strong' if adx > 25 else 'Weak'
+    signals['STOCHRSI Signal'] = 'Overbought' if stochrsi > 0.8 else ('Oversold' if stochrsi < 0.2 else 'Neutral')
     return signals
 
 def make_screener(stock_list, period, interval):
@@ -146,11 +151,11 @@ def make_screener(stock_list, period, interval):
             signals = get_signals(data)
             row = {
                 "Symbol": s,
-                "LTP": float(latest['Close']),
-                "RSI": float(latest['RSI']),
-                "MACD": float(latest.get('MACD_12_26_9', np.nan)),
-                "ADX": float(latest.get('ADX', np.nan)),
-                "ATR": float(latest['ATR']),
+                "LTP": float(try_scalar(latest.get('Close', np.nan))),
+                "RSI": float(try_scalar(latest.get('RSI', np.nan))),
+                "MACD": float(try_scalar(latest.get('MACD_12_26_9', np.nan))),
+                "ADX": float(try_scalar(latest.get('ADX', np.nan))),
+                "ATR": float(try_scalar(latest.get('ATR', np.nan))),
                 "Signal": signals['RSI Signal'] + "/" + signals['MACD Signal'] + "/" + signals['Supertrend'],
             }
             screener_data.append(row)
