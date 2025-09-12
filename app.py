@@ -4,8 +4,8 @@ import numpy as np
 import yfinance as yf
 import pandas_ta as ta
 import plotly.graph_objs as go
-import time
 from kiteconnect import KiteConnect
+from streamlit_autorefresh import st_autorefresh
 
 # ---- Custom Bloomberg Terminal Style ----
 def set_terminal_style(custom_dark=True):
@@ -22,7 +22,7 @@ def set_terminal_style(custom_dark=True):
         </style>
         """, unsafe_allow_html=True)
 
-# ---- Terminal Theme Toggle ----
+# --- THEME TOGGLE ---
 if "dark_theme" not in st.session_state:
     st.session_state.dark_theme = True
 
@@ -36,7 +36,7 @@ elif theme_choice != "Black/Green" and st.session_state.dark_theme:
 elif theme_choice == "Black/Green":
     set_terminal_style(True)
 
-# ---- Auto Refresh State ----
+# ---- AUTO REFRESH (streamlit-autorefresh) ----
 if "auto_refresh" not in st.session_state:
     st.session_state["auto_refresh"] = True
 if "refresh_interval" not in st.session_state:
@@ -47,9 +47,9 @@ with refresh_col:
     st.session_state["auto_refresh"] = st.checkbox("Auto Refresh", value=st.session_state["auto_refresh"])
 with toggle_col:
     st.session_state["refresh_interval"] = st.number_input("Sec", value=st.session_state["refresh_interval"], min_value=5, max_value=90, step=1)
+
 if st.session_state["auto_refresh"]:
-    time.sleep(st.session_state["refresh_interval"])
-    st.experimental_rerun()
+    st_autorefresh(interval=st.session_state["refresh_interval"] * 1000, key="autorefresh")
 
 # ---- Smallcase-Like Baskets ----
 SMALLCASE_BASKETS = {
@@ -104,11 +104,9 @@ def fetch_stock_data(symbol, period, interval):
         for col in supertrend.columns:
             data[col] = supertrend[col]
     data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume'])
-    # Heikin Ashi
     ha = ta.ha(data['Open'], data['High'], data['Low'], data['Close'])
     for c in ['open','high','low','close']:
-        key = 'HA_'+c
-        ha_key = 'HA_'+c
+        ha_key = 'HA_' + c
         if ha_key in ha.columns:
             data[ha_key] = ha[ha_key]
         else:
@@ -279,7 +277,6 @@ if len(stock_list):
                 fill="toself", fillcolor="rgba(41,134,204,0.12)",
                 line=dict(color="rgba(255,255,255,0)"),
                 showlegend=False, name="BB Channel"))
-        # Supertrend (dynamic column name)
         supertrend_col = [c for c in data.columns if c.startswith('SUPERT_') and not c.endswith('_dir')]
         if supertrend_col:
             fig.add_trace(go.Scatter(
