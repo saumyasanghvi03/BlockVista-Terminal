@@ -7,6 +7,19 @@ import plotly.graph_objs as go
 from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
 
+# ---- Top-bar Banner like Bloomberg ----
+st.markdown(
+    """
+    <div style='background:linear-gradient(90deg,#141e30,#243b55 60%,#FFD900 100%);
+     padding:10px 24px 6px 24px;border-radius:8px;margin-bottom:18px;box-shadow:0 4px 10px #0007; '>
+        <span style='color:#FFD900;font-family:monospace;font-size:2.1rem;font-weight:bold;vertical-align:middle;letter-spacing:2px;'>
+        BLOCKVISTA TERMINAL</span>
+        <span style='float:right;color:#30ff96;font-size:1.25rem;font-family:monospace;padding-top:16px;font-weight:bold;'>
+        INDIA • INTRADAY • LIVE</span>
+    </div>
+    """, unsafe_allow_html=True
+)
+
 # ---- Custom Bloomberg Terminal Style ----
 def set_terminal_style(custom_dark=True):
     if custom_dark:
@@ -14,25 +27,25 @@ def set_terminal_style(custom_dark=True):
         <style>
         .main, .block-container, .css-18e3th9, .css-1d391kg, .css-1v3fvcr {background-color: #121212 !important;}
         .stSidebar, .css-15zrgzn {background: #191919 !important;}
-        .stDataFrame tbody tr {background-color: #191919 !important;color: #00FF99 !important;}
+        .stDataFrame tbody tr {background-color: #191919 !important;color: #FFD900 !important;}
         .css-pkbazv, .stTextInput, .stTextArea textarea, .stNumberInput input, .st-cq, .st-de {
-            background: #191919 !important;color: #00FF99 !important;}
-        .stMetric, .stMetricLabel, .stMetricValue {color: #00FF99 !important;}
-        h1, h2, h3, h4, h5, h6, label, .st-bv, .stTextInput label, .stTextArea label {color: #00FF99 !important;}
+            background: #191919 !important;color: #FFD900 !important;}
+        .stMetric, .stMetricLabel, .stMetricValue {color: #FFD900 !important;}
+        h1, h2, h3, h4, h5, h6, label, .st-bv, .stTextInput label, .stTextArea label {color: #FFD900 !important;}
         </style>
         """, unsafe_allow_html=True)
 
 if "dark_theme" not in st.session_state:
     st.session_state.dark_theme = True
 
-theme_choice = st.sidebar.selectbox("Terminal Theme", ["Black/Green", "Streamlit Default"])
-if theme_choice == "Black/Green" and not st.session_state.dark_theme:
+theme_choice = st.sidebar.selectbox("Terminal Theme", ["Black/Yellow/Green", "Streamlit Default"])
+if theme_choice == "Black/Yellow/Green" and not st.session_state.dark_theme:
     set_terminal_style(True)
     st.session_state.dark_theme = True
-elif theme_choice != "Black/Green" and st.session_state.dark_theme:
+elif theme_choice != "Black/Yellow/Green" and st.session_state.dark_theme:
     set_terminal_style(False)
     st.session_state.dark_theme = False
-elif theme_choice == "Black/Green":
+elif theme_choice == "Black/Yellow/Green":
     set_terminal_style(True)
 
 # ---- AUTO REFRESH ----
@@ -78,7 +91,6 @@ def fetch_stock_data(symbol, period, interval):
     if len(data) == 0:
         return None
     data['RSI'] = ta.rsi(data['Close'], length=14) if len(data) > 0 else np.nan
-    # MACD
     macd = ta.macd(data['Close'])
     if isinstance(macd, pd.DataFrame) and not macd.empty:
         for col in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']:
@@ -97,7 +109,6 @@ def fetch_stock_data(symbol, period, interval):
     data['ADX'] = adx['ADX_14'] if isinstance(adx, pd.DataFrame) and 'ADX_14' in adx else np.nan
     stochrsi = ta.stochrsi(data['Close'], length=14)
     data['STOCHRSI'] = stochrsi["STOCHRSIk_14_14_3_3"] if isinstance(stochrsi, pd.DataFrame) and "STOCHRSIk_14_14_3_3" in stochrsi else np.nan
-    # Supertrend
     supertrend = ta.supertrend(data['High'], data['Low'], data['Close'])
     if isinstance(supertrend, pd.DataFrame) and not supertrend.empty:
         for col in supertrend.columns:
@@ -110,7 +121,6 @@ def fetch_stock_data(symbol, period, interval):
     return data
 
 def try_scalar(val):
-    # Return a float, or np.nan if not possible
     if isinstance(val, pd.Series) and len(val) == 1:
         val = val.iloc[0]
     if isinstance(val, (float, int, np.floating, np.integer)):
@@ -126,7 +136,7 @@ def get_signals(data):
     rsi = try_scalar(latest.get('RSI', np.nan))
     macd = try_scalar(latest.get('MACD_12_26_9', np.nan))
     macds = try_scalar(latest.get('MACDs_12_26_9', np.nan))
-    supertrend_col = [c for c in data.columns if c.startswith('SUPERT_') and not c.endswith('_dir')]
+    supertrend_col = [str(c) for c in list(data.columns) if isinstance(c, str) and str(c).startswith('SUPERT_') and not str(c).endswith('_dir')]
     supertrend = try_scalar(latest[supertrend_col[0]]) if supertrend_col else np.nan
     close = try_scalar(latest.get('Close', np.nan))
     adx = try_scalar(latest.get('ADX', np.nan))
@@ -161,6 +171,7 @@ def make_screener(stock_list, period, interval):
             screener_data.append(row)
     return pd.DataFrame(screener_data)
 
+# ---- Sidebar: Watchlist P&L ----
 st.sidebar.subheader("📈 Watchlist P&L Tracker (Live)")
 watchlist = st.sidebar.text_area("List NSE symbols (comma-separated)", value="RELIANCE, SBIN, TCS")
 positions_input = st.sidebar.text_area("Entry prices (comma, same order)", value="2550, 610, 3580")
@@ -247,7 +258,7 @@ if st.sidebar.button("Set/Check Alert") and len(screen_df):
     if curr_price != 'Error' and curr_price is not None and curr_price > alert_price:
         st.sidebar.warning(f"ALERT: {stock_list[0]} > {alert_price}")
 
-# ---- Main UI: TABS ----
+# ---- Main UI: TABS + Bloomberg Metric Bar ----
 if len(stock_list):
     st.header(f"Live Technical Dashboard: {stock_list[0]}")
     data = fetch_stock_data(stock_list[0], screen_period, screen_interval)
@@ -255,7 +266,20 @@ if len(stock_list):
         st.error("No data available for this symbol/interval.")
         st.stop()
     price = get_live_price(stock_list[0])
-    st.metric(label="Current LTP", value=price)
+    # Bloomberg-style horizontal 'metric bar'
+    metrics_row = st.columns([1.5,1,1,1,1,1])
+    latest = data.iloc[-1]
+    rsi = try_scalar(latest.get('RSI', np.nan))
+    macd = try_scalar(latest.get('MACD_12_26_9', np.nan))
+    adx = try_scalar(latest.get('ADX', np.nan))
+    atr = try_scalar(latest.get('ATR', np.nan))
+    vwap = try_scalar(latest.get('VWAP', np.nan))
+    with metrics_row[0]: st.metric("LTP", f"{price}", label_visibility="visible")
+    with metrics_row[1]: st.metric("RSI", f"{round(rsi,2) if not np.isnan(rsi) else '—'}")
+    with metrics_row[2]: st.metric("MACD", f"{round(macd,2) if not np.isnan(macd) else '—'}")
+    with metrics_row[3]: st.metric("ADX", f"{round(adx,2) if not np.isnan(adx) else '—'}")
+    with metrics_row[4]: st.metric("ATR", f"{round(atr,2) if not np.isnan(atr) else '—'}")
+    with metrics_row[5]: st.metric("VWAP", f"{round(vwap,2) if not np.isnan(vwap) else '—'}")
     tabs = st.tabs(["Chart", "TA", "Advanced", "Raw"])
     with tabs[0]:
         chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
@@ -287,7 +311,7 @@ if len(stock_list):
                 fill="toself", fillcolor="rgba(41,134,204,0.12)",
                 line=dict(color="rgba(255,255,255,0)"),
                 showlegend=False, name="BB Channel"))
-        supertrend_col = [c for c in data.columns if c.startswith('SUPERT_') and not c.endswith('_dir')]
+        supertrend_col = [str(c) for c in list(data.columns) if str(c).startswith('SUPERT_') and not str(c).endswith('_dir')]
         if supertrend_col:
             fig.add_trace(go.Scatter(
                 x=data.index, y=data[supertrend_col[0]],
