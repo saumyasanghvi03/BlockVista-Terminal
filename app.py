@@ -22,7 +22,6 @@ def set_terminal_style(custom_dark=True):
         </style>
         """, unsafe_allow_html=True)
 
-# --- THEME TOGGLE ---
 if "dark_theme" not in st.session_state:
     st.session_state.dark_theme = True
 
@@ -36,7 +35,7 @@ elif theme_choice != "Black/Green" and st.session_state.dark_theme:
 elif theme_choice == "Black/Green":
     set_terminal_style(True)
 
-# ---- AUTO REFRESH (streamlit-autorefresh) ----
+# ---- AUTO REFRESH ----
 if "auto_refresh" not in st.session_state:
     st.session_state["auto_refresh"] = True
 if "refresh_interval" not in st.session_state:
@@ -60,7 +59,7 @@ SMALLCASE_BASKETS = {
     "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA"],
 }
 
-# ---- KITE CONNECT (Zerodha) ----
+# ---- Zerodha connection ----
 api_key = st.secrets["ZERODHA_API_KEY"]
 access_token = st.secrets["ZERODHA_ACCESS_TOKEN"]
 kite = KiteConnect(api_key=api_key)
@@ -70,7 +69,7 @@ def get_live_price(symbol):
     try:
         ltp = kite.ltp(f"NSE:{symbol}")
         return ltp[f"NSE:{symbol}"]["last_price"]
-    except Exception as e:
+    except Exception:
         return np.nan
 
 @st.cache_data(show_spinner="⏳ Loading data...")
@@ -78,39 +77,47 @@ def fetch_stock_data(symbol, period, interval):
     data = yf.download(f"{symbol}.NS", period=period, interval=interval)
     if len(data) == 0:
         return None
-    data['RSI'] = ta.rsi(data['Close'], length=14)
+    # All indicators with robust guards
+    data['RSI'] = ta.rsi(data['Close'], length=14) if len(data) > 0 else np.nan
+    
+    # MACD
     macd = ta.macd(data['Close'])
-    if not macd.empty:
-        for col in macd.columns:
-            data[col] = macd[col]
+    if isinstance(macd, pd.DataFrame) and not macd.empty:
+        for col in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']:
+            data[col] = macd[col] if col in macd else np.nan
     else:
-        data['MACD_12_26_9'] = data['MACDh_12_26_9'] = data['MACDs_12_26_9'] = np.nan
-    data['SMA21'] = ta.sma(data['Close'], length=21)
-    data['EMA9'] = ta.ema(data['Close'], length=9)
+        for col in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']:
+            data[col] = np.nan
+    
+    data['SMA21'] = ta.sma(data['Close'], length=21) if len(data) > 0 else np.nan
+    data['EMA9'] = ta.ema(data['Close'], length=9) if len(data) > 0 else np.nan
+
+    # BBands
     bbands = ta.bbands(data['Close'], length=20)
-    for label, key in zip(['BOLL_L','BOLL_M','BOLL_U'], ['BBL_20_2.0','BBM_20_2.0','BBU_20_2.0']):
-        if key in bbands:
-            data[label] = bbands[key]
-        else:
-            data[label] = np.nan
+    for label, key in zip(['BOLL_L', 'BOLL_M', 'BOLL_U'], ['BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']):
+        data[label] = bbands[key] if isinstance(bbands, pd.DataFrame) and key in bbands else np.nan
+    
     atr = ta.atr(data['High'], data['Low'], data['Close'], length=14)
     data['ATR'] = atr if isinstance(atr, pd.Series) else np.nan
+
     adx = ta.adx(data['High'], data['Low'], data['Close'], length=14)
-    data['ADX'] = adx['ADX_14'] if 'ADX_14' in adx else np.nan
+    data['ADX'] = adx['ADX_14'] if isinstance(adx, pd.DataFrame) and 'ADX_14' in adx else np.nan
+
     stochrsi = ta.stochrsi(data['Close'], length=14)
-    data['STOCHRSI'] = stochrsi["STOCHRSIk_14_14_3_3"] if "STOCHRSIk_14_14_3_3" in stochrsi else np.nan
+    data['STOCHRSI'] = stochrsi["STOCHRSIk_14_14_3_3"] if isinstance(stochrsi, pd.DataFrame) and "STOCHRSIk_14_14_3_3" in stochrsi else np.nan
+
+    # Supertrend
     supertrend = ta.supertrend(data['High'], data['Low'], data['Close'])
-    if not supertrend.empty:
+    if isinstance(supertrend, pd.DataFrame) and not supertrend.empty:
         for col in supertrend.columns:
             data[col] = supertrend[col]
-    data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume'])
+    # VWAP
+    data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume']) if len(data) > 0 else np.nan
+    # Heikin-Ashi
     ha = ta.ha(data['Open'], data['High'], data['Low'], data['Close'])
     for c in ['open','high','low','close']:
-        ha_key = 'HA_' + c
-        if ha_key in ha.columns:
-            data[ha_key] = ha[ha_key]
-        else:
-            data[ha_key] = np.nan
+        ha_key = f'HA_{c}'
+        data[ha_key] = ha[ha_key] if isinstance(ha, pd.DataFrame) and ha_key in ha else np.nan
     return data
 
 def get_signals(data):
@@ -141,15 +148,14 @@ def make_screener(stock_list, period, interval):
                 "Symbol": s,
                 "LTP": float(latest['Close']),
                 "RSI": float(latest['RSI']),
-                "MACD": float(latest.get('MACD_12_26_9',np.nan)),
-                "ADX": float(latest.get('ADX',np.nan)),
+                "MACD": float(latest.get('MACD_12_26_9', np.nan)),
+                "ADX": float(latest.get('ADX', np.nan)),
                 "ATR": float(latest['ATR']),
                 "Signal": signals['RSI Signal'] + "/" + signals['MACD Signal'] + "/" + signals['Supertrend'],
             }
             screener_data.append(row)
     return pd.DataFrame(screener_data)
 
-# ---- Sidebar: Watchlist P&L ----
 st.sidebar.subheader("📈 Watchlist P&L Tracker (Live)")
 watchlist = st.sidebar.text_area("List NSE symbols (comma-separated)", value="RELIANCE, SBIN, TCS")
 positions_input = st.sidebar.text_area("Entry prices (comma, same order)", value="2550, 610, 3580")
@@ -169,7 +175,7 @@ for i, s in enumerate(symbols):
                 live = np.nan
         pnl = (live - entry_prices[i]) * quantities[i]
         pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": live, "Qty": quantities[i], "P&L ₹": round(pnl,2)})
-    except Exception as e:
+    except Exception:
         pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": "Err", "Qty": quantities[i], "P&L ₹": "Err"})
 if pnl_data:
     st.sidebar.dataframe(pd.DataFrame(pnl_data))
@@ -188,7 +194,6 @@ else:
 screen_period = st.sidebar.selectbox('Period', ['1d','5d'])
 screen_interval = st.sidebar.selectbox('Interval', ['1m','5m','15m'])
 
-# ---- Sidebar: Screener Output & Download ----
 screen_df = make_screener(stock_list, screen_period, screen_interval)
 st.sidebar.subheader("Screener Results")
 if len(screen_df):
