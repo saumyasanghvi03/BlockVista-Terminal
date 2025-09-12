@@ -37,8 +37,8 @@ SMALLCASE_BASKETS = {
 }
 
 # ---- ZERODHA INIT ----
-api_key = st.secrets["sd4ob9q00vfna3bb"]
-access_token = st.secrets["m8bpa62imo47qjjihwx6vvjak4mzsgwx"]
+api_key = st.secrets["ZERODHA_API_KEY"]
+access_token = st.secrets["ZERODHA_ACCESS_TOKEN"]
 kite = KiteConnect(api_key=api_key)
 kite.set_access_token(access_token)
 
