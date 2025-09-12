@@ -1,0 +1,6 @@
+streamlit
+kiteconnect
+pandas
+yfinance
+pandas_ta
+plotly
