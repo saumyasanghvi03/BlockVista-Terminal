@@ -319,15 +319,23 @@ if len(stock_list):
         fig.update_layout(template='plotly_dark')
         st.plotly_chart(fig, use_container_width=True)
     with tabs[1]:
-        ta_cols = [c for c in ['RSI','ADX','STOCHRSI'] if c in data]
+        # TA Columns
+        ta_cols_all = ['RSI','ADX','STOCHRSI']
+        ta_cols = [c for c in ta_cols_all if c in list(data.columns)]
         if ta_cols:
             st.line_chart(data[ta_cols].dropna())
-        macd_cols = [c for c in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9'] if c in data]
+        else:
+            st.warning("No available TA columns for charting.")
+        # MACD Columns
+        macd_cols_all = ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']
+        macd_cols = [c for c in macd_cols_all if c in list(data.columns)]
         if macd_cols:
             st.line_chart(data[macd_cols].dropna())
+        # ATR
         if 'ATR' in data:
             st.line_chart(data['ATR'].dropna())
-        last_cols = [c for c in ['Close','RSI','ADX','STOCHRSI','ATR','VWAP'] if c in data]
+        last_cols_all = ['Close','RSI','ADX','STOCHRSI','ATR','VWAP']
+        last_cols = [c for c in last_cols_all if c in list(data.columns)]
         st.write("Latest Values:", data.iloc[-1][last_cols])
     with tabs[2]:
         st.subheader("Signals (Current)")
