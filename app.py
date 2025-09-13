@@ -74,11 +74,13 @@ api_secret = st.secrets["ZERODHA_API_SECRET"]
 if "access_token" not in st.session_state:
     kite_tmp = KiteConnect(api_key=api_key)
     login_url = kite_tmp.login_url()
-    st.warning(
+    st.markdown(
         f"""
-        🟠 <a href="{login_url}" target="_blank">Click here to login & authorize BlockVista</a><br>
+        <div style="background: #f5da82; padding: 14px; border-radius: 8px;">
+        🟠 <a href="{login_url}" target="_blank"><b>Click here to login & authorize BlockVista</b></a><br>
         After logging in, get <b>`request_token=xxxx`</b> from the URL and paste below:
-        """, unsafe_allow_html=True,
+        </div>
+        """, unsafe_allow_html=True
     )
     request_token = st.text_input("Paste request_token here:")
     if st.button("Generate Access Token") and request_token:
@@ -369,4 +371,3 @@ if len(stock_list):
             st.dataframe(data.tail(40))
 
 st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect & Streamlit")
-
