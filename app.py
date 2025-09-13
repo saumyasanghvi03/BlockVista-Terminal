@@ -20,7 +20,6 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# ---- Custom Bloomberg Terminal Style ----
 def set_terminal_style(custom_dark=True):
     if custom_dark:
         st.markdown("""
@@ -34,10 +33,8 @@ def set_terminal_style(custom_dark=True):
         h1, h2, h3, h4, h5, h6, label, .st-bv, .stTextInput label, .stTextArea label {color: #FFD900 !important;}
         </style>
         """, unsafe_allow_html=True)
-
 if "dark_theme" not in st.session_state:
     st.session_state.dark_theme = True
-
 theme_choice = st.sidebar.selectbox("Terminal Theme", ["Black/Yellow/Green", "Streamlit Default"])
 if theme_choice == "Black/Yellow/Green" and not st.session_state.dark_theme:
     set_terminal_style(True)
@@ -53,13 +50,11 @@ if "auto_refresh" not in st.session_state:
     st.session_state["auto_refresh"] = True
 if "refresh_interval" not in st.session_state:
     st.session_state["refresh_interval"] = 15
-
 refresh_col, toggle_col = st.sidebar.columns([2,2])
 with refresh_col:
     st.session_state["auto_refresh"] = st.checkbox("Auto Refresh", value=st.session_state["auto_refresh"])
 with toggle_col:
     st.session_state["refresh_interval"] = st.number_input("Sec", value=st.session_state["refresh_interval"], min_value=5, max_value=90, step=1)
-
 if st.session_state["auto_refresh"]:
     st_autorefresh(interval=st.session_state["refresh_interval"] * 1000, key="autorefresh")
 
@@ -72,11 +67,38 @@ SMALLCASE_BASKETS = {
     "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA"],
 }
 
-# ---- Zerodha connection ----
+# ---- Zerodha connection (Modern: DAILY LOGIN/AUTH) ----
 api_key = st.secrets["ZERODHA_API_KEY"]
-access_token = st.secrets["ZERODHA_ACCESS_TOKEN"]
-kite = KiteConnect(api_key=api_key)
-kite.set_access_token(access_token)
+api_secret = st.secrets["ZERODHA_API_SECRET"]
+
+if "access_token" not in st.session_state:
+    kite_tmp = KiteConnect(api_key=api_key)
+    login_url = kite_tmp.login_url()
+    st.warning(
+        f"""
+        🟠 <a href="{login_url}" target="_blank">Click here to login & authorize BlockVista</a><br>
+        After logging in, get <b>`request_token=xxxx`</b> from the URL and paste below:
+        """, unsafe_allow_html=True,
+    )
+    request_token = st.text_input("Paste request_token here:")
+    if st.button("Generate Access Token") and request_token:
+        try:
+            data = kite_tmp.generate_session(request_token, api_secret=api_secret)
+            st.session_state["access_token"] = data["access_token"]
+            kite = KiteConnect(api_key=api_key)
+            kite.set_access_token(data["access_token"])
+            st.session_state["kite"] = kite
+            st.success("✅ Zerodha session started! All Kite features enabled.")
+        except Exception as ex:
+            st.error(f"❌ Zerodha login failed: {ex}")
+    st.stop()
+else:
+    if "kite" not in st.session_state:
+        kite = KiteConnect(api_key=api_key)
+        kite.set_access_token(st.session_state["access_token"])
+        st.session_state["kite"] = kite
+    else:
+        kite = st.session_state["kite"]
 
 def get_live_price(symbol):
     try:
@@ -209,7 +231,6 @@ else:
     stock_list = SMALLCASE_BASKETS[basket]
 screen_period = st.sidebar.selectbox('Period', ['1d','5d'])
 screen_interval = st.sidebar.selectbox('Interval', ['1m','5m','15m'])
-
 screen_df = make_screener(stock_list, screen_period, screen_interval)
 st.sidebar.subheader("Screener Results")
 if len(screen_df):
@@ -346,3 +367,6 @@ if len(stock_list):
     with tabs[3]:
         if st.checkbox("Show Table Data"):
             st.dataframe(data.tail(40))
+
+st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect & Streamlit")
+
