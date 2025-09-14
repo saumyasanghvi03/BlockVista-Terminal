@@ -1,7 +1,7 @@
 # 🚀 BlockVista Terminal — The New Age Bloomberg Terminal
 
-> **A legendary market cockpit—reborn for India's digital & intraday era.**  
-> Power, speed, and insight for traders, analysts, and Web3 pioneers.  
+> **A legendary market cockpit—reborn for India's digital & intraday era.**
+> Power, speed, and insight for traders, analysts, and Web3 pioneers.
 > **Welcome to your BlockVista Terminal.**
 
 <div align="center">
@@ -95,8 +95,7 @@ streamlit run app.py
 
 ## 🙌 Open for Community, Built for Performance
 
-- **License:** [CC0 1.0 Universal](./LICENSE) — no limits, no friction.
-- **PRs and forks:** Always welcome.
+- **© 2025 Saumya Sanghvi. All rights reserved. This project is licensed under [CC0 1.0 Universal](./LICENSE), but PRs and forks are welcome!**
 - **Built with ❤️ and Mumbai energy by [Saumya Sanghvi](https://github.com/saumyasanghvi03)**
 
 ---
