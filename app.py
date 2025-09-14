@@ -267,6 +267,40 @@ with st.sidebar.expander('🔢 Calculators: Brokerage, SIP, ROI', expanded=False
         except Exception:
             st.error("Enter valid numbers for calculation.")
 
+st.sidebar.subheader("📈 Watchlist P&L Tracker (Live)")
+watchlist = st.sidebar.text_area("List NSE symbols (comma-separated)", value="RELIANCE, SBIN, TCS")
+positions_input = st.sidebar.text_area("Entry prices (comma, same order)", value="2550, 610, 3580")
+qty_input = st.sidebar.text_area("Quantities (comma, same order)", value="10, 20, 5")
+
+symbols = [x.strip().upper() for x in watchlist.split(",") if x.strip()]
+entry_prices = [float(x) for x in positions_input.split(",") if x.strip()]
+quantities = [float(x) for x in qty_input.split(",") if x.strip()]
+
+pnl_data = []
+for i, s in enumerate(symbols):
+    try:
+        live = get_live_price(s)
+        if isinstance(live, str) or live is None or np.isnan(live):
+            d = fetch_stock_data(s, "1d", "5m")
+            if d is not None and len(d):
+                live = d["Close"][-1]
+            else:
+                live = np.nan
+        pnl = (live - entry_prices[i]) * quantities[i]
+        pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": live, "Qty": quantities[i], "P&L ₹": round(pnl,2)})
+    except Exception as e:
+        pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": "Err", "Qty": quantities[i], "P&L ₹": "Err"})
+        browser_notification(
+            "BlockVista Error",
+            f"❌ P&L Watchlist: {s} fetch/update failed.",
+            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+        )
+if pnl_data:
+    st.sidebar.dataframe(pd.DataFrame(pnl_data))
+    total_pnl = sum(x["P&L ₹"] for x in pnl_data if isinstance(x["P&L ₹"], (int,float)))
+    st.sidebar.markdown(f"<b>Total P&L ₹: {round(total_pnl,2)}</b>", unsafe_allow_html=True)
+
+
 # ---- Sidebar: Order Placement (Kite, as requested) ----
 st.sidebar.subheader("Order Placement (Kite)")
 trade_type = st.sidebar.selectbox("Type", ['BUY','SELL'])
