@@ -49,6 +49,18 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
+st.markdown(
+    """
+    <style>
+    /* Reduce space between custom HTML banner and next title */
+    .block-container > div:nth-child(2) {margin-bottom: -36px !important;}
+    .block-container h1 {margin-top: -28px !important;}
+    /* For Streamlit >=1.24, you may also try this: */
+    section.main > div:first-child {margin-bottom: -28px !important;}
+    </style>
+    """, unsafe_allow_html=True
+)
+
 def set_terminal_style(custom_dark=True):
     if custom_dark:
         st.markdown("""
