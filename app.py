@@ -7,7 +7,26 @@ import plotly.graph_objs as go
 from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
 
-# ---- Top-bar Banner like Bloomberg ----
+# ---- Browser Notification Helper ----
+def browser_notification(title, body, icon=None):
+    icon_line = f'icon: "{icon}",' if icon else ""
+    st.markdown(
+        f"""
+        <script>
+        if (Notification.permission !== "granted") {{
+            Notification.requestPermission();
+        }}
+        if (Notification.permission === "granted") {{
+            new Notification("{title}", {{
+            body: "{body}",
+            {icon_line}
+            }});
+        }}
+        </script>
+        """, unsafe_allow_html=True
+    )
+
+# ---- Theming ----
 st.markdown(
     """
     <div style='background:linear-gradient(90deg,#141e30,#243b55 60%,#FFD900 100%);
@@ -19,7 +38,6 @@ st.markdown(
     </div>
     """, unsafe_allow_html=True
 )
-
 def set_terminal_style(custom_dark=True):
     if custom_dark:
         st.markdown("""
@@ -45,7 +63,7 @@ elif theme_choice != "Black/Yellow/Green" and st.session_state.dark_theme:
 elif theme_choice == "Black/Yellow/Green":
     set_terminal_style(True)
 
-# ---- AUTO REFRESH ----
+# ---- Auto Refresh ----
 if "auto_refresh" not in st.session_state:
     st.session_state["auto_refresh"] = True
 if "refresh_interval" not in st.session_state:
@@ -67,10 +85,9 @@ SMALLCASE_BASKETS = {
     "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA"],
 }
 
-# ---- Zerodha connection (Modern: DAILY LOGIN/AUTH) ----
+# ---- Zerodha Login ----
 api_key = st.secrets["ZERODHA_API_KEY"]
 api_secret = st.secrets["ZERODHA_API_SECRET"]
-
 if "access_token" not in st.session_state:
     kite_tmp = KiteConnect(api_key=api_key)
     login_url = kite_tmp.login_url()
@@ -93,6 +110,12 @@ if "access_token" not in st.session_state:
             st.success("✅ Zerodha session started! All Kite features enabled.")
         except Exception as ex:
             st.error(f"❌ Zerodha login failed: {ex}")
+            browser_notification(
+                "BlockVista Error",
+                f"❌ Zerodha login failed: {ex}",
+                "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+            )
+            st.stop()
     st.stop()
 else:
     if "kite" not in st.session_state:
@@ -106,7 +129,12 @@ def get_live_price(symbol):
     try:
         ltp = kite.ltp(f"NSE:{symbol}")
         return ltp[f"NSE:{symbol}"]["last_price"]
-    except Exception:
+    except Exception as e:
+        browser_notification(
+            "BlockVista Error",
+            f"❌ Live price fetch failed: {e}",
+            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+        )
         return np.nan
 
 @st.cache_data(show_spinner="⏳ Loading data...")
@@ -195,7 +223,7 @@ def make_screener(stock_list, period, interval):
             screener_data.append(row)
     return pd.DataFrame(screener_data)
 
-# ---- Sidebar: Watchlist P&L ----
+# ---- Sidebar: Watchlist P&L Tracker ----
 st.sidebar.subheader("📈 Watchlist P&L Tracker (Live)")
 watchlist = st.sidebar.text_area("List NSE symbols (comma-separated)", value="RELIANCE, SBIN, TCS")
 positions_input = st.sidebar.text_area("Entry prices (comma, same order)", value="2550, 610, 3580")
@@ -215,8 +243,13 @@ for i, s in enumerate(symbols):
                 live = np.nan
         pnl = (live - entry_prices[i]) * quantities[i]
         pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": live, "Qty": quantities[i], "P&L ₹": round(pnl,2)})
-    except Exception:
+    except Exception as e:
         pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": "Err", "Qty": quantities[i], "P&L ₹": "Err"})
+        browser_notification(
+            "BlockVista Error",
+            f"❌ P&L Watchlist: {s} fetch/update failed.",
+            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+        )
 if pnl_data:
     st.sidebar.dataframe(pd.DataFrame(pnl_data))
     total_pnl = sum(x["P&L ₹"] for x in pnl_data if isinstance(x["P&L ₹"], (int,float)))
@@ -242,7 +275,38 @@ if len(screen_df):
 else:
     st.sidebar.info("No data found for selection.")
 
-# ---- Sidebar: Order Placement ----
+# ---- Sidebar: Price Alert with Browser Notification ----
+st.sidebar.subheader("Simple Price Alert")
+if len(screen_df):
+    alert_price = st.sidebar.number_input(
+        'Alert above price',
+        value=float(screen_df.iloc[0]['LTP']),
+        key="alert_price_value"
+    )
+else:
+    alert_price = st.sidebar.number_input(
+        'Alert above price',
+        value=0.0,
+        key="alert_price_fallback"
+    )
+if st.sidebar.button("Set/Check Alert") and len(screen_df):
+    curr_price = get_live_price(stock_list[0])
+    if curr_price != 'Error' and curr_price is not None and curr_price > alert_price:
+        st.sidebar.warning(f"ALERT: {stock_list[0]} > {alert_price}")
+        browser_notification(
+            "Stock Price Alert",
+            f"🚨 {stock_list[0]} > ₹{alert_price} (Now ₹{curr_price})",
+            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+        )
+    elif curr_price == 'Error' or curr_price is None:
+        st.sidebar.error("Live price fetch failed!")
+        browser_notification(
+            "BlockVista Error",
+            "❌ Live price fetch failed.",
+            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+        )
+
+# ---- Sidebar: Order Placement (Kite, with browser notification for errors) ----
 st.sidebar.subheader("Order Placement (Kite)")
 trade_type = st.sidebar.selectbox("Type", ['BUY','SELL'])
 order_qty = st.sidebar.number_input("Quantity", value=1, step=1, min_value=1)
@@ -269,45 +333,11 @@ if st.sidebar.button("PLACE ORDER") and len(screen_df):
         st.sidebar.success(f"Order placed: {placed_order}")
     except Exception as e:
         st.sidebar.error(f"Order failed: {e}")
-
-# ---- Sidebar: Alerts ----
-st.sidebar.subheader("Simple Price Alert")
-if len(screen_df):
-    alert_price = st.sidebar.number_input(
-        'Alert above price',
-        value=float(screen_df.iloc[0]['LTP']),
-        key="alert_price_value"
-    )
-else:
-    alert_price = st.sidebar.number_input(
-        'Alert above price',
-        value=0.0,
-        key="alert_price_fallback"
-    )
-
-if st.sidebar.button("Set/Check Alert") and len(screen_df):
-    curr_price = get_live_price(stock_list[0])
-    if curr_price != 'Error' and curr_price is not None and curr_price > alert_price:
-        st.sidebar.warning(f"ALERT: {stock_list[0]} > {alert_price}")
-
-        # ---- Browser notification (push) ----
-        st.markdown(
-            f"""
-            <script>
-            if (Notification.permission !== "granted") {{
-                Notification.requestPermission();
-            }}
-            if (Notification.permission === "granted") {{
-                new Notification("Stock Price Alert", {{
-                body: "🚨 {stock_list[0]} > ₹{alert_price} (Now ₹{curr_price})",
-                icon: "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-                }});
-            }}
-            </script>
-            """, unsafe_allow_html=True
+        browser_notification(
+            "BlockVista Error",
+            f"❌ Order failed: {e}",
+            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
         )
-
-
 
 # ---- Main UI: TABS + Bloomberg Metric Bar ----
 if len(stock_list):
@@ -315,9 +345,13 @@ if len(stock_list):
     data = fetch_stock_data(stock_list[0], screen_period, screen_interval)
     if data is None or not len(data):
         st.error("No data available for this symbol/interval.")
+        browser_notification(
+            "BlockVista Error",
+            "❌ No data available for this symbol/interval.",
+            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+        )
         st.stop()
     price = get_live_price(stock_list[0])
-    # Bloomberg-style horizontal 'metric bar'
     metrics_row = st.columns([1.5,1,1,1,1,1])
     latest = data.iloc[-1]
     rsi = try_scalar(latest.get('RSI', np.nan))
@@ -370,19 +404,20 @@ if len(stock_list):
         fig.update_layout(template='plotly_dark')
         st.plotly_chart(fig, use_container_width=True)
     with tabs[1]:
-        # TA Columns
         ta_cols_all = ['RSI','ADX','STOCHRSI']
         ta_cols = [c for c in ta_cols_all if c in list(data.columns)]
         if ta_cols:
             st.line_chart(data[ta_cols].dropna())
         else:
             st.warning("No available TA columns for charting.")
-        # MACD Columns
+            browser_notification(
+                "BlockVista Warning",
+                "No available TA columns for charting."
+            )
         macd_cols_all = ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']
         macd_cols = [c for c in macd_cols_all if c in list(data.columns)]
         if macd_cols:
             st.line_chart(data[macd_cols].dropna())
-        # ATR
         if 'ATR' in data:
             st.line_chart(data['ATR'].dropna())
         last_cols_all = ['Close','RSI','ADX','STOCHRSI','ATR','VWAP']
@@ -397,5 +432,4 @@ if len(stock_list):
     with tabs[3]:
         if st.checkbox("Show Table Data"):
             st.dataframe(data.tail(40))
-
 st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect & Streamlit")
