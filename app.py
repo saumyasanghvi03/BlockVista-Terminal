@@ -42,11 +42,19 @@ st.markdown(
 st.markdown(
     """
     <style>
-    div.block-container > div:nth-child(2) {margin-top: -36px !important;}
-    h1 {margin-top: -20px !important;}
+    ...
+    </style>
+    """, unsafe_allow_html=True    # ← This is missing a closing )
+# FIX: add the closing parenthesis as below:
+
+st.markdown(
+    """
+    <style>
+    ...
     </style>
     """, unsafe_allow_html=True
 )
+
 
 
 def set_terminal_style(custom_dark=True):
