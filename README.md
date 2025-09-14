@@ -13,9 +13,6 @@
 >
 > **Welcome to your BlockVista Terminal.™**
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/bloomberg-style-banner.png" alt="BlockVista Banner" width="800"/>
-</div>
 
 ---
 
@@ -260,6 +257,6 @@ The future of Indian trading is not expensive.\
 It's open-source.\
 And it's live.
 
-**🌐💸 [Get Started Now →](https://github.com/saumyasanghvi03/BlockVista-Terminal)**
+**🌐💸 [Get Started Now →](https://blockvista-terminal-ssanghvi03.streamlit.app/)**
 
 </div>
