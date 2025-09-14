@@ -265,6 +265,35 @@ with st.sidebar.expander('🔢 Calculators: Brokerage, SIP, ROI', expanded=False
         except Exception:
             st.error("Enter valid numbers for calculation.")
 
+# ---- Sidebar: Order Placement (Kite, as requested) ----
+st.sidebar.subheader("Order Placement (Kite)")
+trade_type = st.sidebar.selectbox("Type", ['BUY','SELL'])
+order_qty = st.sidebar.number_input("Quantity", value=1, step=1, min_value=1, key="order_qty_sidebar")
+order_type = st.sidebar.selectbox("Order Type",['MARKET', 'LIMIT'])
+limit_price = st.sidebar.number_input("Limit Price", value=0.0, key="order_limit_price") if order_type == 'LIMIT' else None
+symbol_for_order = st.sidebar.text_input("Stock Symbol", value="RELIANCE", key="order_symbol_sidebar")
+if st.sidebar.button("PLACE ORDER"):
+    try:
+        placed_order = kite.place_order(
+            tradingsymbol=symbol_for_order,
+            exchange="NSE",
+            transaction_type=trade_type,
+            quantity=int(order_qty),
+            order_type=order_type,
+            price=limit_price if order_type == 'LIMIT' else None,
+            variety="regular",
+            product="CNC",
+            validity="DAY"
+        )
+        st.sidebar.success(f"Order placed: {placed_order}")
+    except Exception as e:
+        st.sidebar.error(f"Order failed: {e}")
+        browser_notification(
+            "BlockVista Error",
+            f"❌ Order failed: {e}",
+            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+        )
+
 # ---- Quick News Deck ----
 def get_news_headlines_rss(ticker='^NSEI'):
     rss_url = f"https://finance.yahoo.com/rss/headline?s={ticker}.NS"
@@ -423,7 +452,34 @@ if len(stock_list):
                     f"❌ Order failed: {e}",
                     "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
                 )
+    with tabs[1]:
+        ta_cols_all = ['RSI','ADX','STOCHRSI']
+        ta_cols = [c for c in ta_cols_all if c in list(data.columns)]
+        if ta_cols:
+            st.line_chart(data[ta_cols].dropna())
+        else:
+            st.warning("No available TA columns for charting.")
+            browser_notification(
+                "BlockVista Warning",
+                "No available TA columns for charting."
+            )
+        macd_cols_all = ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']
+        macd_cols = [c for c in macd_cols_all if c in list(data.columns)]
+        if macd_cols:
+            st.line_chart(data[macd_cols].dropna())
+        if 'ATR' in data:
+            st.line_chart(data['ATR'].dropna())
+        last_cols_all = ['Close','RSI','ADX','STOCHRSI','ATR','VWAP']
+        last_cols = [c for c in last_cols_all if c in list(data.columns)]
+        st.write("Latest Values:", data.iloc[-1][last_cols])
+    with tabs[2]:
+        st.subheader("Signals (Current)")
+        signals = get_signals(data)
+        st.table(pd.DataFrame(signals.items(), columns=['Indicator', 'Signal']))
+        csv2 = data.to_csv()
+        st.download_button('Export Data to CSV', csv2, file_name=f"{stock_list[0]}_{screen_interval}.csv")
+    with tabs[3]:
+        if st.checkbox("Show Table Data"):
+            st.dataframe(data.tail(40))
 
-# ---- END ----
 st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Plotly & Streamlit")
-
