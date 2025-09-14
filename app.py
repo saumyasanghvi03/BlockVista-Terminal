@@ -294,6 +294,38 @@ if st.sidebar.button("PLACE ORDER"):
             "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
         )
 
+# ---- Sidebar: GTT Orders ----
+st.sidebar.subheader("GTT (Good Till Triggered) Order")
+gtt_symbol = st.sidebar.text_input("GTT Symbol", value="RELIANCE", key="gtt_symbol")
+gtt_qty = st.sidebar.number_input("GTT Quantity", value=1, min_value=1, key="gtt_qty")
+gtt_trigger = st.sidebar.number_input("Trigger Price", value=0.0, key="gtt_trigger")
+gtt_limit = st.sidebar.number_input("Limit Price (Executes At)", value=0.0, key="gtt_limit")
+gtt_type = st.sidebar.selectbox("GTT Side", ['BUY', 'SELL'], key="gtt_side")
+if st.sidebar.button("PLACE GTT"):
+    try:
+        placed_gtt = kite.place_gtt(
+            trigger_type=kite.GTT_TYPE_SINGLE,
+            tradingsymbol=gtt_symbol,
+            exchange="NSE",
+            trigger_values=[gtt_trigger],
+            last_price=get_live_price(gtt_symbol),
+            orders=[{
+                "transaction_type": gtt_type,
+                "quantity": int(gtt_qty),
+                "order_type": "LIMIT",
+                "product": "CNC",
+                "price": gtt_limit
+            }]
+        )
+        st.sidebar.success(f"GTT Order placed: ID {placed_gtt['trigger_id']}")
+    except Exception as e:
+        st.sidebar.error(f"GTT Order failed: {e}")
+        browser_notification(
+            "BlockVista Error",
+            f"GTT Order failed: {e}",
+            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+        )
+
 # ---- Quick News Deck ----
 def get_news_headlines_rss(ticker='^NSEI'):
     rss_url = f"https://finance.yahoo.com/rss/headline?s={ticker}.NS"
