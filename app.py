@@ -362,6 +362,15 @@ if st.sidebar.button("PLACE GTT"):
             "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
         )
 
+# Add this CSS snippet after your banner/theming code (or right before the news expander)
+st.markdown("""
+<style>
+div.block-container > div:nth-child(3) {margin-top: -36px !important;}
+/* For Streamlit >=1.24 */
+section.main > div:first-child + div {margin-top: -24px !important;}
+</style>
+""", unsafe_allow_html=True)
+
 # ---- Quick News Deck ----
 def get_news_headlines_rss(ticker='^NSEI'):
     rss_url = f"https://finance.yahoo.com/rss/headline?s={ticker}.NS"
