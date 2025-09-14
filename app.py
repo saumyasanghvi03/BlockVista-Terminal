@@ -45,8 +45,8 @@ st.markdown(
     div.block-container > div:nth-child(2) {margin-top: -36px !important;}
     h1 {margin-top: -20px !important;}
     </style>
-    """, unsafe_allow_html=True
-)
+    """, unsafe_allow_html=True)
+
 def set_terminal_style(custom_dark=True):
     if custom_dark:
         st.markdown("""
