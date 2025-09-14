@@ -94,7 +94,9 @@ SMALLCASE_BASKETS = {
     "Top Equity": ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"],
     "Banking": ["KOTAKBANK", "SBIN", "AXISBANK", "ICICIBANK"],
     "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA"],
+    "Defense": ["HAL", "BEL", "BEML", "MTARTECH", "BDL", "MAZDOCK", "SOLARA", "COCHINSHIP"],  # Example major defense stocks
 }
+
 
 # ---- Zerodha Login ----
 api_key = st.secrets["ZERODHA_API_KEY"]
