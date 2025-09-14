@@ -362,14 +362,30 @@ if st.sidebar.button("PLACE GTT"):
             "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
         )
 
-# Add this CSS snippet after your banner/theming code (or right before the news expander)
+# Place right after HEADER st.markdown(...), before any other component
+
 st.markdown("""
 <style>
-div.block-container > div:nth-child(3) {margin-top: -36px !important;}
-/* For Streamlit >=1.24 */
-section.main > div:first-child + div {margin-top: -24px !important;}
+/* Remove gap after custom header/banner */
+.block-container > div:first-child {
+    margin-bottom: -60px !important;
+}
+/* For Streamlit >=1.24 layout */
+section.main > div:first-child {
+    margin-bottom: -60px !important;
+}
+/* Shrink space above all expanders (e.g. news deck) */
+.stExpander {
+    margin-top: -42px !important;
+}
+/* Remove extra padding inside expander for card-like look */
+.stExpander > div:first-child {
+    padding-top: 0px !important;
+    padding-bottom: 0px !important;
+}
 </style>
 """, unsafe_allow_html=True)
+
 
 # ---- Quick News Deck ----
 def get_news_headlines_rss(ticker='^NSEI'):
