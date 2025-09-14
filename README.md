@@ -4,7 +4,9 @@
 > Power, speed, and insight for traders, analysts, and Web3 pioneers.  
 > **Welcome to your BlockVista Terminal.**
 
-<img src="https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/bloomberg-style-banner.png" alt="BlockVista Banner" width="800"/>
+<div align="center">
+  <img src="https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/bloomberg-style-banner.png" alt="BlockVista Banner" width="800"/>
+</div>
 
 ---
 
@@ -27,27 +29,27 @@ It delivers a command-center interface inspired by Wall Street's best—but tail
 | Focused on Indian & crypto markets | US/institutional drag |
 | Real-time, interactive, open-source | Expensive, closed, rigid |
 | Beautiful, minimal, blazing fast | Dense, complex, old school |
-| Free. Forever. | $20,000+ yearly |
+| **Free. Forever.** | **$20,000+ yearly** |
 
 ---
 
 ## ✨ Terminal Features
 
-### 📈 **Live Market Intelligence**
+### 📈 Live Market Intelligence
 - Ultra-realtime prices, technicals, and charts for NSE stocks
 - Crypto and DeFi market integrations (roadmap)
 
-### 🖥 **Bloomberg-Inspired Command Center**
+### 🖥 Bloomberg-Inspired Command Center
 - Customizable dark/light themes
 - Dynamic smallcase-style baskets
 - Multi-tab, modular, and modern UI
 
-### 💹 **Advanced Technical Analysis Toolkit**
+### 💹 Advanced Technical Analysis Toolkit
 - Multi-indicator signals (RSI, MACD, ADX, etc.)
 - Candlestick, Heikin Ashi, EMA/SMA, supertrend
 - Deep export and CSV options for all analytics
 
-### ⚡ **Powerful Execution**
+### ⚡ Powerful Execution
 - Place, manage, and track Zerodha/Kite orders instantly
 - Live P&L and position tracking
 - Instant custom alerts
@@ -56,7 +58,8 @@ It delivers a command-center interface inspired by Wall Street's best—but tail
 
 ## 🚀 Getting Started
 
-**Clone, install, and launch in under 1 minute:**  
+Clone, install, and launch in under 1 minute:
+
 ```bash
 git clone https://github.com/saumyasanghvi03/BlockVista-Terminal.git
 cd BlockVista-Terminal
@@ -79,11 +82,14 @@ streamlit run app.py
 
 ## 📸 What It Looks Like
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/bloomberg-style-banner.png" alt="BlockVista Terminal Banner" width="800"/>
-</div>
+![Main Dashboard](https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/demo-main-dashboard.png)
+*Main terminal dashboard featuring live market data, charts, and analytics*
 
-> **Coming Soon:** Animated GIFs and interactive screenshots showcasing the Bloomberg-inspired interface, live market data feeds, and lightning-fast execution capabilities. Perfect for demonstrating the terminal's sleek aesthetics and powerful functionality!
+![Live Signals Demo](https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/demo-live-signals.gif)
+*Real-time technical signals and trading alerts in action*
+
+![Portfolio Tracking](https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/demo-portfolio-tracking.png)
+*Portfolio performance tracking with P&L visualization*
 
 ---
 
@@ -95,7 +101,7 @@ streamlit run app.py
 
 ---
 
-> **Experience the revolution.  
+> **Experience the revolution.**  
 > BlockVista Terminal — Your Bloomberg, reinvented for the new age.  
 > Analyze, trade, win.  
 > The future is not expensive.  
