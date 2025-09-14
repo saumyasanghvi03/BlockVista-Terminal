@@ -4,8 +4,6 @@
 > Power, speed, and insight for traders, analysts, and Web3 pioneers.  
 > **Welcome to your BlockVista Terminal.**
 
----
-
 <img src="https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/bloomberg-style-banner.png" alt="BlockVista Banner" width="800"/>
 
 ---
@@ -15,21 +13,21 @@
 **BlockVista Terminal** is the next-gen financial dashboard—the *Bloomberg Terminal reinvented* for Indian stocks, crypto, and DeFi.  
 It delivers a command-center interface inspired by Wall Street's best—but tailored for the demands of today's real-time, API-driven, browser-native world.
 
-- ☑️ **Intraday Indian Market Power:** Screener, charts, P/L, and live prices—all at warp speed.
-- ☑️ **Crypto & DeFi Ready:** Integrate digital assets and blockchain metrics.
-- ☑️ **Actionable, Not Just Beautiful:** Lightning-quick order execution, bulk analytics, alerts—do more than just watch markets.
+- ✅ **Intraday Indian Market Power**: Screener, charts, P/L, and live prices—all at warp speed.
+- ✅ **Crypto & DeFi Ready**: Integrate digital assets and blockchain metrics.
+- ✅ **Actionable, Not Just Beautiful**: Lightning-quick order execution, bulk analytics, alerts—do more than just watch markets.
 
 ---
 
 ## 🌐 Why Choose BlockVista Terminal?
 
-| 🚩 BlockVista Terminal                          | 🏢 Legacy Bloomberg |
-|------------------------------------------------|-----------------------------|
-| Made for browser, mobile, and cloud            | Requires legacy stack       |
-| Focused on Indian & crypto markets             | US/institutional drag       |
-| Real-time, interactive, open-source            | Expensive, closed, rigid    |
-| Beautiful, minimal, blazing fast               | Dense, complex, old school  |
-| Free. Forever.                                 | $20,000+ yearly             |
+| 🚩 **BlockVista Terminal** | 🏢 **Legacy Bloomberg** |
+|---|---|
+| Made for browser, mobile, and cloud | Requires legacy stack |
+| Focused on Indian & crypto markets | US/institutional drag |
+| Real-time, interactive, open-source | Expensive, closed, rigid |
+| Beautiful, minimal, blazing fast | Dense, complex, old school |
+| Free. Forever. | $20,000+ yearly |
 
 ---
 
@@ -81,7 +79,11 @@ streamlit run app.py
 
 ## 📸 What It Looks Like
 
-> *(Show off animated GIF/screenshots here to match Bloomberg aesthetic!)*
+<div align="center">
+  <img src="https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/bloomberg-style-banner.png" alt="BlockVista Terminal Banner" width="800"/>
+</div>
+
+> **Coming Soon:** Animated GIFs and interactive screenshots showcasing the Bloomberg-inspired interface, live market data feeds, and lightning-fast execution capabilities. Perfect for demonstrating the terminal's sleek aesthetics and powerful functionality!
 
 ---
 
