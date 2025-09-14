@@ -37,25 +37,17 @@ st.markdown(
         INDIA • INTRADAY • LIVE</span>
     </div>
     """, unsafe_allow_html=True
+)
 
-# <---- REDUCE SPACE BELOW HEADER ---->
+# Reduce space below the header/banner
 st.markdown(
     """
     <style>
-    ...
-    </style>
-    """, unsafe_allow_html=True    # ← This is missing a closing )
-# FIX: add the closing parenthesis as below:
-
-st.markdown(
-    """
-    <style>
-    ...
+    div.block-container > div:nth-child(2) {margin-top: -36px !important;}
+    h1 {margin-top: -20px !important;}
     </style>
     """, unsafe_allow_html=True
 )
-
-
 
 def set_terminal_style(custom_dark=True):
     if custom_dark:
@@ -70,6 +62,7 @@ def set_terminal_style(custom_dark=True):
         h1, h2, h3, h4, h5, h6, label, .st-bv, .stTextInput label, .stTextArea label {color: #FFD900 !important;}
         </style>
         """, unsafe_allow_html=True)
+
 if "dark_theme" not in st.session_state:
     st.session_state.dark_theme = True
 theme_choice = st.sidebar.selectbox("Terminal Theme", ["Black/Yellow/Green", "Streamlit Default"])
@@ -81,6 +74,7 @@ elif theme_choice != "Black/Yellow/Green" and st.session_state.dark_theme:
     st.session_state.dark_theme = False
 elif theme_choice == "Black/Yellow/Green":
     set_terminal_style(True)
+
 
 # ---- Auto Refresh ----
 if "auto_refresh" not in st.session_state:
