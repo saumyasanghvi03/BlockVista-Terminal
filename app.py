@@ -281,6 +281,34 @@ if st.sidebar.button("Set/Check Alert") and len(screen_df):
     if curr_price != 'Error' and curr_price is not None and curr_price > alert_price:
         st.sidebar.warning(f"ALERT: {stock_list[0]} > {alert_price}")
 
+# ---- Sidebar: Alerts ----
+st.sidebar.subheader("Simple Price Alert")
+if len(screen_df):
+    alert_price = st.sidebar.number_input('Alert above price', value=float(screen_df.iloc[0]['LTP']))
+else:
+    alert_price = st.sidebar.number_input('Alert above price', value=0.0)
+if st.sidebar.button("Set/Check Alert") and len(screen_df):
+    curr_price = get_live_price(stock_list[0])
+    if curr_price != 'Error' and curr_price is not None and curr_price > alert_price:
+        st.sidebar.warning(f"ALERT: {stock_list[0]} > {alert_price}")
+
+        # ---- Browser notification (push) ----
+        st.markdown(
+            f"""
+            <script>
+            if (Notification.permission !== "granted") {{
+                Notification.requestPermission();
+            }}
+            if (Notification.permission === "granted") {{
+                new Notification("Stock Price Alert", {{
+                body: "🚨 {stock_list[0]} > ₹{alert_price} (Now ₹{curr_price})",
+                icon: "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+                }});
+            }}
+            </script>
+            """, unsafe_allow_html=True
+        )
+
 # ---- Main UI: TABS + Bloomberg Metric Bar ----
 if len(stock_list):
     st.header(f"Live Technical Dashboard: {stock_list[0]}")
