@@ -270,16 +270,6 @@ if st.sidebar.button("PLACE ORDER") and len(screen_df):
     except Exception as e:
         st.sidebar.error(f"Order failed: {e}")
 
-# ---- Sidebar: Alerts ----
-st.sidebar.subheader("Simple Price Alert")
-if len(screen_df):
-    alert_price = st.sidebar.number_input('Alert above price', value=float(screen_df.iloc[0]['LTP']))
-else:
-    alert_price = st.sidebar.number_input('Alert above price', value=0.0)
-if st.sidebar.button("Set/Check Alert") and len(screen_df):
-    curr_price = get_live_price(stock_list[0])
-    if curr_price != 'Error' and curr_price is not None and curr_price > alert_price:
-        st.sidebar.warning(f"ALERT: {stock_list[0]} > {alert_price}")
 
 # ---- Sidebar: Alerts ----
 st.sidebar.subheader("Simple Price Alert")
