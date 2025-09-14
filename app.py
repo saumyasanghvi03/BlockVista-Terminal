@@ -365,6 +365,23 @@ stock_list_sent = ["RELIANCE", "TCS", "INFY", "HDFCBANK"]
 sent_txt, sent_val = get_market_sentiment(stock_list_sent)
 st.markdown(f"**Market Sentiment:** {sent_txt}")
 st.progress(sent_val)
+# --- Real-time Sentiment Trend Tracking ---
+
+from datetime import datetime
+
+if "sentiment_history" not in st.session_state:
+    st.session_state["sentiment_history"] = []
+
+# Only add new point if different from last (avoid redundant spam)
+# Or you can append each refresh for a full refresh-driven trend
+now = datetime.now()
+if not st.session_state["sentiment_history"] or \
+   st.session_state["sentiment_history"][-1][1] != sent_val:
+    st.session_state["sentiment_history"].append((now, sent_val))
+
+df_senti = pd.DataFrame(st.session_state["sentiment_history"], columns=["time", "sentiment"]).set_index("time")
+if len(df_senti):
+    st.line_chart(df_senti["sentiment"])
 
 # ---- One-Click Custom Alerts ----
 st.sidebar.subheader("🔔 One-Click Price Alert (this session only)")
