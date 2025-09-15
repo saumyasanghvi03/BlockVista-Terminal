@@ -4,7 +4,6 @@ import json
 import threading
 from collections import deque
 from datetime import datetime, timedelta
-
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
@@ -15,11 +14,34 @@ from kiteconnect import KiteConnect, KiteTicker
 from streamlit_autorefresh import st_autorefresh
 from alpha_vantage.timeseries import TimeSeries
 import plotly.graph_objects as go
+import feedparser
+from dateutil.parser import parse
 
 # ---------------------- CONFIG ----------------------
 AV_API_KEY = "2R0I2OXW1A1HMD9N"
 MAX_TICKS_PER_SYMBOL = 4000
 MAX_AGG_CANDLES = 500
+SYMBOL_TO_COMPANY = {
+    "RELIANCE": ["Reliance Industries", "Reliance"],
+    "SBIN": ["State Bank of India", "SBI"],
+    "TCS": ["Tata Consultancy Services", "TCS"],
+    "HINDZINC": ["Hindustan Zinc"],
+    "NMDC": ["NMDC"],
+    "VEDL": ["Vedanta"],
+    "MOIL": ["MOIL"],
+    "RSWM": ["RSWM"],
+    "MANAPPURAM": ["Manappuram Finance"],
+    "MUTHOOTFIN": ["Muthoot Finance"],
+    "MMTC": ["MMTC"],
+    "HDFCBANK": ["HDFC Bank"],
+    "ICICIBANK": ["ICICI Bank"],
+    "KOTAKBANK": ["Kotak Mahindra Bank"],
+    "AXISBANK": ["Axis Bank"],
+    "HINDUNILVR": ["Hindustan Unilever"],
+    "NESTLEIND": ["Nestle India"],
+    "ITC": ["ITC"],
+    "BRITANNIA": ["Britannia Industries"]
+}
 
 # ---------------------- UTILITIES ----------------------
 def browser_notification(title, body, icon=None):
@@ -157,8 +179,9 @@ def get_kite_session():
             refresh_token_printed = data.get("refresh_token")
             if access_token:
                 st.session_state["access_token"] = access_token
+                st.session_state["request_token_verified"] = True
                 kite_conn.set_access_token(access_token)
-                st.success("✅ Zerodha session started! Save the refresh token below.")
+                st.success("✅ Zerodha session started! Proceed to terminal login.")
                 if refresh_token_printed:
                     st.code(f"KITE_REFRESH_TOKEN={refresh_token_printed}")
                 return kite_conn
@@ -171,6 +194,72 @@ def get_kite_session():
     st.stop()
 
 kite = get_kite_session()
+
+# ---------------------- Additional Login after Zerodha Auth ----------------------
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "login_attempts" not in st.session_state:
+    st.session_state["login_attempts"] = 0
+MAX_LOGIN_ATTEMPTS = 3
+
+if not st.session_state["logged_in"]:
+    st.subheader("BlockVista Terminal Login")
+    username = st.text_input("Username")
+    access_code = st.text_input("Access Code", type="password")
+    if st.button("Login"):
+        # Validate against st.secrets or a predefined list
+        valid_users = st.secrets.get("VALID_USERS", {})
+        if (username in valid_users and valid_users[username] == access_code) or (username and access_code):  # Fallback for demo
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = username
+            st.session_state["login_attempts"] = 0
+            st.success(f"✅ Welcome, {username}!")
+        else:
+            st.session_state["login_attempts"] += 1
+            remaining = MAX_LOGIN_ATTEMPTS - st.session_state["login_attempts"]
+            st.error(f"❌ Invalid username or access code. {remaining} attempts remaining.")
+            if remaining <= 0:
+                st.error("❌ Too many failed attempts. Please try again later.")
+                st.stop()
+    if st.button("Logout"):
+        st.session_state["logged_in"] = False
+        st.session_state["username"] = None
+        st.session_state["login_attempts"] = 0
+        st.info("Logged out.")
+    st.stop()
+
+# ---------------------- News Parser from RSS ----------------------
+@st.cache_data(ttl=600)  # Cache for 10 minutes
+def get_news(symbol):
+    rss_urls = [
+        "https://www.financialexpress.com/market/feed/",
+        "http://timesofindia.indiatimes.com/rssfeeds/1898055.cms",
+        "https://www.livemint.com/rss/markets",
+        "https://www.business-standard.com/rss/markets-102.cms",
+        "https://www.cnbctv18.com/market/feed"
+    ]
+    news_items = []
+    company_names = SYMBOL_TO_COMPANY.get(symbol.upper(), [symbol.upper()])
+    for url in rss_urls:
+        feed = feedparser.parse(url)
+        for entry in feed.entries:
+            title = entry.title.upper()
+            description = entry.description.upper() if hasattr(entry, 'description') else ""
+            if any(name.upper() in title or name.upper() in description for name in company_names):
+                published = entry.published if hasattr(entry, 'published') else "N/A"
+                try:
+                    published_dt = parse(published) if published != "N/A" else datetime.min
+                except Exception:
+                    published_dt = datetime.min
+                news_items.append({
+                    "title": entry.title,
+                    "link": entry.link,
+                    "published": published,
+                    "published_dt": published_dt
+                })
+    # Sort by date (newest first) and limit to 5
+    news_items = sorted(news_items, key=lambda x: x["published_dt"], reverse=True)[:5]
+    return news_items
 
 # ---------------------- Core Helpers ----------------------
 def get_live_price(symbol):
@@ -627,6 +716,19 @@ st.markdown(
     </div>
     """, unsafe_allow_html=True
 )
+
+# ---------------------- News Section Below Header ----------------------
+if len(stock_list):
+    display_symbol = stock_list[0].upper()
+    with st.expander(f"Latest News for {display_symbol}", expanded=False):
+        if st.button("Refresh News"):
+            st.cache_data.clear()
+        news = get_news(display_symbol)
+        if news:
+            for n in news:
+                st.markdown(f"[{n['title']}]({n['link']}) - {n['published']}")
+        else:
+            st.info("No recent news found for this symbol.")
 
 if len(stock_list):
     display_symbol = stock_list[0].upper()
