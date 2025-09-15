@@ -938,7 +938,7 @@ if len(stock_list):
     vwap = try_scalar(latest.get('VWAP', np.nan))
 
     with metrics_row[0]:
-        st.metric("LTP", f"{round(float(price), 2) if not np.isnan(price) else '—'}", delta_color="red" if price < latest['Close'] else "green")
+        st.metric("LTP", f"{round(float(price), 2) if not np.isnan(price) else '—'}", delta_color="red" if price < try_scalar(latest['Close']) else "green")
     with metrics_row[1]:
         st.metric("RSI", f"{round(rsi, 2) if not np.isnan(rsi) else '—'}", delta_color="red" if rsi > 70 else "green" if rsi < 30 else "normal")
     with metrics_row[2]:
