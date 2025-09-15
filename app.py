@@ -641,14 +641,15 @@ if len(stock_list):
     vwap = try_scalar(latest.get('VWAP', np.nan))
 
     metrics_row = st.columns([1.6,1,1,1,1,1])
+
     with metrics_row[0]:
     if price is None or (isinstance(price, float) and np.isnan(price)):
-        st.metric("LTP", "—")
+    st.metric("LTP", "—")
     elif isinstance(price, (list, tuple, np.ndarray, pd.Series)):
-        latest_price = float(np.array(price).flatten()[-1])  # take last element
-        st.metric("LTP", f"{round(latest_price, 2)}")
+    latest_price = float(np.array(price).flatten()[-1]) # take last element
+    st.metric("LTP", f"{round(latest_price, 2)}")
     else:
-        st.metric("LTP", f"{round(float(price), 2)}")
+    st.metric("LTP", f"{round(float(price), 2)}")
 
     with metrics_row[1]: st.metric("RSI", f"{round(rsi,2) if not np.isnan(rsi) else '—'}")
     with metrics_row[2]: st.metric("MACD", f"{round(macd,2) if not np.isnan(macd) else '—'}")
