@@ -15,23 +15,6 @@ Notes:
   would be required — TODO included below.
 """
 
-# app.py
-"""
-BlockVista Terminal — Streamlit app
-Features:
-- Zerodha KiteConnect login & KiteTicker (WebSocket) subscription
-- Server-side aggregation of live ticks -> OHLC candles (1m/5m/15m)
-- Candlestick rendering using TradingView Lightweight Charts embedded in an iframe
-- Fallback data sources: yfinance and Alpha Vantage (existing logic retained)
-- Auto-refresh and Start/Stop controls for KiteTicker
-Notes:
-- Place Zerodha credentials inside Streamlit secrets (ZERODHA_API_KEY, ZERODHA_API_SECRET)
-- Alpha Vantage key is present in AV_API_KEY variable (already in your original file)
-- This implementation uses Streamlit reruns (st_autorefresh) to update the chart UI.
-  For lower-latency incremental updates, a postMessage bridge and persistent connection
-  would be required — TODO included below.
-"""
-
 # app.py (FULL updated file)
 import streamlit as st
 import pandas as pd
@@ -47,6 +30,17 @@ import threading
 import time
 import json
 from datetime import datetime, timedelta
+
+import os
+
+# Load API keys from Streamlit secrets (preferred on cloud) or environment variables
+if "KITE_API_KEY" in st.secrets:
+    api_key = st.secrets["KITE_API_KEY"]
+    api_secret = st.secrets["KITE_API_SECRET"]
+else:
+    api_key = os.getenv("KITE_API_KEY")
+    api_secret = os.getenv("KITE_API_SECRET")
+
 
 # ---------------------- CONFIG ----------------------
 AV_API_KEY = "2R0I2OXW1A1HMD9N"
