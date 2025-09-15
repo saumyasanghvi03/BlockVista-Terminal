@@ -114,19 +114,7 @@ def load_users():
     try:
         if os.path.exists(USERS_FILE):
             with open(USERS_FILE, 'r') as f:
-                data = json.load(f)
-            # Ensure data is a dictionary
-            if not isinstance(data, dict):
-                logging.error(f"Invalid users.json format: expected dict, got {type(data)}")
-                return {}
-            # Validate each user entry
-            valid_users = {}
-            for username, user_data in data.items():
-                if isinstance(user_data, dict) and "access_code" in user_data:
-                    valid_users[username] = user_data
-                else:
-                    logging.warning(f"Invalid user data for {username}: {user_data}")
-            return valid_users
+                return json.load(f)
         return {}
     except Exception as e:
         logging.error(f"Error loading users: {e}")
