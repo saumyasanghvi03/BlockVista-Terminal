@@ -1095,7 +1095,8 @@ if len(stock_list):
             macd_delta = macd - macds
             st.metric("MACD", f"{round(macd, 2)}", delta=f"{round(macd_delta, 2)}", delta_color="normal")
     with metrics_row[3]:
-        st.metric("ADX", f"{round(adx, 2) if not np.isnan(adx) else '—'}", delta_color="normal" if adx > 25 else "off")
+        adx_label = f"{round(adx, 2)} {'(Strong)' if adx > 25 else ''}" if not np.isnan(adx) else '—'
+        st.metric("ADX", adx_label, delta=None, delta_color="off")
     with metrics_row[4]:
         st.metric("ATR", f"{round(atr, 2) if not np.isnan(atr) else '—'}", delta=None, delta_color="off")
     with metrics_row[5]:
