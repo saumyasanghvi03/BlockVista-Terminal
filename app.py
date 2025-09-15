@@ -177,16 +177,20 @@ def get_live_price(symbol):
 @st.cache_data(ttl=60)
 def fetch_stock_data(symbol, period, interval):
     data = yf.download(f"{symbol}.NS", period=period, interval=interval, progress=False)
+    
     if data.empty:
         st.warning(f"No {interval} data for {symbol} for {period}. Fetching last 5 days.")
         data = yf.download(f"{symbol}.NS", period='5d', interval=interval, progress=False)
 
     if data.empty:
         return None
-        
-    # Corrected line 187: Check if the column is a string before calling replace()
-    data.columns = [c.replace(' ', '_').replace('.', '_').replace('-', '_') if isinstance(c, str) else c for c in data.columns]
     
+    # Fix for yfinance multi-index columns
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.droplevel()
+    
+    data.columns = [c.replace(' ', '_').replace('.', '_').replace('-', '_') for c in data.columns]
+        
     if not data.empty:
         data['RSI'] = ta.rsi(data['Close'], length=14)
         macd_res = ta.macd(data['Close'])
