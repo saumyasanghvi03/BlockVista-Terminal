@@ -8,3 +8,4 @@ plotly
 streamlit 
 streamlit-autorefresh 
 yfinance
+vaderSentiment>=3.3.2
