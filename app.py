@@ -152,10 +152,6 @@ def get_live_price(symbol):
 
 def fetch_stock_data(symbol, period, interval):
     data = yf.download(f"{symbol}.NS", period=period, interval=interval)
-    # (all your pandas_ta logic…)
-    return data
-
-    data = yf.download(f"{symbol}.NS", period=period, interval=interval)
     if len(data) == 0:
         return None
     data['RSI'] = ta.rsi(data['Close'], length=14) if len(data) > 0 else np.nan
@@ -504,7 +500,7 @@ if len(stock_list):
     price = get_live_price(stock_list[0])
 
     tabs = st.tabs(["Chart", "TA", "Advanced", "Raw"])
-    
+
     # Place this function at the top level, outside any with/if blocks:
 def plot_live_chart(symbol, data, ltp):
     import plotly.graph_objs as go
@@ -574,7 +570,7 @@ def plot_live_chart(symbol, data, ltp):
     return ltp if pd.notna(ltp) else last_price
 
     # Show LIVE LTP
-st.metric("Live Price (LTP)", f"₹{ltp_tab:.2f}" if ltp_tab is not None and not pd.isna(ltp_tab) else "N/A")
+ltp_tab = get_live_price(stock_list[0])
 
 # Get latest row safely
 latest = data.iloc[-1]
@@ -596,10 +592,28 @@ st.write(
 
 # --- Now, inside your main UI code ---
 with tabs[0]:
+    # 1. Define ltp_tab first
     ltp_tab = get_live_price(stock_list[0])
+
+    # 2. Then use it in metrics and logic
+    st.metric(
+        "Live Price (LTP)",
+        f"₹{ltp_tab:.2f}" if ltp_tab is not None and not pd.isna(ltp_tab) else "N/A"
+    )
+
+    # 3. Extract latest indicators
+    latest = data.iloc[-1]
+    macd_val = latest.get('MACD_12_26_9', 'N/A')
+    rsi_val = latest.get('RSI', 'N/A')
+    macd_val = f"{macd_val:.2f}" if not pd.isna(macd_val) else "N/A"
+    rsi_val = f"{rsi_val:.2f}" if not pd.isna(rsi_val) else "N/A"
+
+    st.write(f"**RSI:** {rsi_val} | **MACD:** {macd_val}")
+
+    # 4. Pass the live price into your chart
     last_price = plot_live_chart(stock_list[0], data, ltp_tab)
 
-    # --- Trade from chart UI ---
+    # 5. Continue with trade-from-chart / other logic...
     st.markdown("#### Place Order Directly from Chart")
     chosen_price = st.number_input(
         "Trade Price (pick from chart, autofilled with last close)",
