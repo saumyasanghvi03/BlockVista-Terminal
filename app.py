@@ -280,9 +280,18 @@ if not api_key or not api_secret:
 
 def get_kite_session():
     kite_conn = KiteConnect(api_key=api_key)
-    if "access_token" in st.session_state:
-        kite_conn.set_access_token(st.session_state["access_token"])
-        return kite_conn
+    
+    # Check if already authenticated
+    if "access_token" in st.session_state and "zerodha_authenticated" in st.session_state and st.session_state["zerodha_authenticated"]:
+        try:
+            kite_conn.set_access_token(st.session_state["access_token"])
+            # Validate session with a simple API call
+            kite_conn.profile()  # Will raise an exception if token is invalid
+            return kite_conn
+        except Exception as e:
+            st.warning(f"Zerodha session invalid: {e}. Please re-authenticate.")
+            st.session_state.pop("access_token", None)
+            st.session_state.pop("zerodha_authenticated", None)
 
     if refresh_token:
         try:
@@ -290,6 +299,7 @@ def get_kite_session():
             access_token = data.get("access_token")
             if access_token:
                 st.session_state["access_token"] = access_token
+                st.session_state["zerodha_authenticated"] = True
                 kite_conn.set_access_token(access_token)
                 st.success("✅ Zerodha session auto-refreshed")
                 return kite_conn
@@ -298,11 +308,11 @@ def get_kite_session():
         except Exception as e:
             st.warning(f"Auto-refresh failed: {e}")
 
-    login_url = kite_conn.login_url()
+    # Show login UI only if not authenticated
     st.markdown(
         f"""
         <div style="background:#1a1a1a;padding:14px;border-radius:8px;border:1px solid #FFFF00;">
-        🟢 <a href="{login_url}" target="_blank"><b>Login to Zerodha</b></a><br>
+        🟢 <a href="{kite_conn.login_url()}" target="_blank"><b>Login to Zerodha</b></a><br>
         Paste the <b>request_token</b> from the redirect URL below and click 'Generate Access Token'. Save the <b>refresh_token</b> to secrets for auto-refresh.
         </div>
         """, unsafe_allow_html=True
@@ -315,7 +325,7 @@ def get_kite_session():
             refresh_token_printed = data.get("refresh_token")
             if access_token:
                 st.session_state["access_token"] = access_token
-                st.session_state["request_token_verified"] = True
+                st.session_state["zerodha_authenticated"] = True
                 kite_conn.set_access_token(access_token)
                 st.success("✅ Zerodha session started!")
                 if refresh_token_printed:
@@ -330,6 +340,26 @@ def get_kite_session():
     st.stop()
 
 kite = get_kite_session()
+
+# Add logout button in sidebar
+st.sidebar.markdown("---")
+if "zerodha_authenticated" in st.session_state and st.session_state["zerodha_authenticated"]:
+    if st.sidebar.button("Logout from Zerodha"):
+        st.session_state.pop("access_token", None)
+        st.session_state.pop("zerodha_authenticated", None)
+        st.session_state.pop("subscribed_tokens", None)
+        st.session_state.pop("live_ticks", None)
+        st.session_state.pop("ohlc_agg", None)
+        st.session_state.pop("token_to_symbol", None)
+        st.session_state["kws_running"] = False
+        if st.session_state.get("kws_obj"):
+            try:
+                st.session_state["kws_obj"].close()
+            except Exception:
+                pass
+        st.session_state["kws_obj"] = None
+        st.session_state["kws_thread"] = None
+        st.success("Logged out from Zerodha. Please re-authenticate.")
 
 # ---------------------- News Parser from RSS ----------------------
 @st.cache_data(ttl=600)
@@ -824,12 +854,17 @@ st.markdown(
 if vader_available:
     try:
         sentiment_score, sentiment_label = get_nifty50_sentiment()
-        # Validate sentiment_score
+        # Log for debugging
+        st.write(f"Debug: sentiment_score={sentiment_score}, type={type(sentiment_score)}, sentiment_label={sentiment_label}, type={type(sentiment_label)}")
+        # Validate sentiment_score and sentiment_label
         if not isinstance(sentiment_score, (int, float)) or pd.isna(sentiment_score):
             sentiment_score, sentiment_label = 0.0, "Neutral"
             delta_color = "normal"
         else:
+            sentiment_score = float(sentiment_score)  # Ensure float
             delta_color = "red" if sentiment_score < -0.05 else "green" if sentiment_score > 0.05 else "normal"
+        if not isinstance(sentiment_label, str):
+            sentiment_label = "Neutral"
         with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
             st.metric("NIFTY 50 Sentiment", sentiment_label, f"{sentiment_score:.2f}", delta_color=delta_color)
             fig = go.Figure(go.Indicator(
@@ -949,7 +984,7 @@ if len(stock_list):
             render_lightweight_candles(display_symbol, agg_period)
         else:
             st.info("No live OHLC data. Showing historical chart.")
-            if all(col in data for col in ['Open', 'High', 'Low', 'Close']):
+            if all(col in data for col in ['Open', 'High Novak Djokovic won his 6th singles title in a row at the Australian Open on Sunday, defeating Andy Murray 6-4, 6-7(4), 7-6(5). He became the first player in the Open era to win the event three times in a row. He also became the second player to win the event five times in the space of seven years, following Roger Federer.  'High', 'Low', 'Close']):
                 fig = go.Figure(data=[
                     go.Candlestick(
                         x=data.index,
