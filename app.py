@@ -6,8 +6,10 @@ import pandas_ta as ta
 import plotly.graph_objs as go
 from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
+from alpha_vantage.timeseries import TimeSeries
 
-# ---- Browser Notification Helper ----
+AV_API_KEY = "2R0I2OXW1A1HMD9N"
+
 def browser_notification(title, body, icon=None):
     icon_line = f'icon: "{icon}",' if icon else ""
     st.markdown(
@@ -26,7 +28,25 @@ def browser_notification(title, body, icon=None):
         """, unsafe_allow_html=True
     )
 
-# ---- Header and Theming ----
+def fetch_alpha_vantage_intraday(symbol, interval='1min', outputsize='compact'):
+    try:
+        ts = TimeSeries(key=AV_API_KEY, output_format='pandas')
+        symbol_av = symbol.upper() + ".NSE" if not symbol.upper().endswith(".NSE") else symbol.upper()
+        data, meta_data = ts.get_intraday(symbol=symbol_av, interval=interval, outputsize=outputsize)
+        df = data.rename(columns={
+            '1. open': "Open",
+            '2. high': "High",
+            '3. low': "Low",
+            '4. close': "Close",
+            '5. volume': "Volume"
+        })
+        df.index = pd.to_datetime(df.index)
+        df = df.sort_index()
+        return df
+    except Exception as e:
+        st.warning(f"Alpha Vantage fetch failed: {e}")
+        return None
+
 st.markdown(
     """
     <div style='background:linear-gradient(90deg,#141e30,#243b55 60%,#FFD900 100%);
@@ -76,7 +96,6 @@ elif theme_choice != "Black/Yellow/Green" and st.session_state.dark_theme:
 elif theme_choice == "Black/Yellow/Green":
     set_terminal_style(True)
 
-# ---- Auto Refresh ----
 if "auto_refresh" not in st.session_state:
     st.session_state["auto_refresh"] = True
 if "refresh_interval" not in st.session_state:
@@ -89,7 +108,6 @@ with toggle_col:
 if st.session_state["auto_refresh"]:
     st_autorefresh(interval=st.session_state["refresh_interval"] * 1000, key="autorefresh")
 
-# ---- Smallcase-Like Baskets ----
 SMALLCASE_BASKETS = {
     "Precious Metals": ["HINDZINC", "NMDC", "VEDL", "MOIL", "RSWM"],
     "Gold Related": ["MANAPPURAM", "MUTHOOTFIN", "MMTC"],
@@ -98,7 +116,6 @@ SMALLCASE_BASKETS = {
     "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA"],
 }
 
-# ---- Zerodha Login ----
 api_key = st.secrets["ZERODHA_API_KEY"]
 api_secret = st.secrets["ZERODHA_API_SECRET"]
 if "access_token" not in st.session_state:
@@ -143,18 +160,18 @@ def get_live_price(symbol):
         ltp = kite.ltp(f"NSE:{symbol}")
         return ltp[f"NSE:{symbol}"]["last_price"]
     except Exception as e:
-        browser_notification(
-            "BlockVista Error",
-            f"❌ Live price fetch failed: {e}",
-            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-        )
+        st.warning(f"Live price fetch failed: {e}")
         return np.nan
 
 @st.cache_data(show_spinner="⏳ Loading data...")
 def fetch_stock_data(symbol, period, interval):
     data = yf.download(f"{symbol}.NS", period=period, interval=interval)
-    if len(data) == 0:
-        return None
+    if data is None or len(data) == 0:
+        av_interval = {"1m": "1min", "5m": "5min", "15m": "15min"}.get(interval, "5min")
+        st.info("Fetching live data from Alpha Vantage…")
+        data = fetch_alpha_vantage_intraday(symbol, interval=av_interval)
+        if data is None or len(data) == 0:
+            return None
     data['RSI'] = ta.rsi(data['Close'], length=14) if len(data) > 0 else np.nan
     macd = ta.macd(data['Close'])
     if isinstance(macd, pd.DataFrame) and not macd.empty:
@@ -272,6 +289,7 @@ if screener_mode == "Single Stock":
 else:
     basket = st.sidebar.selectbox("Pick Basket", list(SMALLCASE_BASKETS.keys()))
     stock_list = SMALLCASE_BASKETS[basket]
+
 screen_period = st.sidebar.selectbox('Period', ['1d','5d'])
 screen_interval = st.sidebar.selectbox('Interval', ['1m','5m','15m'])
 screen_df = make_screener(stock_list, screen_period, screen_interval)
@@ -283,81 +301,13 @@ if len(screen_df):
 else:
     st.sidebar.info("No data found for selection.")
 
-# ---- Sidebar: Order Placement ----
-st.sidebar.subheader("Order Placement (Kite)")
-trade_type = st.sidebar.selectbox("Type", ['BUY','SELL'])
-order_qty = st.sidebar.number_input("Quantity", value=1, step=1, min_value=1)
-order_type = st.sidebar.selectbox("Order Type",['MARKET', 'LIMIT'])
-limit_price = None
-if order_type == 'LIMIT' and len(screen_df):
-    limit_price = st.sidebar.number_input("Limit Price", value=float(screen_df.iloc[0]['LTP']))
-elif order_type == 'LIMIT':
-    limit_price = st.sidebar.number_input("Limit Price", value=0)
-symbol_for_order = stock_list[0] if stock_list else ""
-if st.sidebar.button("PLACE ORDER") and len(screen_df):
-    try:
-        placed_order = kite.place_order(
-            tradingsymbol=symbol_for_order,
-            exchange="NSE",
-            transaction_type=trade_type,
-            quantity=int(order_qty),
-            order_type=order_type,
-            price=limit_price if order_type == 'LIMIT' else None,
-            variety="regular",
-            product="CNC",
-            validity="DAY"
-        )
-        st.sidebar.success(f"Order placed: {placed_order}")
-    except Exception as e:
-        st.sidebar.error(f"Order failed: {e}")
-        browser_notification(
-            "BlockVista Error",
-            f"❌ Order failed: {e}",
-            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-        )
-
-# ---- Sidebar: Alerts ----
-st.sidebar.subheader("Simple Price Alert")
-if len(screen_df):
-    alert_price = st.sidebar.number_input(
-        'Alert above price',
-        value=float(screen_df.iloc[0]['LTP']),
-        key="alert_price_value"
-    )
-else:
-    alert_price = st.sidebar.number_input(
-        'Alert above price',
-        value=0.0,
-        key="alert_price_fallback"
-    )
-if st.sidebar.button("Set/Check Alert") and len(screen_df):
-    curr_price = get_live_price(stock_list[0])
-    if curr_price != 'Error' and curr_price is not None and curr_price > alert_price:
-        st.sidebar.warning(f"ALERT: {stock_list[0]} > {alert_price}")
-        browser_notification(
-            "Stock Price Alert",
-            f"🚨 {stock_list[0]} > ₹{alert_price} (Now ₹{curr_price})",
-            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-        )
-    elif curr_price == 'Error' or curr_price is None:
-        st.sidebar.error("Live price fetch failed!")
-        browser_notification(
-            "BlockVista Error",
-            "❌ Live price fetch failed.",
-            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-        )
-
 # ---- Main UI: TABS + Metric Bar ----
 if len(stock_list):
     st.header(f"Live Technical Dashboard: {stock_list[0]}")
     data = fetch_stock_data(stock_list[0], screen_period, screen_interval)
+    st.write("DEBUG data head:", data.head() if data is not None else None)
     if data is None or not len(data):
         st.error("No data available for this symbol/interval.")
-        browser_notification(
-            "BlockVista Error",
-            "❌ No data available for this symbol/interval.",
-            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-        )
         st.stop()
     price = get_live_price(stock_list[0])
     metrics_row = st.columns([1.5,1,1,1,1,1])
@@ -373,6 +323,7 @@ if len(stock_list):
     with metrics_row[3]: st.metric("ADX", f"{round(adx,2) if not np.isnan(adx) else '—'}")
     with metrics_row[4]: st.metric("ATR", f"{round(atr,2) if not np.isnan(atr) else '—'}")
     with metrics_row[5]: st.metric("VWAP", f"{round(vwap,2) if not np.isnan(vwap) else '—'}")
+
     tabs = st.tabs(["Chart", "TA", "Advanced", "Raw"])
     with tabs[0]:
         chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
@@ -418,10 +369,6 @@ if len(stock_list):
             st.line_chart(data[ta_cols].dropna())
         else:
             st.warning("No available TA columns for charting.")
-            browser_notification(
-                "BlockVista Warning",
-                "No available TA columns for charting."
-            )
         macd_cols_all = ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']
         macd_cols = [c for c in macd_cols_all if c in list(data.columns)]
         if macd_cols:
@@ -441,4 +388,4 @@ if len(stock_list):
         if st.checkbox("Show Table Data"):
             st.dataframe(data.tail(40))
 
-st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Plotly & Streamlit")
+st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage, Plotly & Streamlit")
