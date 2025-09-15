@@ -1,24 +1,20 @@
 import os
 import time
 import json
-import threading
 import hashlib
-from collections import deque
 from datetime import datetime, timedelta
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import pandas_ta as ta
-from kiteconnect import KiteConnect, KiteTicker
+from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
 from alpha_vantage.timeseries import TimeSeries
 import plotly.graph_objects as go
 import feedparser
 from dateutil.parser import parse
 import pytz
-import time
 import logging
 
 try:
@@ -30,8 +26,6 @@ except ModuleNotFoundError:
 
 # ---------------------- CONFIG ----------------------
 AV_API_KEY = "2R0I2OXW1A1HMD9N"  # Ensure this is your valid Alpha Vantage API key
-MAX_TICKS_PER_SYMBOL = 4000
-MAX_AGG_CANDLES = 500
 USERS_FILE = "users.json"
 LOGIN_HISTORY_FILE = "login_history.json"
 TRADE_LOGS_FILE = "trade_logs.json"
@@ -61,6 +55,15 @@ NIFTY50_TOP = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS"]
 
 # Setup logging
 logging.basicConfig(filename='app.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Security questions
+SECURITY_QUESTIONS = [
+    "What is the name of your first pet?",
+    "What is your mother's maiden name?",
+    "What is the name of your high school?",
+    "What is your favorite book?",
+    "What is the city you were born in?"
+]
 
 # ---------------------- UTILITIES ----------------------
 def browser_notification(title, body, icon=None):
@@ -166,18 +169,21 @@ def create_admin_user():
     has_admin = any(user_data.get("is_admin", False) for user_data in users.values())
     if not has_admin:
         default_admin_username = "admin"
-        default_admin_access_code = "admin123"  # Change to secure code in production
+        default_admin_access_code = "admin123"
+        default_security_answer = "admin"
         users[default_admin_username] = {
             "access_code": hash_access_code(default_admin_access_code),
             "is_admin": True,
-            "locked": False
+            "locked": False,
+            "security_question": SECURITY_QUESTIONS[0],
+            "security_answer": hash_access_code(default_security_answer)
         }
         save_users(users)
-        st.info(f"Admin user '{default_admin_username}' created with access code '{default_admin_access_code}'. Please change the access code after logging in.")
+        st.info(f"Admin user '{default_admin_username}' created with access code 'admin123' and security answer 'admin'. Please change them after logging in.")
 
-def signup_user(username, access_code):
-    if not username or not access_code:
-        return False, "Username and access code cannot be empty."
+def signup_user(username, access_code, security_question, security_answer):
+    if not all([username, access_code, security_question, security_answer]):
+        return False, "All fields are required."
     if len(access_code) < 6:
         return False, "Access code must be at least 6 characters."
     users = load_users()
@@ -186,7 +192,9 @@ def signup_user(username, access_code):
     users[username] = {
         "access_code": hash_access_code(access_code),
         "is_admin": False,
-        "locked": False
+        "locked": False,
+        "security_question": security_question,
+        "security_answer": hash_access_code(security_answer)
     }
     save_users(users)
     return True, "Account created successfully!"
@@ -195,7 +203,7 @@ def login_user(username, access_code):
     users = load_users()
     login_history = load_login_history()
     timestamp = datetime.now(pytz.timezone("Asia/Kolkata")).isoformat()
-    ip_address = "N/A"  # Streamlit Cloud doesn't provide IP; use if available in local deployment
+    ip_address = "N/A"
     if username in users:
         if users[username].get("locked", False):
             login_history.append({
@@ -226,6 +234,54 @@ def login_user(username, access_code):
     })
     save_login_history(login_history)
     return False, False, "Invalid username or access code."
+
+def reset_user_password(username, security_answer, new_access_code):
+    users = load_users()
+    login_history = load_login_history()
+    timestamp = datetime.now(pytz.timezone("Asia/Kolkata")).isoformat()
+    ip_address = "N/A"
+    if username not in users:
+        login_history.append({
+            "username": username,
+            "timestamp": timestamp,
+            "success": False,
+            "reason": "Password reset failed: Username does not exist",
+            "ip_address": ip_address
+        })
+        save_login_history(login_history)
+        return False, "Username does not exist."
+    if users[username]["security_answer"] != hash_access_code(security_answer):
+        login_history.append({
+            "username": username,
+            "timestamp": timestamp,
+            "success": False,
+            "reason": "Password reset failed: Incorrect security answer",
+            "ip_address": ip_address
+        })
+        save_login_history(login_history)
+        return False, "Incorrect security answer."
+    if len(new_access_code) < 6:
+        login_history.append({
+            "username": username,
+            "timestamp": timestamp,
+            "success": False,
+            "reason": "Password reset failed: New access code too short",
+            "ip_address": ip_address
+        })
+        save_login_history(login_history)
+        return False, "New access code must be at least 6 characters."
+    users[username]["access_code"] = hash_access_code(new_access_code)
+    save_users(users)
+    login_history.append({
+        "username": username,
+        "timestamp": timestamp,
+        "success": True,
+        "reason": "Password reset successful",
+        "ip_address": ip_address
+    })
+    save_login_history(login_history)
+    logging.info(f"User {username} reset their password")
+    return True, "Password reset successfully."
 
 def reset_user_access_code(admin_username, target_username, new_access_code):
     users = load_users()
@@ -321,11 +377,14 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 if "login_attempts" not in st.session_state:
     st.session_state["login_attempts"] = 0
+if "reset_attempts" not in st.session_state:
+    st.session_state["reset_attempts"] = 0
 if "is_admin" not in st.session_state:
     st.session_state["is_admin"] = False
 if "user_activity" not in st.session_state:
     st.session_state["user_activity"] = {}
 MAX_LOGIN_ATTEMPTS = 3
+MAX_RESET_ATTEMPTS = 3
 
 def set_terminal_style():
     if st.session_state.theme == "Bloomberg Dark":
@@ -363,28 +422,56 @@ def set_terminal_style():
         </style>
         """, unsafe_allow_html=True)
 
-# ---------------------- Login/Signup UI ----------------------
+# ---------------------- Login/Signup/Reset UI ----------------------
 create_admin_user()
 
 if not st.session_state["logged_in"]:
     st.subheader("BlockVista Terminal Account")
-    auth_mode = st.selectbox("Select Action", ["Login", "Signup"])
+    auth_mode = st.selectbox("Select Action", ["Login", "Signup", "Reset Password"])
     
     if auth_mode == "Signup":
         st.write("Create a new BlockVista Terminal account")
         signup_username = st.text_input("New Username")
         signup_access_code = st.text_input("New Access Code", type="password")
+        security_question = st.selectbox("Security Question", SECURITY_QUESTIONS)
+        security_answer = st.text_input("Security Answer", type="password")
         if st.button("Sign Up"):
-            success, message = signup_user(signup_username, signup_access_code)
+            success, message = signup_user(signup_username, signup_access_code, security_question, security_answer)
             if success:
                 st.success(message)
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = signup_username
                 st.session_state["is_admin"] = False
                 st.session_state["login_attempts"] = 0
+                st.session_state["reset_attempts"] = 0
                 st.session_state["user_activity"][signup_username] = []
             else:
                 st.error(message)
+    
+    elif auth_mode == "Reset Password":
+        st.write("Reset your password")
+        reset_username = st.text_input("Username")
+        users = load_users()
+        if reset_username in users:
+            st.write(f"Security Question: {users[reset_username]['security_question']}")
+            reset_security_answer = st.text_input("Security Answer", type="password")
+            new_access_code = st.text_input("New Access Code", type="password")
+            if st.button("Reset Password"):
+                if st.session_state["reset_attempts"] >= MAX_RESET_ATTEMPTS:
+                    st.error("❌ Too many reset attempts. Please try again later.")
+                    st.stop()
+                success, message = reset_user_password(reset_username, reset_security_answer, new_access_code)
+                if success:
+                    st.session_state["reset_attempts"] = 0
+                    st.success(message)
+                    st.info("Please log in with your new access code.")
+                else:
+                    st.session_state["reset_attempts"] += 1
+                    remaining = MAX_RESET_ATTEMPTS - st.session_state["reset_attempts"]
+                    st.error(f"❌ {message}. {remaining} attempts remaining.")
+        else:
+            if reset_username:
+                st.error("Username does not exist.")
     
     else:
         st.write("Login to your BlockVista Terminal account")
@@ -400,6 +487,7 @@ if not st.session_state["logged_in"]:
                 st.session_state["username"] = login_username
                 st.session_state["is_admin"] = is_admin
                 st.session_state["login_attempts"] = 0
+                st.session_state["reset_attempts"] = 0
                 st.success(f"✅ Welcome, {login_username}!")
                 if is_admin:
                     st.info("Logged in as Admin.")
@@ -617,18 +705,6 @@ if "zerodha_authenticated" in st.session_state and st.session_state["zerodha_aut
     if st.sidebar.button("Logout from Zerodha"):
         st.session_state.pop("access_token", None)
         st.session_state.pop("zerodha_authenticated", None)
-        st.session_state.pop("subscribed_tokens", None)
-        st.session_state.pop("live_ticks", None)
-        st.session_state.pop("ohlc_agg", None)
-        st.session_state.pop("token_to_symbol", None)
-        st.session_state["kws_running"] = False
-        if st.session_state.get("kws_obj"):
-            try:
-                st.session_state["kws_obj"].close()
-            except Exception:
-                pass
-        st.session_state["kws_obj"] = None
-        st.session_state["kws_thread"] = None
         st.success("Logged out from Zerodha. Please re-authenticate.")
 
 # ---------------------- News Parser from RSS ----------------------
@@ -709,10 +785,14 @@ def fetch_stock_data(symbol, period, interval):
             st.warning(f"Invalid or insufficient data for {symbol}: {len(data)} rows.")
             return None
         
-        # Validate Close column is a Series
+        # Validate Close column is a Series with sufficient length
         if not isinstance(data['Close'], pd.Series):
             logging.error(f"data['Close'] is not a pandas Series for {symbol}: {type(data['Close'])}")
             st.warning(f"Invalid data type for Close column in {symbol}: {type(data['Close'])}")
+            return None
+        if len(data['Close']) < 2:
+            logging.error(f"Insufficient data in Close column for {symbol}: {len(data['Close'])} rows")
+            st.warning(f"Insufficient data in Close column for {symbol}: {len(data['Close'])} rows")
             return None
         
         logging.debug(f"Data for {symbol}: {data.tail(5)}")
@@ -839,7 +919,7 @@ def make_screener(stock_list, period, interval):
     return pd.DataFrame(screener_data)
 
 # ---------------------- Sidebar: Watchlist P&L Tracker ----------------------
-st.sidebar.subheader("📈 Watchlist P&L Tracker (Live)")
+st.sidebar.subheader("📈 Watchlist P&L Tracker")
 watchlist = st.sidebar.text_area("List NSE symbols (comma-separated)", value="RELIANCE, SBIN, TCS")
 positions_input = st.sidebar.text_area("Entry prices (comma, same order)", value="2550, 610, 3580")
 qty_input = st.sidebar.text_area("Quantities (comma, same order)", value="10, 20, 5")
@@ -899,196 +979,9 @@ if st.session_state["logged_in"] and len(stock_list) > 0:
         "details": f"Symbols: {', '.join(stock_list)}, Period: {screen_period}, Interval: {screen_interval}"
     })
 
-# ---------------------- KiteTicker Live Integration ----------------------
-if "live_ticks" not in st.session_state:
-    st.session_state["live_ticks"] = {}
-if "ohlc_agg" not in st.session_state:
-    st.session_state["ohlc_agg"] = {}
-if "token_to_symbol" not in st.session_state:
-    st.session_state["token_to_symbol"] = {}
-if "kws_obj" not in st.session_state:
-    st.session_state["kws_obj"] = None
-if "kws_thread" not in st.session_state:
-    st.session_state["kws_thread"] = None
-if "kws_running" not in st.session_state:
-    st.session_state["kws_running"] = False
-if "subscribed_tokens" not in st.session_state:
-    st.session_state["subscribed_tokens"] = set()
-
-@st.cache_data(ttl=3600)
-def load_instruments():
-    try:
-        instruments = kite.instruments()
-        return pd.DataFrame(instruments)
-    except Exception as e:
-        logging.error(f"Error loading instruments: {e}")
-        return pd.DataFrame()
-
-def find_instrument_token(symbol, exchange='NSE'):
-    df = load_instruments()
-    if df.empty:
-        logging.warning(f"Empty instrument list for {symbol}")
-        return None
-    cond = (df['tradingsymbol'].str.upper() == symbol.upper()) & (df['exchange'] == exchange)
-    matches = df[cond]
-    if not matches.empty:
-        return int(matches.iloc[0]['instrument_token'])
-    matches2 = df[df['tradingsymbol'].str.upper().str.contains(symbol.upper()) & (df['exchange'] == exchange)]
-    if not matches2.empty:
-        return int(matches2.iloc[0]['instrument_token'])
-    logging.warning(f"No instrument token found for {symbol}")
-    return None
-
-def kite_on_ticks(ws, ticks):
-    for t in ticks:
-        token = t.get('instrument_token')
-        lp = t.get('last_price')
-        ts_field = t.get('timestamp')
-        try:
-            if isinstance(ts_field, str):
-                ts = pd.to_datetime(ts_field)
-            else:
-                ts = pd.Timestamp.utcnow() if ts_field is None else pd.to_datetime(int(ts_field), unit='ms' if ts_field > 1e12 else 's')
-        except Exception:
-            ts = pd.Timestamp.utcnow()
-
-        token_s = str(token)
-        symbol_from_map = st.session_state["token_to_symbol"].get(token_s)
-        if symbol_from_map is None:
-            df_inst = load_instruments()
-            if not df_inst.empty:
-                rows = df_inst[df_inst['instrument_token'] == int(token)]
-                symbol_from_map = rows.iloc[0]['tradingsymbol'] if not rows.empty else token_s
-                st.session_state["token_to_symbol"][token_s] = symbol_from_map
-            else:
-                symbol_from_map = token_s
-                st.session_state["token_to_symbol"][token_s] = symbol_from_map
-
-        if symbol_from_map not in st.session_state["live_ticks"]:
-            st.session_state["live_ticks"][symbol_from_map] = deque(maxlen=MAX_TICKS_PER_SYMBOL)
-        st.session_state["live_ticks"][symbol_from_map].append({'t': ts, 'v': float(lp) if lp is not None else np.nan})
-
-        minute = ts.replace(second=0, microsecond=0)
-        if symbol_from_map not in st.session_state["ohlc_agg"]:
-            st.session_state["ohlc_agg"][symbol_from_map] = {}
-        ohlc_map = st.session_state["ohlc_agg"][symbol_from_map]
-        key = minute.isoformat()
-        if key not in ohlc_map:
-            ohlc_map[key] = {'time': int(minute.timestamp()), 'open': lp, 'high': lp, 'low': lp, 'close': lp}
-        else:
-            if lp is not None:
-                ohlc_map[key]['high'] = max(ohlc_map[key]['high'] or lp, lp)
-                ohlc_map[key]['low'] = min(ohlc_map[key]['low'] or lp, lp)
-                ohlc_map[key]['close'] = lp
-        if len(ohlc_map) > MAX_AGG_CANDLES:
-            keys_sorted = sorted(ohlc_map.keys())
-            for oldk in keys_sorted[:-MAX_AGG_CANDLES]:
-                del ohlc_map[oldk]
-
-def kite_on_connect(ws, response):
-    st.session_state["kws_running"] = True
-    st.sidebar.info("KiteTicker connected.")
-
-def kite_on_close(ws, code, reason):
-    st.session_state["kws_running"] = False
-    st.sidebar.warning(f"KiteTicker closed: {reason}")
-
-def start_kite_ticker_thread():
-    if st.session_state.get("kws_running") and st.session_state.get("kws_thread") and st.session_state["kws_thread"].is_alive():
-        return
-    try:
-        kws = KiteTicker(api_key, st.session_state["access_token"])
-        kws.on_ticks = kite_on_ticks
-        kws.on_connect = kite_on_connect
-        kws.on_close = kite_on_close
-        def run():
-            try:
-                kws.connect(threaded=False)
-            except Exception as e:
-                logging.error(f"KiteTicker connect error: {e}")
-                st.error(f"KiteTicker connect error: {e}")
-        th = threading.Thread(target=run, daemon=True)
-        th.start()
-        st.session_state["kws_obj"] = kws
-        st.session_state["kws_thread"] = th
-    except Exception as e:
-        logging.error(f"Failed to init KiteTicker: {e}")
-        st.error(f"Failed to init KiteTicker: {e}")
-
-def subscribe_to_token(token, symbol=None):
-    try:
-        kws = st.session_state.get("kws_obj")
-        if kws is None or not st.session_state.get("kws_running"):
-            start_kite_ticker_thread()
-            kws = st.session_state.get("kws_obj")
-        if kws and int(token) not in st.session_state["subscribed_tokens"]:
-            kws.subscribe([int(token)])
-            kws.set_mode(kws.MODE_FULL, [int(token)])
-            st.session_state["subscribed_tokens"].add(int(token))
-        if symbol and str(token) not in st.session_state["token_to_symbol"]:
-            st.session_state["token_to_symbol"][str(token)] = symbol
-        # Record user activity
-        if st.session_state["logged_in"]:
-            st.session_state["user_activity"][st.session_state["username"]].append({
-                "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
-                "action": "WebSocket Subscription",
-                "details": f"Subscribed to {symbol} (token {token})"
-            })
-        return True
-    except Exception as e:
-        logging.error(f"Subscribe error: {e}")
-        st.warning(f"Subscribe error: {e}")
-        return False
-
-def unsubscribe_all_tokens():
-    try:
-        kws = st.session_state.get("kws_obj")
-        if kws and st.session_state["subscribed_tokens"]:
-            kws.unsubscribe(list(st.session_state["subscribed_tokens"]))
-            st.session_state["subscribed_tokens"].clear()
-    except Exception:
-        pass
-
-# ---------------------- Sidebar: Live WS Controls & Order Placement ----------------------
-st.sidebar.header("Live WebSocket")
-ws_symbol = st.sidebar.text_input("Symbol to subscribe (e.g. RELIANCE)", value="RELIANCE")
-ws_token_input = st.sidebar.text_input("Instrument Token (optional)", value="")
-agg_period = st.sidebar.selectbox("Aggregation Period", ["1m", "5m", "15m"], index=0)
-
-start_ws = st.sidebar.button("Start Live WebSocket")
-stop_ws = st.sidebar.button("Stop Live WebSocket")
-
-if start_ws:
-    if "access_token" not in st.session_state:
-        st.sidebar.error("Please complete Zerodha login first.")
-    else:
-        start_kite_ticker_thread()
-        token = int(ws_token_input.strip()) if ws_token_input.strip() else find_instrument_token(ws_symbol.upper())
-        if token:
-            ok = subscribe_to_token(token, ws_symbol.upper())
-            if ok:
-                st.sidebar.success(f"Subscribed {ws_symbol.upper()} (token {token})")
-            else:
-                st.sidebar.error("Subscription failed.")
-        else:
-            st.sidebar.error("Could not find instrument token. Provide it manually.")
-
-if stop_ws:
-    unsubscribe_all_tokens()
-    try:
-        kws = st.session_state.get("kws_obj")
-        if kws:
-            kws.close()
-    except Exception:
-        pass
-    st.session_state["kws_obj"] = None
-    st.session_state["kws_thread"] = None
-    st.session_state["kws_running"] = False
-    st.sidebar.info("KiteTicker stopped.")
-
-st.sidebar.markdown("---")
+# ---------------------- Sidebar: Order Placement ----------------------
 st.sidebar.header("Place Order")
-order_symbol = st.sidebar.text_input("Order Symbol (e.g. RELIANCE)", value=ws_symbol.upper())
+order_symbol = st.sidebar.text_input("Order Symbol (e.g. RELIANCE)", value="RELIANCE")
 order_qty = st.sidebar.number_input("Quantity", min_value=1, value=1)
 order_type = st.sidebar.selectbox("Order Type", ["MARKET", "LIMIT"])
 transaction_type = st.sidebar.selectbox("Transaction Type", ["BUY", "SELL"])
@@ -1128,7 +1021,6 @@ if st.sidebar.button("Submit Order"):
         save_trade_logs(trade_logs)
         st.sidebar.success(f"✅ Order placed! ID: {order_id}")
         logging.info(f"Order placed by {st.session_state['username']}: {order_params}")
-        # Record user activity
         st.session_state["user_activity"][st.session_state["username"]].append({
             "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
             "action": "Order Placed",
@@ -1151,47 +1043,11 @@ if st.sidebar.button("Submit Order"):
         st.sidebar.error(f"❌ Order failed: {e}")
         logging.error(f"Order failed by {st.session_state['username']}: {e}")
 
-# ---------------------- Helper: Aggregate Ticks to OHLC ----------------------
-def aggregate_ticks_to_ohlc(symbol, minutes=1):
-    ohlc_map = st.session_state.get("ohlc_agg", {}).get(symbol, {})
-    if not ohlc_map:
-        return pd.DataFrame()
-    rows = []
-    for k, v in ohlc_map.items():
-        try:
-            if any(x is None for x in [v['open'], v['high'], v['low'], 'close']):
-                continue
-            rows.append({
-                'time': v['time'],
-                'open': float(v['open']),
-                'high': float(v['high']),
-                'low': float(v['low']),
-                'close': float(v['close'])
-            })
-        except Exception:
-            continue
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(sorted(rows, key=lambda x: x['time']))
-    if len(df) > MAX_AGG_CANDLES:
-        df = df.iloc[-MAX_AGG_CANDLES:]
-    return df
-
 # ---------------------- Lightweight Charts Renderer ----------------------
-def render_lightweight_candles(symbol, agg_period='1m'):
-    df = aggregate_ticks_to_ohlc(symbol, minutes=1)
+def render_lightweight_candles(df, chart_style="Candlestick"):
     if df.empty:
-        st.info("No live aggregated candle data yet.")
+        st.info("No data available for chart.")
         return
-    df['time'] = pd.to_datetime(df['time'], unit='s')
-    rule_map = {"1m": "1T", "5m": "5T", "15m": "15T"}
-    if agg_period in rule_map:
-        df = df.set_index('time').resample(rule_map[agg_period]).agg({
-            'open': 'first',
-            'high': 'max',
-            'low': 'min',
-            'close': 'last'
-        }).dropna().reset_index()
     js_rows = [
         {
             "time": int(pd.to_datetime(row['time']).timestamp()),
@@ -1321,33 +1177,25 @@ if len(stock_list):
 
 if len(stock_list):
     display_symbol = stock_list[0].upper()
-    st.header(f"Live Dashboard: {display_symbol}")
+    st.header(f"Dashboard: {display_symbol}")
 
     data = fetch_stock_data(display_symbol, screen_period, screen_interval)
     if data is None or data.empty:
         st.error("No data available for this symbol/interval.")
         st.stop()
 
-    st.write(f"Debug: data.columns = {list(data.columns)}")
-    st.write(f"Debug: data.index = {data.index[:5]}")
-    st.write(f"Debug: data.tail(1) = {data.tail(1)}")
-
     price = np.nan
     try:
-        if display_symbol in st.session_state.get("live_ticks", {}) and st.session_state["live_ticks"][display_symbol]:
-            price = st.session_state["live_ticks"][display_symbol][-1]['v']
-        else:
-            ltp_json = kite.ltp(f"NSE:{display_symbol}")
-            price = ltp_json.get(f"NSE:{display_symbol}", {}).get("last_price", np.nan)
-            if np.isnan(price):
-                price = float(data["Close"].iloc[-1])
+        ltp_json = kite.ltp(f"NSE:{display_symbol}")
+        price = ltp_json.get(f"NSE:{display_symbol}", {}).get("last_price", np.nan)
+        if np.isnan(price):
+            price = float(data["Close"].iloc[-1])
     except Exception as e:
         logging.error(f"Error getting LTP for {display_symbol}: {e}")
-        price = np.nan
+        price = float(data["Close"].iloc[-1]) if not data["Close"].empty else np.nan
 
     metrics_row = st.columns([1.5,1,1,1,1,1])
     latest = data.iloc[-1]
-    st.write(f"Debug: type(latest) = {type(latest)}, latest['Close'] = {latest['Close']}, type(latest['Close']) = {type(latest['Close'])}")
     
     rsi = try_scalar(latest.get('RSI', np.nan))
     macd = try_scalar(latest.get('MACD_12_26_9', np.nan))
@@ -1373,41 +1221,60 @@ if len(stock_list):
     with metrics_row[5]:
         st.metric("VWAP", f"{round(vwap, 2) if not np.isnan(vwap) else '—'}")
 
-    try:
-        agg_live = aggregate_ticks_to_ohlc(display_symbol, minutes=1)
-    except Exception as e:
-        logging.error(f"Error aggregating ticks for {display_symbol}: {e}")
-        agg_live = pd.DataFrame()
-
-    combined = None
-    try:
-        hist_df = data.reset_index().rename(columns={"index": "time"})
-        if 'time' in hist_df.columns:
-            hist_df['time'] = pd.to_datetime(hist_df['time']).dt.strftime('%Y-%m-%d %H:%M:%S')
-        if all(col in hist_df for col in ['Open', 'High', 'Low', 'Close']):
-            hist_ohlc = hist_df[['time', 'Open', 'High', 'Low', 'Close']].rename(
-                columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}
-            )
-        else:
-            hist_ohlc = pd.DataFrame()
-        if not agg_live.empty:
-            combined = pd.concat([hist_ohlc, agg_live], ignore_index=True, sort=False)
-        else:
-            combined = hist_ohlc
-        if combined is not None and not combined.empty:
-            combined = combined.dropna(subset=['open', 'high', 'low', 'close'])
-    except Exception as e:
-        logging.error(f"Could not build combined candle dataset for {display_symbol}: {e}")
-        st.warning(f"Could not build combined candle dataset: {e}")
-        combined = None
-
     tabs = st.tabs(["Chart", "TA", "Signals", "Raw"])
     with tabs[0]:
         chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
         bands_show = st.checkbox("Show Bollinger Bands", value=True)
-        if display_symbol in st.session_state.get("ohlc_agg", {}) and st.session_state["ohlc_agg"][display_symbol]:
-            render_lightweight_candles(display_symbol, agg_period)
+        required_cols = ['Open', 'High', 'Low', 'Close']
+        if all(col in data.columns for col in required_cols):
+            hist_df = data.reset_index().rename(columns={"index": "time"})
+            if 'time' not in hist_df.columns:
+                hist_df['time'] = hist_df.index
+            hist_df['time'] = pd.to_datetime(hist_df['time']).dt.strftime('%Y-%m-%d %H:%M:%S')
+            if chart_style == "Heikin Ashi":
+                ohlc_cols = ['HA_open', 'HA_high', 'HA_low', 'HA_close']
+                if all(col in data.columns for col in ohlc_cols):
+                    chart_data = hist_df[['time', 'HA_open', 'HA_high', 'HA_low', 'HA_close']].rename(
+                        columns={'HA_open': 'open', 'HA_high': 'high', 'HA_low': 'low', 'HA_close': 'close'}
+                    ).dropna()
+                else:
+                    st.warning("Heikin Ashi data not available. Showing Candlestick chart.")
+                    chart_data = hist_df[['time', 'Open', 'High', 'Low', 'Close']].rename(
+                        columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}
+                    ).dropna()
+            else:
+                chart_data = hist_df[['time', 'Open', 'High', 'Low', 'Close']].rename(
+                    columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}
+                ).dropna()
+            render_lightweight_candles(chart_data, chart_style)
+            if bands_show and all(col in data.columns for col in ['BOLL_L', 'BOLL_M', 'BOLL_U']):
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=hist_df['time'], y=data['BOLL_U'], name='Upper Band', line=dict(color='rgba(255,165,0,0.5)')))
+                fig.add_trace(go.Scatter(x=hist_df['time'], y=data['BOLL_M'], name='Middle Band', line=dict(color='rgba(255,255,255,0.5)')))
+                fig.add_trace(go.Scatter(x=hist_df['time'], y=data['BOLL_L'], name='Lower Band', line=dict(color='rgba(255,165,0,0.5)'), fill='tonexty', fillcolor='rgba(255,165,0,0.2)'))
+                fig.update_layout(
+                    title="Bollinger Bands",
+                    xaxis_title="Time",
+                    yaxis_title="Price",
+                    template="plotly_dark" if st.session_state.theme == "Bloomberg Dark" else "plotly"
+                )
+                st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No live OHLC data. Showing historical chart.")
-            required_cols = ['Open', 'High', 'Low', 'Close']
-            if all(col in data.columns for col in required_cols
+            st.error("Required columns for chart not found.")
+    
+    with tabs[1]:
+        if not data.empty:
+            ta_data = data[['RSI', 'MACD_12_26_9', 'MACDs_12_26_9', 'MACDh_12_26_9', 'ADX', 'ATR', 'VWAP', 'SMA21', 'EMA9']].tail(10)
+            st.dataframe(ta_data)
+        else:
+            st.info("No technical analysis data available.")
+    
+    with tabs[2]:
+        signals = get_signals(data)
+        if signals:
+            st.json(signals)
+        else:
+            st.info("No signals available.")
+    
+    with tabs[3]:
+        st.dataframe(data.tail(10))
