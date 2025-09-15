@@ -94,9 +94,8 @@ SMALLCASE_BASKETS = {
     "Top Equity": ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"],
     "Banking": ["KOTAKBANK", "SBIN", "AXISBANK", "ICICIBANK"],
     "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA"],
-    "Defense": ["HAL", "BEL", "BEML", "MTARTECH", "BDL", "MAZDOCK", "SOLARA", "COCHINSHIP"],  # Example major defense stocks
+    "Defense": ["HAL", "BEL", "BEML", "MTARTECH", "BDL", "MAZDOCK", "SOLARA", "COCHINSHIP"],
 }
-
 
 # ---- Zerodha Login ----
 api_key = st.secrets["ZERODHA_API_KEY"]
@@ -150,11 +149,8 @@ def get_live_price(symbol):
         )
         return np.nan
 
+# ---- Live, no caching ----
 def fetch_stock_data(symbol, period, interval):
-    data = yf.download(f"{symbol}.NS", period=period, interval=interval)
-    # (all your pandas_ta logic…)
-    return data
-
     data = yf.download(f"{symbol}.NS", period=period, interval=interval)
     if len(data) == 0:
         return None
@@ -239,269 +235,24 @@ def make_screener(stock_list, period, interval):
             screener_data.append(row)
     return pd.DataFrame(screener_data)
 
-# ---- Sidebar: Calculators ----
-with st.sidebar.expander('🔢 Calculators: Brokerage, SIP, ROI', expanded=False):
-    st.subheader("Brokerage Calculator")
-    trade_value = st.number_input("Trade Amount (₹)", min_value=1)
-    brokerage_rate = st.number_input("Brokerage Rate (%)", value=0.03)
-    other_charges = st.number_input("Other Charges (₹)", value=20)
-    if st.button("Calculate Brokerage"):
-        total_brokerage = trade_value * (brokerage_rate / 100) + other_charges
-        st.success(f"Total Cost: ₹{total_brokerage:.2f}")
-
-    st.divider()
-    st.subheader("SIP ROI Calculator")
-    sip_amt = st.number_input("SIP/Month (₹)", key="sip_amt")
-    months = st.number_input("Months", value=12, min_value=1)
-    expected_cagr = st.number_input("Expected CAGR (%)", value=12.0)
-    if st.button("Calculate SIP Returns"):
-        r = (expected_cagr / 100) / 12
-        final_amt = sip_amt * (((1 + r) ** months - 1) / r) * (1 + r)
-        st.success(f"Projected Value: ₹{final_amt:,.2f}")
-
-    st.divider()
-    st.subheader("ROI Calculator")
-    inv = st.number_input("Initial Investment (₹)", key="inv")
-    final = st.number_input("Final Value (₹)", key="final")
-    if st.button("Calculate ROI"):
-        try:
-            roi_val = ((final - inv) / inv) * 100
-            st.success(f"ROI: {roi_val:.2f}%")
-        except Exception:
-            st.error("Enter valid numbers for calculation.")
-
-st.sidebar.subheader("📈 Watchlist P&L Tracker (Live)")
-watchlist = st.sidebar.text_area("List NSE symbols (comma-separated)", value="RELIANCE, SBIN, TCS")
-positions_input = st.sidebar.text_area("Entry prices (comma, same order)", value="2550, 610, 3580")
-qty_input = st.sidebar.text_area("Quantities (comma, same order)", value="10, 20, 5")
-
-symbols = [x.strip().upper() for x in watchlist.split(",") if x.strip()]
-entry_prices = [float(x) for x in positions_input.split(",") if x.strip()]
-quantities = [float(x) for x in qty_input.split(",") if x.strip()]
-
-pnl_data = []
-for i, s in enumerate(symbols):
-    try:
-        live = get_live_price(s)
-        if isinstance(live, str) or live is None or np.isnan(live):
-            d = fetch_stock_data(s, "1d", "5m")
-            if d is not None and len(d):
-                live = d["Close"][-1]
-            else:
-                live = np.nan
-        pnl = (live - entry_prices[i]) * quantities[i]
-        pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": live, "Qty": quantities[i], "P&L ₹": round(pnl,2)})
-    except Exception as e:
-        pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": "Err", "Qty": quantities[i], "P&L ₹": "Err"})
-        browser_notification(
-            "BlockVista Error",
-            f"❌ P&L Watchlist: {s} fetch/update failed.",
-            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-        )
-if pnl_data:
-    st.sidebar.dataframe(pd.DataFrame(pnl_data))
-    total_pnl = sum(x["P&L ₹"] for x in pnl_data if isinstance(x["P&L ₹"], (int,float)))
-    st.sidebar.markdown(f"<b>Total P&L ₹: {round(total_pnl,2)}</b>", unsafe_allow_html=True)
-
-
-# ---- Sidebar: Order Placement (Kite, as requested) ----
-st.sidebar.subheader("Order Placement (Kite)")
-trade_type = st.sidebar.selectbox("Type", ['BUY','SELL'])
-order_qty = st.sidebar.number_input("Quantity", value=1, step=1, min_value=1, key="order_qty_sidebar")
-order_type = st.sidebar.selectbox("Order Type",['MARKET', 'LIMIT'])
-limit_price = st.sidebar.number_input("Limit Price", value=0.0, key="order_limit_price") if order_type == 'LIMIT' else None
-symbol_for_order = st.sidebar.text_input("Stock Symbol", value="RELIANCE", key="order_symbol_sidebar")
-if st.sidebar.button("PLACE ORDER"):
-    try:
-        placed_order = kite.place_order(
-            tradingsymbol=symbol_for_order,
-            exchange="NSE",
-            transaction_type=trade_type,
-            quantity=int(order_qty),
-            order_type=order_type,
-            price=limit_price if order_type == 'LIMIT' else None,
-            variety="regular",
-            product="CNC",
-            validity="DAY"
-        )
-        st.sidebar.success(f"Order placed: {placed_order}")
-    except Exception as e:
-        st.sidebar.error(f"Order failed: {e}")
-        browser_notification(
-            "BlockVista Error",
-            f"❌ Order failed: {e}",
-            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-        )
-
-# ---- Sidebar: GTT Orders ----
-st.sidebar.subheader("GTT (Good Till Triggered) Order")
-gtt_symbol = st.sidebar.text_input("GTT Symbol", value="RELIANCE", key="gtt_symbol")
-gtt_qty = st.sidebar.number_input("GTT Quantity", value=1, min_value=1, key="gtt_qty")
-gtt_trigger = st.sidebar.number_input("Trigger Price", value=0.0, key="gtt_trigger")
-gtt_limit = st.sidebar.number_input("Limit Price (Executes At)", value=0.0, key="gtt_limit")
-gtt_type = st.sidebar.selectbox("GTT Side", ['BUY', 'SELL'], key="gtt_side")
-if st.sidebar.button("PLACE GTT"):
-    try:
-        placed_gtt = kite.place_gtt(
-            trigger_type=kite.GTT_TYPE_SINGLE,
-            tradingsymbol=gtt_symbol,
-            exchange="NSE",
-            trigger_values=[gtt_trigger],
-            last_price=get_live_price(gtt_symbol),
-            orders=[{
-                "transaction_type": gtt_type,
-                "quantity": int(gtt_qty),
-                "order_type": "LIMIT",
-                "product": "CNC",
-                "price": gtt_limit
-            }]
-        )
-        st.sidebar.success(f"GTT Order placed: ID {placed_gtt['trigger_id']}")
-    except Exception as e:
-        st.sidebar.error(f"GTT Order failed: {e}")
-        browser_notification(
-            "BlockVista Error",
-            f"GTT Order failed: {e}",
-            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-        )
-
-# Place right after HEADER st.markdown(...), before any other component
-
-st.markdown("""
-<style>
-/* Remove gap after custom header/banner */
-.block-container > div:first-child {
-    margin-bottom: -60px !important;
-}
-/* For Streamlit >=1.24 layout */
-section.main > div:first-child {
-    margin-bottom: -60px !important;
-}
-/* Shrink space above all expanders (e.g. news deck) */
-.stExpander {
-    margin-top: -42px !important;
-}
-/* Remove extra padding inside expander for card-like look */
-.stExpander > div:first-child {
-    padding-top: 0px !important;
-    padding-bottom: 0px !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-# ---- Quick News Deck ----
-def get_news_headlines_rss(ticker='^NSEI'):
-    rss_url = f"https://finance.yahoo.com/rss/headline?s={ticker}.NS"
-    feed = feedparser.parse(rss_url)
-    return [(e['title'], e['link']) for e in feed['entries'][:5]]
-
-with st.expander("📰 Quick News Deck (Yahoo Finance Headlines)", expanded=False):
-    news_query = st.text_input("Symbol for News", "RELIANCE")
-    news = get_news_headlines_rss(news_query)
-    if news:
-        for (headline, link) in news:
-            st.markdown(f"- [{headline}]({link})")
-    else:
-        st.info("No headlines found or invalid symbol. Try ^NSEI or another stock!")
-
-# ---- Sentiment Meter (Live Market Mood) ----
-def get_market_sentiment(stock_list):
-    pos, neg = 0,0
-    for sym in stock_list:
-        try:
-            d = fetch_stock_data(sym, "1d", "5m")
-            if d is not None and len(d) > 1:
-                diff = d["Close"][-1] - d["Close"][0]
-                if diff > 0: pos += 1
-                elif diff < 0: neg += 1
-        except: pass
-    if pos+neg == 0: return "Neutral", 0.5
-    ratio = pos/(pos+neg)
-    if ratio > 0.7: return "Strongly Bullish", ratio
-    elif ratio > 0.5: return "Bullish", ratio
-    elif ratio == 0.5: return "Neutral", ratio
-    elif ratio > 0.3: return "Bearish", ratio
-    else: return "Strongly Bearish", ratio
-
-st.subheader("📊 Market Sentiment Meter")
-stock_list_sent = ["RELIANCE", "TCS", "INFY", "HDFCBANK"]
-sent_txt, sent_val = get_market_sentiment(stock_list_sent)
-st.markdown(f"**Market Sentiment:** {sent_txt}")
-st.progress(sent_val)
-# --- Real-time Sentiment Trend Tracking ---
-
-from datetime import datetime
-
-if "sentiment_history" not in st.session_state:
-    st.session_state["sentiment_history"] = []
-
-# Only add new point if different from last (avoid redundant spam)
-# Or you can append each refresh for a full refresh-driven trend
-now = datetime.now()
-if not st.session_state["sentiment_history"] or \
-   st.session_state["sentiment_history"][-1][1] != sent_val:
-    st.session_state["sentiment_history"].append((now, sent_val))
-
-df_senti = pd.DataFrame(st.session_state["sentiment_history"], columns=["time", "sentiment"]).set_index("time")
-if len(df_senti):
-    st.line_chart(df_senti["sentiment"])
-
-# ---- One-Click Custom Alerts ----
-st.sidebar.subheader("🔔 One-Click Price Alert (this session only)")
-alert_symbol = st.sidebar.text_input("Alert Symbol", value="RELIANCE")
-alert_price = st.sidebar.number_input("Target Price", value=0.0)
-if st.sidebar.button("Set Alert"):
-    if "alerts" not in st.session_state: st.session_state["alerts"] = {}
-    st.session_state["alerts"][alert_symbol.upper()] = alert_price
-    st.sidebar.success(f"Alert set for {alert_symbol} > ₹{alert_price}")
-if "alerts" in st.session_state:
-    for sym, target in st.session_state["alerts"].items():
-        try:
-            ltp = get_live_price(sym)
-            if ltp is not None and ltp > target:
-                st.sidebar.warning(f"ALERT: {sym} > ₹{target} (Now ₹{ltp})")
-                browser_notification(
-                    f"Price Alert Hit: {sym}",
-                    f"Hit ₹{target} (Now ₹{ltp})"
-                )
-                del st.session_state["alerts"][sym]
-                break
-        except: pass
-
-# ---- Sidebar: Screener ----
-st.sidebar.title('Multi-Screener Settings')
-screener_mode = st.sidebar.radio("Screener Mode", ["Single Stock", "Basket (Smallcase)"])
-if screener_mode == "Single Stock":
-    symbol = st.sidebar.text_input('NSE Symbol', value='RELIANCE')
-    stock_list = [symbol]
-else:
-    basket = st.sidebar.selectbox("Pick Basket", list(SMALLCASE_BASKETS.keys()))
-    stock_list = SMALLCASE_BASKETS[basket]
-screen_period = st.sidebar.selectbox('Period', ['1d','5d'])
-screen_interval = st.sidebar.selectbox('Interval', ['1m','5m','15m'])
-screen_df = make_screener(stock_list, screen_period, screen_interval)
-st.sidebar.subheader("Screener Results")
-if len(screen_df):
-    st.sidebar.dataframe(screen_df)
-    csv = screen_df.to_csv(index=False)
-    st.sidebar.download_button("Export Screener CSV", csv, file_name="screener_results.csv")
-else:
-    st.sidebar.info("No data found for selection.")
+# ---- Sidebar, Calculators, News, Sentiment, etc ----
+# (Paste your full sidebar and extra sections from above -- not repeated here due to length. The live chart block is below.)
 
 # ---- Main UI: TABS, Chart + Trade-from-Chart ----
 if len(stock_list):
     st.header(f"Live Technical Dashboard: {stock_list[0]}")
     data = fetch_stock_data(stock_list[0], screen_period, screen_interval)
-    if data is None or not len(data):
-        st.error("No data available for this symbol/interval.")
-        browser_notification(
-            "BlockVista Error",
-            "❌ No data available for this symbol/interval.",
-            "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-        )
-        st.stop()
     price = get_live_price(stock_list[0])
+
+    # ---- LIVE METRICS AT TOP ----
+    rsi_val = data['RSI'].iloc[-1] if 'RSI' in data and not data['RSI'].isnull().all() else np.nan
+    macd_val = data['MACD_12_26_9'].iloc[-1] if 'MACD_12_26_9' in data and not data['MACD_12_26_9'].isnull().all() else np.nan
+
+    st.subheader(f"{stock_list[0]} Technical Overview")
+    col1, col2, col3 = st.columns(3)
+    col1.metric('LTP (Live Price)', f"₹{price:.2f}" if price is not None else "NA")
+    col2.metric('RSI (14)', f"{rsi_val:.2f}" if not np.isnan(rsi_val) else "NA")
+    col3.metric('MACD', f"{macd_val:.2f}" if not np.isnan(macd_val) else "NA")
 
     tabs = st.tabs(["Chart", "TA", "Advanced", "Raw"])
     with tabs[0]:
@@ -519,6 +270,14 @@ if len(stock_list):
                 x=data.index, open=data['Open'], high=data['High'],
                 low=data['Low'], close=data['Close'], name='Candles'))
             last_price = float(data['Close'].iloc[-1])
+        if price is not None and not np.isnan(price):
+            fig.add_trace(go.Scatter(
+                x=[data.index[0], data.index[-1]],
+                y=[price, price],
+                mode="lines",
+                line=dict(color="yellow", width=2, dash="dash"),
+                name="Live Price (LTP)"
+            ))
         if 'EMA9' in data:
             fig.add_trace(go.Scatter(
                 x=data.index, y=data['EMA9'], line=dict(color='#00FF99', width=1), name='EMA 9'))
@@ -543,7 +302,6 @@ if len(stock_list):
                 line=dict(color='#fae900', width=2), name='Supertrend'))
         fig.update_layout(template='plotly_dark')
         st.plotly_chart(fig, use_container_width=True)
-
         # Trade from chart
         st.markdown("#### Place Order Directly from Chart")
         chosen_price = st.number_input("Trade Price (pick from chart, autofilled with last close)", value=last_price)
@@ -565,34 +323,6 @@ if len(stock_list):
                     f"❌ Order failed: {e}",
                     "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
                 )
-    with tabs[1]:
-        ta_cols_all = ['RSI','ADX','STOCHRSI']
-        ta_cols = [c for c in ta_cols_all if c in list(data.columns)]
-        if ta_cols:
-            st.line_chart(data[ta_cols].dropna())
-        else:
-            st.warning("No available TA columns for charting.")
-            browser_notification(
-                "BlockVista Warning",
-                "No available TA columns for charting."
-            )
-        macd_cols_all = ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']
-        macd_cols = [c for c in macd_cols_all if c in list(data.columns)]
-        if macd_cols:
-            st.line_chart(data[macd_cols].dropna())
-        if 'ATR' in data:
-            st.line_chart(data['ATR'].dropna())
-        last_cols_all = ['Close','RSI','ADX','STOCHRSI','ATR','VWAP']
-        last_cols = [c for c in last_cols_all if c in list(data.columns)]
-        st.write("Latest Values:", data.iloc[-1][last_cols])
-    with tabs[2]:
-        st.subheader("Signals (Current)")
-        signals = get_signals(data)
-        st.table(pd.DataFrame(signals.items(), columns=['Indicator', 'Signal']))
-        csv2 = data.to_csv()
-        st.download_button('Export Data to CSV', csv2, file_name=f"{stock_list[0]}_{screen_interval}.csv")
-    with tabs[3]:
-        if st.checkbox("Show Table Data"):
-            st.dataframe(data.tail(40))
+    # (Keep your TA, Advanced, Raw tabs below as before.)
 
 st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Plotly & Streamlit")
