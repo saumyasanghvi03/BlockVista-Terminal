@@ -850,7 +850,7 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# ---------------------- Sentiment Meter ----------------------
+# ---------------------- Sentiment Meter (kept above news section) ----------------------
 if vader_available:
     try:
         sentiment_score, sentiment_label = get_nifty50_sentiment()
@@ -895,7 +895,7 @@ else:
     with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
         st.metric("NIFTY 50 Sentiment", sentiment_label, f"{sentiment_score:.2f}", delta_color="normal")
 
-# ---------------------- News Section Below Header ----------------------
+# ---------------------- News Section Below Sentiment Meter ----------------------
 if len(stock_list):
     display_symbol = stock_list[0].upper()
     with st.expander(f"Latest News for {display_symbol}", expanded=False):
@@ -984,7 +984,8 @@ if len(stock_list):
             render_lightweight_candles(display_symbol, agg_period)
         else:
             st.info("No live OHLC data. Showing historical chart.")
-            if all(col in data for col in ['Open', 'High Novak Djokovic won his 6th singles title in a row at the Australian Open on Sunday, defeating Andy Murray 6-4, 6-7(4), 7-6(5). He became the first player in the Open era to win the event three times in a row. He also became the second player to win the event five times in the space of seven years, following Roger Federer.  'High', 'Low', 'Close']):
+            required_cols = ['Open', 'High', 'Low', 'Close']
+            if all(col in data.columns for col in required_cols):
                 fig = go.Figure(data=[
                     go.Candlestick(
                         x=data.index,
@@ -1005,7 +1006,7 @@ if len(stock_list):
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.warning("Insufficient data for candlestick chart.")
+                st.warning("Insufficient data for candlestick chart. Required columns: Open, High, Low, Close.")
 
     with tabs[1]:
         st.subheader("Technical Analysis")
