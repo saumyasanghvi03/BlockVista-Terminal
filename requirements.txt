@@ -1,9 +1,9 @@
 streamlit
-streamlit-autorefresh
-yfinance
 pandas
 numpy
+yfinance
 pandas_ta
 plotly
 kiteconnect
+streamlit-autorefresh
 feedparser
