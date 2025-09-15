@@ -806,7 +806,7 @@ if len(stock_list):
         last_cols = [c for c in last_cols_all if c in list(data.columns)]
         st.write("Latest Values:", data.iloc[-1][last_cols])
         
-        with st.expander("Show Analysis"):
+    with st.expander("Show Analysis"):
     st.subheader("Advanced Analysis & Signals")
     # Add your analysis widgets, charts, or metrics here
     st.write("Coming soon: AI-powered trade signals and strategy insights 🚀")
