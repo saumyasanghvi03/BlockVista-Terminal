@@ -151,7 +151,9 @@ def get_live_price(symbol):
         return np.nan
 
 def fetch_stock_data(symbol, period, interval):
-    ...
+    data = yf.download(f"{symbol}.NS", period=period, interval=interval)
+    # (all your pandas_ta logic…)
+    return data
 
     data = yf.download(f"{symbol}.NS", period=period, interval=interval)
     if len(data) == 0:
