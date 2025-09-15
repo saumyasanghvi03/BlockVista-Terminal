@@ -9,30 +9,40 @@ from streamlit_autorefresh import st_autorefresh
 import feedparser
 from datetime import datetime, timedelta
 
-# ---- Browser Notification Helper ----
+# ---- Browser Notification Helper (Corrected) ----
 def browser_notification(title, body, icon=None):
+    if not st.session_state.get("show_notifications", True):
+        return
+
     icon_line = f'icon: "{icon}",' if icon else ""
-    st.markdown(
-        f"""
-        <script>
-        if (Notification.permission !== "granted") {{
-            Notification.requestPermission();
-        }}
+    script_str = f"""
+    <script>
+    if ('Notification' in window) {{
         if (Notification.permission === "granted") {{
             new Notification("{title}", {{
-            body: "{body}",
-            {icon_line}
+                body: "{body}",
+                {icon_line}
+            }});
+        }} else if (Notification.permission !== "denied") {{
+            Notification.requestPermission().then(permission => {{
+                if (permission === "granted") {{
+                    new Notification("{title}", {{
+                        body: "{body}",
+                        {icon_line}
+                    }});
+                }}
             }});
         }}
-        </script>
-        """, unsafe_allow_html=True
-    )
+    }}
+    </script>
+    """
+    st.markdown(script_str, unsafe_allow_html=True)
 
 # ---- Theming ----
 st.markdown(
     """
     <div style='background:linear-gradient(90deg,#141e30,#243b55 60%,#FFD900 100%);
-     padding:10px 24px 6px 24px;border-radius:8px;margin-bottom:18px;box-shadow:0 4px 10px #0007; '>
+      padding:10px 24px 6px 24px;border-radius:8px;margin-bottom:18px;box-shadow:0 4px 10px #0007; '>
         <span style='color:#FFD900;font-family:monospace;font-size:2.1rem;font-weight:bold;vertical-align:middle;letter-spacing:2px;'>
         BLOCKVISTA TERMINAL</span>
         <span style='float:right;color:#30ff96;font-size:1.25rem;font-family:monospace;padding-top:16px;font-weight:bold;'>
@@ -40,6 +50,7 @@ st.markdown(
     </div>
     """, unsafe_allow_html=True
 )
+
 st.markdown("""
 <style>
 div.block-container > div:nth-child(2) {margin-top: -36px !important;}
@@ -47,8 +58,17 @@ h1 {margin-top: -20px !important;}
 .block-container > div:nth-child(2) {margin-bottom: -36px !important;}
 .block-container h1 {margin-top: -28px !important;}
 section.main > div:first-child {margin-bottom: -28px !important;}
+
+.stExpander {
+    margin-top: -42px !important;
+}
+.stExpander > div:first-child {
+    padding-top: 0px !important;
+    padding-bottom: 0px !important;
+}
 </style>
 """, unsafe_allow_html=True)
+
 def set_terminal_style(custom_dark=True):
     if custom_dark:
         st.markdown("""
@@ -62,6 +82,7 @@ def set_terminal_style(custom_dark=True):
         h1, h2, h3, h4, h5, h6, label, .st-bv, .stTextInput label, .stTextArea label {color: #FFD900 !important;}
         </style>
         """, unsafe_allow_html=True)
+
 if "dark_theme" not in st.session_state:
     st.session_state.dark_theme = True
 theme_choice = st.sidebar.selectbox("Terminal Theme", ["Black/Yellow/Green", "Streamlit Default"])
@@ -97,10 +118,13 @@ SMALLCASE_BASKETS = {
     "Defense": ["HAL", "BEL", "BEML", "MTARTECH", "BDL", "MAZDOCK", "SOLARA", "COCHINSHIP"],
 }
 
-
 # ---- Zerodha Login ----
-api_key = "YOUR_ZERODHA_API_KEY"
-api_secret = "YOUR_ZERODHA_API_SECRET"
+try:
+    api_key = st.secrets["ZERODHA_API_KEY"]
+    api_secret = st.secrets["ZERODHA_API_SECRET"]
+except KeyError:
+    st.error("Please add ZERODHA_API_KEY and ZERODHA_API_SECRET to your Streamlit secrets.")
+    st.stop()
 
 if "access_token" not in st.session_state:
     kite_tmp = KiteConnect(api_key=api_key)
@@ -122,6 +146,7 @@ if "access_token" not in st.session_state:
             kite.set_access_token(data["access_token"])
             st.session_state["kite"] = kite
             st.success("✅ Zerodha session started! All Kite features enabled.")
+            st.experimental_rerun()
         except Exception as ex:
             st.error(f"❌ Zerodha login failed: {ex}")
             browser_notification(
@@ -129,15 +154,13 @@ if "access_token" not in st.session_state:
                 f"❌ Zerodha login failed: {ex}",
                 "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
             )
-            st.stop()
     st.stop()
 else:
     if "kite" not in st.session_state:
         kite = KiteConnect(api_key=api_key)
         kite.set_access_token(st.session_state["access_token"])
         st.session_state["kite"] = kite
-    else:
-        kite = st.session_state["kite"]
+    kite = st.session_state["kite"]
 
 def get_live_price(symbol):
     try:
@@ -146,77 +169,100 @@ def get_live_price(symbol):
     except Exception as e:
         browser_notification(
             "BlockVista Error",
-            f"❌ Live price fetch failed: {e}",
+            f"❌ Live price fetch failed for {symbol}: {e}",
             "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
         )
         return np.nan
 
 def fetch_stock_data(symbol, period, interval):
-    data = yf.download(f"{symbol}.NS", period=period, interval=interval)
+    data = yf.download(f"{symbol}.NS", period=period, interval=interval, progress=False)
     if data.empty:
         st.warning(f"No {interval} data for {symbol} for {period}. Fetching last 5 days.")
-        data = yf.download(f"{symbol}.NS", period='5d', interval=interval)
+        data = yf.download(f"{symbol}.NS", period='5d', interval=interval, progress=False)
 
     if data.empty:
         return None
-    data['RSI'] = ta.rsi(data['Close'], length=14) if len(data) > 0 else np.nan
-    macd = ta.macd(data['Close'])
-    if isinstance(macd, pd.DataFrame) and not macd.empty:
-        for col in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']:
-            data[col] = macd[col] if col in macd else np.nan
-    else:
-        for col in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']:
-            data[col] = np.nan
-    data['SMA21'] = ta.sma(data['Close'], length=21) if len(data) > 0 else np.nan
-    data['EMA9'] = ta.ema(data['Close'], length=9) if len(data) > 0 else np.nan
-    bbands = ta.bbands(data['Close'], length=20)
-    for label, key in zip(['BOLL_L', 'BOLL_M', 'BOLL_U'], ['BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']):
-        data[label] = bbands[key] if isinstance(bbands, pd.DataFrame) and key in bbands else np.nan
-    atr = ta.atr(data['High'], data['Low'], data['Close'], length=14)
-    data['ATR'] = atr if isinstance(atr, pd.Series) else np.nan
-    adx = ta.adx(data['High'], data['Low'], data['Close'], length=14)
-    data['ADX'] = adx['ADX_14'] if isinstance(adx, pd.DataFrame) and 'ADX_14' in adx else np.nan
-    stochrsi = ta.stochrsi(data['Close'], length=14)
-    data['STOCHRSI'] = stochrsi["STOCHRSIk_14_14_3_3"] if isinstance(stochrsi, pd.DataFrame) and "STOCHRSIk_14_14_3_3" in stochrsi else np.nan
-    supertrend = ta.supertrend(data['High'], data['Low'], data['Close'])
-    if isinstance(supertrend, pd.DataFrame) and not supertrend.empty:
-        for col in supertrend.columns:
-            data[col] = supertrend[col]
-    data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume']) if len(data) > 0 else np.nan
-    ha = ta.ha(data['Open'], data['High'], data['Low'], data['Close'])
-    for c in ['open','high','low','close']:
-        ha_key = f'HA_{c}'
-        data[ha_key] = ha[ha_key] if isinstance(ha, pd.DataFrame) and ha_key in ha else np.nan
+    
+    # Ensure columns exist before using them
+    data.columns = [c.replace(' ', '_').replace('.', '_').replace('-', '_') for c in data.columns]
+    
+    # Calculate indicators, handling potential empty DataFrames
+    data['RSI'] = ta.rsi(data['Close'], length=14)
+    macd_res = ta.macd(data['Close'])
+    if isinstance(macd_res, pd.DataFrame) and not macd_res.empty:
+        for col in macd_res.columns:
+            data[col] = macd_res[col]
+    
+    data['SMA21'] = ta.sma(data['Close'], length=21)
+    data['EMA9'] = ta.ema(data['Close'], length=9)
+    
+    bbands_res = ta.bbands(data['Close'], length=20)
+    if isinstance(bbands_res, pd.DataFrame) and not bbands_res.empty:
+        for label, key in zip(['BOLL_L', 'BOLL_M', 'BOLL_U'], ['BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']):
+            if key in bbands_res.columns:
+                data[label] = bbands_res[key]
+            else:
+                data[label] = np.nan
+    
+    data['ATR'] = ta.atr(data['High'], data['Low'], data['Close'], length=14)
+    adx_res = ta.adx(data['High'], data['Low'], data['Close'], length=14)
+    if isinstance(adx_res, pd.DataFrame) and 'ADX_14' in adx_res.columns:
+        data['ADX'] = adx_res['ADX_14']
+    
+    stochrsi_res = ta.stochrsi(data['Close'], length=14)
+    if isinstance(stochrsi_res, pd.DataFrame) and 'STOCHRSIk_14_14_3_3' in stochrsi_res.columns:
+        data['STOCHRSI'] = stochrsi_res["STOCHRSIk_14_14_3_3"]
+    
+    supertrend_res = ta.supertrend(data['High'], data['Low'], data['Close'])
+    if isinstance(supertrend_res, pd.DataFrame) and not supertrend_res.empty:
+        for col in supertrend_res.columns:
+            data[col] = supertrend_res[col]
+    
+    data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume'])
+    
+    ha_res = ta.ha(data['Open'], data['High'], data['Low'], data['Close'])
+    if isinstance(ha_res, pd.DataFrame) and not ha_res.empty:
+        for c in ['open','high','low','close']:
+            ha_key = f'HA_{c}'
+            if ha_key in ha_res.columns:
+                data[ha_key] = ha_res[ha_key]
+    
     return data
 
 def try_scalar(val):
-    if isinstance(val, pd.Series) and len(val) == 1:
-        val = val.iloc[0]
+    if isinstance(val, (pd.Series, pd.DataFrame)) and not val.empty:
+        val = val.iloc[-1]
     if isinstance(val, (float, int, np.floating, np.integer)):
         return val
     try:
         return float(val)
-    except Exception:
+    except (ValueError, TypeError):
         return np.nan
 
 def get_signals(data):
+    if data is None or data.empty:
+        return {}
     latest = data.iloc[-1]
     signals = {}
     rsi = try_scalar(latest.get('RSI', np.nan))
     macd = try_scalar(latest.get('MACD_12_26_9', np.nan))
     macds = try_scalar(latest.get('MACDs_12_26_9', np.nan))
-    supertrend_col = [str(c) for c in list(data.columns) if isinstance(c, str) and str(c).startswith('SUPERT_') and not str(c).endswith('_dir')]
-    supertrend = try_scalar(latest[supertrend_col[0]]) if supertrend_col else np.nan
+    
+    supertrend_col = [c for c in data.columns if c.startswith('SUPERT_') and not c.endswith('_dir')]
+    supertrend = try_scalar(latest.get(supertrend_col[0], np.nan)) if supertrend_col else np.nan
+    
     close = try_scalar(latest.get('Close', np.nan))
     adx = try_scalar(latest.get('ADX', np.nan))
     stochrsi = try_scalar(latest.get('STOCHRSI', np.nan))
+    
     signals['RSI Signal'] = 'Overbought' if rsi > 70 else ('Oversold' if rsi < 30 else 'Neutral')
     signals['MACD Signal'] = 'Bullish' if macd > macds else ('Bearish' if macd < macds else 'Neutral')
-    signals['Supertrend'] = (
-        'Bullish' if not np.isnan(supertrend) and not np.isnan(close) and supertrend < close else
-        'Bearish' if not np.isnan(supertrend) and not np.isnan(close) and supertrend > close else
-        'Unknown'
-    )
+    
+    if not np.isnan(supertrend) and not np.isnan(close):
+        signals['Supertrend'] = 'Bullish' if supertrend < close else 'Bearish'
+    else:
+        signals['Supertrend'] = 'Unknown'
+
     signals['ADX Trend'] = 'Strong' if adx > 25 else 'Weak'
     signals['STOCHRSI Signal'] = 'Overbought' if stochrsi > 0.8 else ('Oversold' if stochrsi < 0.2 else 'Neutral')
     return signals
@@ -225,17 +271,17 @@ def make_screener(stock_list, period, interval):
     screener_data = []
     for s in stock_list:
         data = fetch_stock_data(s, period, interval)
-        if data is not None:
+        if data is not None and not data.empty:
             latest = data.iloc[-1]
             signals = get_signals(data)
             row = {
                 "Symbol": s,
-                "LTP": float(try_scalar(latest.get('Close', np.nan))),
-                "RSI": float(try_scalar(latest.get('RSI', np.nan))),
-                "MACD": float(try_scalar(latest.get('MACD_12_26_9', np.nan))),
-                "ADX": float(try_scalar(latest.get('ADX', np.nan))),
-                "ATR": float(try_scalar(latest.get('ATR', np.nan))),
-                "Signal": signals['RSI Signal'] + "/" + signals['MACD Signal'] + "/" + signals['Supertrend'],
+                "LTP": try_scalar(latest.get('Close', np.nan)),
+                "RSI": try_scalar(latest.get('RSI', np.nan)),
+                "MACD": try_scalar(latest.get('MACD_12_26_9', np.nan)),
+                "ADX": try_scalar(latest.get('ADX', np.nan)),
+                "ATR": try_scalar(latest.get('ATR', np.nan)),
+                "Signal": f"{signals.get('RSI Signal', 'N/A')}/{signals.get('MACD Signal', 'N/A')}/{signals.get('Supertrend', 'N/A')}",
             }
             screener_data.append(row)
     return pd.DataFrame(screener_data)
@@ -245,7 +291,7 @@ with st.sidebar.expander('🔢 Calculators: Brokerage, SIP, ROI', expanded=False
     st.subheader("Brokerage Calculator")
     trade_value = st.number_input("Trade Amount (₹)", min_value=1)
     brokerage_rate = st.number_input("Brokerage Rate (%)", value=0.03)
-    other_charges = st.number_input("Other Charges (₹)", value=20)
+    other_charges = st.number_input("Other Charges (₹)", value=20.0)
     if st.button("Calculate Brokerage"):
         total_brokerage = trade_value * (brokerage_rate / 100) + other_charges
         st.success(f"Total Cost: ₹{total_brokerage:.2f}")
@@ -266,11 +312,15 @@ with st.sidebar.expander('🔢 Calculators: Brokerage, SIP, ROI', expanded=False
     final = st.number_input("Final Value (₹)", key="final")
     if st.button("Calculate ROI"):
         try:
-            roi_val = ((final - inv) / inv) * 100
-            st.success(f"ROI: {roi_val:.2f}%")
+            if inv != 0:
+                roi_val = ((final - inv) / inv) * 100
+                st.success(f"ROI: {roi_val:.2f}%")
+            else:
+                st.error("Initial investment cannot be zero.")
         except Exception:
             st.error("Enter valid numbers for calculation.")
 
+# ---- Sidebar: Watchlist P&L Tracker (Live) ----
 st.sidebar.subheader("📈 Watchlist P&L Tracker (Live)")
 watchlist = st.sidebar.text_area("List NSE symbols (comma-separated)", value="RELIANCE, SBIN, TCS")
 positions_input = st.sidebar.text_area("Entry prices (comma, same order)", value="2550, 610, 3580")
@@ -283,16 +333,23 @@ quantities = [float(x) for x in qty_input.split(",") if x.strip()]
 pnl_data = []
 for i, s in enumerate(symbols):
     try:
+        if i >= len(entry_prices) or i >= len(quantities):
+            continue
         live = get_live_price(s)
-        if isinstance(live, str) or live is None or np.isnan(live):
+        if pd.isna(live) or live is None:
             d = fetch_stock_data(s, "1d", "5m")
-            if d is not None and len(d):
-                live = d["Close"][-1]
+            if d is not None and not d.empty:
+                live = d["Close"].iloc[-1]
             else:
                 live = np.nan
-        pnl = (live - entry_prices[i]) * quantities[i]
-        pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": live, "Qty": quantities[i], "P&L ₹": round(pnl,2)})
+        
+        if not pd.isna(live):
+            pnl = (live - entry_prices[i]) * quantities[i]
+            pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": round(live, 2), "Qty": quantities[i], "P&L ₹": round(pnl, 2)})
+        else:
+            pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": "N/A", "Qty": quantities[i], "P&L ₹": "N/A"})
     except Exception as e:
+        st.sidebar.error(f"Error for {s}: {e}")
         pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": "Err", "Qty": quantities[i], "P&L ₹": "Err"})
         browser_notification(
             "BlockVista Error",
@@ -300,16 +357,16 @@ for i, s in enumerate(symbols):
             "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
         )
 if pnl_data:
-    st.sidebar.dataframe(pd.DataFrame(pnl_data))
-    total_pnl = sum(x["P&L ₹"] for x in pnl_data if isinstance(x["P&L ₹"], (int,float)))
-    st.sidebar.markdown(f"<b>Total P&L ₹: {round(total_pnl,2)}</b>", unsafe_allow_html=True)
+    df_pnl = pd.DataFrame(pnl_data)
+    st.sidebar.dataframe(df_pnl.set_index('Symbol'))
+    total_pnl = df_pnl['P&L ₹'].sum() if all(isinstance(x, (int, float)) for x in df_pnl['P&L ₹']) else "N/A"
+    st.sidebar.markdown(f"<b>Total P&L ₹: {round(total_pnl, 2)}</b>", unsafe_allow_html=True)
 
-
-# ---- Sidebar: Order Placement (Kite, as requested) ----
+# ---- Sidebar: Order Placement (Kite) ----
 st.sidebar.subheader("Order Placement (Kite)")
-trade_type = st.sidebar.selectbox("Type", ['BUY','SELL'])
+trade_type = st.sidebar.selectbox("Type", ['BUY', 'SELL'])
 order_qty = st.sidebar.number_input("Quantity", value=1, step=1, min_value=1, key="order_qty_sidebar")
-order_type = st.sidebar.selectbox("Order Type",['MARKET', 'LIMIT'])
+order_type = st.sidebar.selectbox("Order Type", ['MARKET', 'LIMIT'])
 limit_price = st.sidebar.number_input("Limit Price", value=0.0, key="order_limit_price") if order_type == 'LIMIT' else None
 symbol_for_order = st.sidebar.text_input("Stock Symbol", value="RELIANCE", key="order_symbol_sidebar")
 if st.sidebar.button("PLACE ORDER"):
@@ -320,7 +377,7 @@ if st.sidebar.button("PLACE ORDER"):
             transaction_type=trade_type,
             quantity=int(order_qty),
             order_type=order_type,
-            price=limit_price if order_type == 'LIMIT' else None,
+            price=limit_price,
             variety="regular",
             product="CNC",
             validity="DAY"
@@ -366,36 +423,15 @@ if st.sidebar.button("PLACE GTT"):
             "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
         )
 
-# Place right after HEADER st.markdown(...), before any other component
-
-st.markdown("""
-<style>
-/* Remove gap after custom header/banner */
-.block-container > div:first-child {
-    margin-bottom: -60px !important;
-}
-/* For Streamlit >=1.24 layout */
-section.main > div:first-child {
-    margin-bottom: -60px !important;
-}
-/* Shrink space above all expanders (e.g. news deck) */
-.stExpander {
-    margin-top: -42px !important;
-}
-/* Remove extra padding inside expander for card-like look */
-.stExpander > div:first-child {
-    padding-top: 0px !important;
-    padding-bottom: 0px !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
 # ---- Quick News Deck ----
 def get_news_headlines_rss(ticker='^NSEI'):
     rss_url = f"https://finance.yahoo.com/rss/headline?s={ticker}.NS"
-    feed = feedparser.parse(rss_url)
-    return [(e['title'], e['link']) for e in feed['entries'][:5]]
+    try:
+        feed = feedparser.parse(rss_url)
+        return [(e['title'], e['link']) for e in feed['entries'][:5]]
+    except Exception as e:
+        st.error(f"Could not fetch news: {e}")
+        return []
 
 with st.expander("📰 Quick News Deck (Yahoo Finance Headlines)", expanded=False):
     news_query = st.text_input("Symbol for News", "RELIANCE")
@@ -408,17 +444,18 @@ with st.expander("📰 Quick News Deck (Yahoo Finance Headlines)", expanded=Fals
 
 # ---- Sentiment Meter (Live Market Mood) ----
 def get_market_sentiment(stock_list):
-    pos, neg = 0,0
+    pos, neg = 0, 0
     for sym in stock_list:
         try:
             d = fetch_stock_data(sym, "1d", "5m")
             if d is not None and len(d) > 1:
-                diff = d["Close"][-1] - d["Close"][0]
+                diff = d["Close"].iloc[-1] - d["Close"].iloc[0]
                 if diff > 0: pos += 1
                 elif diff < 0: neg += 1
-        except: pass
+        except Exception:
+            pass
     if pos+neg == 0: return "Neutral", 0.5
-    ratio = pos/(pos+neg)
+    ratio = pos / (pos + neg)
     if ratio > 0.7: return "Strongly Bullish", ratio
     elif ratio > 0.5: return "Bullish", ratio
     elif ratio == 0.5: return "Neutral", ratio
@@ -430,10 +467,8 @@ stock_list_sent = ["RELIANCE", "TCS", "INFY", "HDFCBANK"]
 sent_txt, sent_val = get_market_sentiment(stock_list_sent)
 st.markdown(f"**Market Sentiment:** {sent_txt}")
 st.progress(sent_val)
-# --- Real-time Sentiment Trend Tracking ---
 
 from datetime import datetime
-
 if "sentiment_history" not in st.session_state:
     st.session_state["sentiment_history"] = []
 
@@ -443,7 +478,7 @@ if not st.session_state["sentiment_history"] or \
     st.session_state["sentiment_history"].append((now, sent_val))
 
 df_senti = pd.DataFrame(st.session_state["sentiment_history"], columns=["time", "sentiment"]).set_index("time")
-if len(df_senti):
+if not df_senti.empty:
     st.line_chart(df_senti["sentiment"])
 
 # ---- One-Click Custom Alerts ----
@@ -455,18 +490,18 @@ if st.sidebar.button("Set Alert"):
     st.session_state["alerts"][alert_symbol.upper()] = alert_price
     st.sidebar.success(f"Alert set for {alert_symbol} > ₹{alert_price}")
 if "alerts" in st.session_state:
-    for sym, target in st.session_state["alerts"].items():
+    for sym, target in list(st.session_state["alerts"].items()):
         try:
             ltp = get_live_price(sym)
-            if ltp is not None and ltp > target:
+            if ltp is not None and not pd.isna(ltp) and ltp > target:
                 st.sidebar.warning(f"ALERT: {sym} > ₹{target} (Now ₹{ltp})")
                 browser_notification(
                     f"Price Alert Hit: {sym}",
                     f"Hit ₹{target} (Now ₹{ltp})"
                 )
                 del st.session_state["alerts"][sym]
-                break
-        except: pass
+        except Exception:
+            pass
 
 # ---- Sidebar: Screener ----
 st.sidebar.title('Multi-Screener Settings')
@@ -489,161 +524,150 @@ else:
     st.sidebar.info("No data found for selection.")
 
 # ---- Main UI: TABS, Chart + Trade-from-Chart ----
-if len(stock_list):
+if len(stock_list) > 0:
     st.header(f"Live Technical Dashboard: {stock_list[0]}")
     data = fetch_stock_data(stock_list[0], screen_period, screen_interval)
-    if data is None or not len(data):
+    if data is None or data.empty:
         st.error("No data available for this symbol/interval.")
         browser_notification(
             "BlockVista Error",
             "❌ No data available for this symbol/interval.",
             "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
         )
-        st.stop()
-    price = get_live_price(stock_list[0])
-
-    tabs = st.tabs(["Chart", "TA", "Advanced", "Raw"])
-
-    def plot_live_chart(symbol, data, ltp):
-        chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
-        bands_show = st.checkbox("Show Bollinger Bands (Fill)", value=True)
-        fig = go.Figure()
-
-        if not data.empty:
-            if chart_style == "Heikin Ashi":
-                fig.add_trace(go.Candlestick(
-                    x=data.index,
-                    open=data['HA_open'], high=data['HA_high'],
-                    low=data['HA_low'], close=data['HA_close'], name='Heikin Ashi'))
-            else:
-                fig.add_trace(go.Candlestick(
-                    x=data.index, open=data['Open'], high=data['High'],
-                    low=data['Low'], close=data['Close'], name='Candles'))
-
-            if bands_show and 'BOLL_U' in data and 'BOLL_L' in data:
-                fig.add_trace(go.Scatter(
-                    x=data.index, y=data['BOLL_U'], line=dict(color='#2986cc', width=1), name='Boll U'))
-                fig.add_trace(go.Scatter(
-                    x=data.index, y=data['BOLL_L'], line=dict(color='#cc2929', width=1), name='Boll L'))
-                fig.add_trace(go.Scatter(
-                    x=list(data.index) + list(data.index[::-1]),
-                    y=list(data['BOLL_U']) + list(data['BOLL_L'])[::-1],
-                    fill="toself", fillcolor="rgba(41,134,204,0.12)",
-                    line=dict(color="rgba(255,255,255,0)"),
-                    showlegend=False, name="BB Channel"))
-            if 'EMA9' in data:
-                fig.add_trace(go.Scatter(
-                    x=data.index, y=data['EMA9'], line=dict(color='#00FF99', width=1), name='EMA 9'))
-            if 'SMA21' in data:
-                fig.add_trace(go.Scatter(
-                    x=data.index, y=data['SMA21'], line=dict(color='#FFA500', width=1), name='SMA 21'))
-            supertrend_col = [str(c) for c in list(data.columns) if str(c).startswith('SUPERT_') and not str(c).endswith('_dir')]
-            if supertrend_col:
-                fig.add_trace(go.Scatter(
-                    x=data.index, y=data[supertrend_col[0]],
-                    line=dict(color='#fae900', width=2), name='Supertrend'))
-
-        # LIVE PRICE LINE AND MARKER
-        if pd.notna(ltp):
-            fig.add_hline(
-                y=ltp, line_color="#FFD900", line_width=2,
-                annotation_text=f"Live ₹{ltp:.2f}", annotation_position="top right",
-                annotation=dict(font_size=12, font_color="#FFD900")
-            )
-            if not data.empty:
-                last_idx = data.index[-1]
-                fig.add_trace(go.Scatter(
-                    x=[last_idx], y=[ltp], mode='markers',
-                    marker=dict(size=10, color='yellow', symbol='circle'),
-                    name='Live Price'
-                ))
-            else:
-                now = pd.Timestamp.now()
-                fig.add_trace(go.Scatter(
-                    x=[now], y=[ltp], mode='markers',
-                    marker=dict(size=10, color='yellow', symbol='circle'),
-                    name='Live Price'
-                ))
-
-        fig.update_layout(template='plotly_dark', xaxis_rangeslider_visible=False)
-        st.plotly_chart(fig, use_container_width=True)
-        return ltp if pd.notna(ltp) else (data['Close'].iloc[-1] if not data.empty else 0)
-
-    with tabs[0]:
+    else:
         ltp_tab = get_live_price(stock_list[0])
-        st.metric(
-            "Live Price (LTP)",
-            f"₹{ltp_tab:.2f}" if ltp_tab is not None and not pd.isna(ltp_tab) else "N/A"
-        )
-        latest = data.iloc[-1]
-        macd_val = latest.get('MACD_12_26_9', 'N/A')
-        rsi_val = latest.get('RSI', 'N/A')
-        if isinstance(macd_val, pd.Series):
-            macd_val_scalar = macd_val.iloc[-1]
-        else:
-            macd_val_scalar = macd_val
-        if isinstance(rsi_val, pd.Series):
-            rsi_val_scalar = rsi_val.iloc[-1]
-        else:
-            rsi_val_scalar = rsi_val
-        macd_val_formatted = f"{macd_val_scalar:.2f}" if not pd.isna(macd_val_scalar) else "N/A"
-        rsi_val_formatted = f"{rsi_val_scalar:.2f}" if not pd.isna(rsi_val_scalar) else "N/A"
-        st.write(
-            f"**RSI:** {rsi_val_formatted} &nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp; **MACD:** {macd_val_formatted}"
-        )
-        last_price = plot_live_chart(stock_list[0], data, ltp_tab)
-        st.markdown("#### Place Order Directly from Chart")
-        chosen_price = st.number_input(
-            "Trade Price (pick from chart, autofilled with last close)",
-            value=last_price if last_price else 0
-        )
-        side = st.radio("Side", ["BUY", "SELL"], horizontal=True)
-        qty = st.number_input("Quantity", min_value=1, value=1)
-        if st.button(f"{side} Now (Chart Tab)"):
-            try:
-                placed_order = kite.place_order(
-                    tradingsymbol=stock_list[0], exchange="NSE",
-                    transaction_type=side, quantity=int(qty),
-                    order_type="LIMIT", price=chosen_price,
-                    variety="regular", product="CNC", validity="DAY"
-                )
-                st.success(f"Order {side} placed for {qty} at ₹{chosen_price:.2f}. ID: {placed_order}")
-            except Exception as e:
-                st.error(f"Order failed: {e}")
-                browser_notification(
-                    "BlockVista Error",
-                    f"❌ Order failed: {e}",
-                    "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-                )
+        
+        tabs = st.tabs(["Chart", "TA", "Advanced", "Raw"])
 
-    with tabs[1]:
-        ta_cols_all = ['RSI','ADX','STOCHRSI']
-        ta_cols = [c for c in ta_cols_all if c in list(data.columns)]
-        if ta_cols:
-            st.line_chart(data[ta_cols].dropna())
-        else:
-            st.warning("No available TA columns for charting.")
-            browser_notification(
-                "BlockVista Warning",
-                "No available TA columns for charting."
+        with tabs[0]:
+            st.metric(
+                "Live Price (LTP)",
+                f"₹{ltp_tab:.2f}" if ltp_tab is not None and not pd.isna(ltp_tab) else "N/A"
             )
-        macd_cols_all = ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']
-        macd_cols = [c for c in macd_cols_all if c in list(data.columns)]
-        if macd_cols:
-            st.line_chart(data[macd_cols].dropna())
-        if 'ATR' in data:
-            st.line_chart(data['ATR'].dropna())
-        last_cols_all = ['Close','RSI','ADX','STOCHRSI','ATR','VWAP']
-        last_cols = [c for c in last_cols_all if c in list(data.columns)]
-        st.write("Latest Values:", data.iloc[-1][last_cols])
-    with tabs[2]:
-        st.subheader("Signals (Current)")
-        signals = get_signals(data)
-        st.table(pd.DataFrame(signals.items(), columns=['Indicator', 'Signal']))
-        csv2 = data.to_csv()
-        st.download_button('Export Data to CSV', csv2, file_name=f"{stock_list[0]}_{screen_interval}.csv")
-    with tabs[3]:
-        if st.checkbox("Show Table Data"):
-            st.dataframe(data.tail(40))
+            latest = data.iloc[-1]
+            macd_val = try_scalar(latest.get('MACD_12_26_9', np.nan))
+            rsi_val = try_scalar(latest.get('RSI', np.nan))
+            
+            macd_val_formatted = f"{macd_val:.2f}" if not pd.isna(macd_val) else "N/A"
+            rsi_val_formatted = f"{rsi_val:.2f}" if not pd.isna(rsi_val) else "N/A"
+            
+            st.write(
+                f"**RSI:** {rsi_val_formatted} &nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp; **MACD:** {macd_val_formatted}"
+            )
+            
+            def plot_live_chart(symbol, data, ltp):
+                chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
+                bands_show = st.checkbox("Show Bollinger Bands (Fill)", value=True)
+                
+                fig = go.Figure()
+
+                if not data.empty:
+                    if chart_style == "Heikin Ashi" and 'HA_open' in data.columns:
+                        fig.add_trace(go.Candlestick(
+                            x=data.index,
+                            open=data['HA_open'], high=data['HA_high'],
+                            low=data['HA_low'], close=data['HA_close'], name='Heikin Ashi'))
+                    else:
+                        fig.add_trace(go.Candlestick(
+                            x=data.index, open=data['Open'], high=data['High'],
+                            low=data['Low'], close=data['Close'], name='Candles'))
+                    
+                    if bands_show and 'BOLL_U' in data.columns and 'BOLL_L' in data.columns:
+                        fig.add_trace(go.Scatter(
+                            x=data.index, y=data['BOLL_U'], line=dict(color='#2986cc', width=1), name='Boll U'))
+                        fig.add_trace(go.Scatter(
+                            x=data.index, y=data['BOLL_L'], line=dict(color='#cc2929', width=1), name='Boll L'))
+                        fig.add_trace(go.Scatter(
+                            x=list(data.index) + list(data.index[::-1]),
+                            y=list(data['BOLL_U']) + list(data['BOLL_L'])[::-1],
+                            fill="toself", fillcolor="rgba(41,134,204,0.12)",
+                            line=dict(color="rgba(255,255,255,0)"),
+                            showlegend=False, name="BB Channel"))
+                    if 'EMA9' in data.columns:
+                        fig.add_trace(go.Scatter(
+                            x=data.index, y=data['EMA9'], line=dict(color='#00FF99', width=1), name='EMA 9'))
+                    if 'SMA21' in data.columns:
+                        fig.add_trace(go.Scatter(
+                            x=data.index, y=data['SMA21'], line=dict(color='#FFA500', width=1), name='SMA 21'))
+                    supertrend_col = [c for c in data.columns if c.startswith('SUPERT_') and not c.endswith('_dir')]
+                    if supertrend_col:
+                        fig.add_trace(go.Scatter(
+                            x=data.index, y=data[supertrend_col[0]],
+                            line=dict(color='#fae900', width=2), name='Supertrend'))
+
+                if pd.notna(ltp):
+                    fig.add_hline(
+                        y=ltp, line_color="#FFD900", line_width=2,
+                        annotation_text=f"Live ₹{ltp:.2f}", annotation_position="top right",
+                        annotation=dict(font_size=12, font_color="#FFD900")
+                    )
+                    
+                fig.update_layout(template='plotly_dark', xaxis_rangeslider_visible=False)
+                st.plotly_chart(fig, use_container_width=True)
+                return ltp if pd.notna(ltp) else (data['Close'].iloc[-1] if not data.empty else 0)
+
+            last_price = plot_live_chart(stock_list[0], data, ltp_tab)
+            
+            st.markdown("#### Place Order Directly from Chart")
+            chosen_price = st.number_input(
+                "Trade Price (pick from chart, autofilled with last close)",
+                value=float(last_price) if not pd.isna(last_price) else 0.0
+            )
+            side = st.radio("Side", ["BUY", "SELL"], horizontal=True)
+            qty = st.number_input("Quantity", min_value=1, value=1)
+            
+            if st.button(f"{side} Now (Chart Tab)"):
+                try:
+                    placed_order = kite.place_order(
+                        tradingsymbol=stock_list[0], exchange="NSE",
+                        transaction_type=side, quantity=int(qty),
+                        order_type="LIMIT", price=chosen_price,
+                        variety="regular", product="CNC", validity="DAY"
+                    )
+                    st.success(f"Order {side} placed for {qty} at ₹{chosen_price:.2f}. ID: {placed_order}")
+                except Exception as e:
+                    st.error(f"Order failed: {e}")
+                    browser_notification(
+                        "BlockVista Error",
+                        f"❌ Order failed: {e}",
+                        "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+                    )
+        
+        with tabs[1]:
+            ta_cols_all = ['RSI', 'ADX', 'STOCHRSI']
+            ta_cols = [c for c in ta_cols_all if c in data.columns]
+            if ta_cols:
+                st.line_chart(data[ta_cols].dropna())
+            else:
+                st.warning("No available TA columns for charting.")
+                browser_notification(
+                    "BlockVista Warning",
+                    "No available TA columns for charting."
+                )
+            
+            macd_cols_all = ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']
+            macd_cols = [c for c in macd_cols_all if c in data.columns]
+            if macd_cols:
+                st.line_chart(data[macd_cols].dropna())
+            
+            if 'ATR' in data.columns:
+                st.line_chart(data['ATR'].dropna())
+            
+            last_cols_all = ['Close', 'RSI', 'ADX', 'STOCHRSI', 'ATR', 'VWAP']
+            last_cols = [c for c in last_cols_all if c in data.columns]
+            
+            latest_values = data.iloc[-1].filter(items=last_cols)
+            st.write("Latest Values:", latest_values)
+            
+        with tabs[2]:
+            st.subheader("Signals (Current)")
+            signals = get_signals(data)
+            st.table(pd.DataFrame(signals.items(), columns=['Indicator', 'Signal']))
+            csv2 = data.to_csv()
+            st.download_button('Export Data to CSV', csv2, file_name=f"{stock_list[0]}_{screen_interval}.csv")
+            
+        with tabs[3]:
+            if st.checkbox("Show Table Data"):
+                st.dataframe(data.tail(40))
 
 st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Plotly & Streamlit")
