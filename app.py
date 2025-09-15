@@ -150,8 +150,9 @@ def get_live_price(symbol):
         )
         return np.nan
 
-@st.cache_data(show_spinner="⏳ Loading data...")
 def fetch_stock_data(symbol, period, interval):
+    ...
+
     data = yf.download(f"{symbol}.NS", period=period, interval=interval)
     if len(data) == 0:
         return None
