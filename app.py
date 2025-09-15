@@ -50,7 +50,8 @@ SYMBOL_TO_COMPANY = {
     "NESTLEIND": ["Nestle India"],
     "ITC": ["ITC"],
     "BRITANNIA": ["Britannia Industries"],
-    "BEL": ["Bharat Electronics"]
+    "BEL": ["Bharat Electronics"],
+    "HAL": ["Hindustan Aeronautics"]
 }
 NIFTY50_TOP = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS"]
 
@@ -626,6 +627,27 @@ def fetch_stock_data(symbol, period, interval):
                 st.warning(f"No data fetched for {symbol}.")
                 return None
         
+        # Log data structure for debugging
+        logging.debug(f"Data columns for {symbol}: {list(data.columns)}")
+        logging.debug(f"Data head for {symbol}:\n{data.head().to_string()}")
+        
+        # Handle MultiIndex columns
+        if isinstance(data.columns, pd.MultiIndex):
+            logging.debug(f"MultiIndex detected for {symbol}. Attempting to flatten columns.")
+            # Select columns for the specific symbol
+            try:
+                data = data.xs(f"{symbol}.NS", level=1, axis=1, drop_level=True)
+            except KeyError:
+                logging.warning(f"Symbol {symbol}.NS not found in MultiIndex columns: {data.columns}")
+                # Fallback to selecting common columns if available
+                available_cols = [col for col in data.columns if col[0] in ['Open', 'High', 'Low', 'Close', 'Volume']]
+                if not available_cols:
+                    logging.warning(f"No valid columns found for {symbol} in MultiIndex.")
+                    st.warning(f"No valid columns found for {symbol}.")
+                    return None
+                data = data[available_cols]
+                data.columns = [col[0] for col in data.columns]
+        
         required_cols = ['Open', 'High', 'Low', 'Close']
         if not all(col in data.columns for col in required_cols):
             logging.warning(f"Missing required columns for {symbol}: {list(data.columns)}")
@@ -653,7 +675,7 @@ def fetch_stock_data(symbol, period, interval):
             st.warning(f"Insufficient data for {symbol}: {len(data)} rows.")
             return None
         
-        logging.debug(f"Data for {symbol}: {data.tail(5)}")
+        logging.debug(f"Processed data for {symbol}: {data.tail(5)}")
         
         # Compute technical indicators only if data is sufficient
         try:
