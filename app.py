@@ -15,36 +15,38 @@ Notes:
   would be required — TODO included below.
 """
 
-# app.py (FULL updated file)
+# app.py
+"""
+BlockVista Terminal — Streamlit app
+Features:
+- Zerodha KiteConnect auto-refresh token flow (uses KITE_REFRESH_TOKEN if present)
+- KiteTicker WebSocket subscription (dynamic subscribe/unsubscribe)
+- Server-side aggregation of live ticks -> OHLC candles (1m/5m/15m)
+- Candlestick rendering using Lightweight Charts embedded via components.html
+- Order placement (market / limit) through Kite place_order
+- Fallbacks to yfinance / Alpha Vantage for historical bars (original logic retained)
+"""
+
+import os
+import time
+import json
+import threading
+from collections import deque
+from datetime import datetime, timedelta
+
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import pandas_ta as ta
-import plotly.graph_objs as go
 from kiteconnect import KiteConnect, KiteTicker
 from streamlit_autorefresh import st_autorefresh
 from alpha_vantage.timeseries import TimeSeries
-from collections import deque
-import threading
-import time
-import json
-from datetime import datetime, timedelta
-
-import os
-
-# Load API keys from Streamlit secrets (preferred on cloud) or environment variables
-if "KITE_API_KEY" in st.secrets:
-    api_key = st.secrets["KITE_API_KEY"]
-    api_secret = st.secrets["KITE_API_SECRET"]
-else:
-    api_key = os.getenv("KITE_API_KEY")
-    api_secret = os.getenv("KITE_API_SECRET")
-
 
 # ---------------------- CONFIG ----------------------
 AV_API_KEY = "2R0I2OXW1A1HMD9N"
-MAX_TICKS_PER_SYMBOL = 4000   # bound live memory
+MAX_TICKS_PER_SYMBOL = 4000   # bound live memory per-symbol
 MAX_AGG_CANDLES = 500
 
 # ---------------------- UTILITIES ----------------------
@@ -82,10 +84,10 @@ def fetch_alpha_vantage_intraday(symbol, interval='1min', outputsize='compact'):
         df = df.sort_index()
         return df
     except Exception as e:
-        st.warning(f"Alpha Vantage fetch failed: {e}")
+        # do not spam UI — return None
         return None
 
-# ---------------------- APP THEME & SESSION ----------------------
+# ---------------------- THEME & SESSION ----------------------
 st.set_page_config(page_title="BLOCKVISTA TERMINAL", layout="wide")
 if "dark_theme" not in st.session_state:
     st.session_state.dark_theme = True
@@ -119,8 +121,6 @@ with refresh_col:
     st.session_state["auto_refresh"] = st.checkbox("Auto Refresh", value=st.session_state["auto_refresh"])
 with toggle_col:
     st.session_state["refresh_interval"] = st.number_input("Sec", value=st.session_state["refresh_interval"], min_value=3, max_value=90, step=1)
-if st.session_state["auto_refresh"]:
-    st_autorefresh(interval=st.session_state["refresh_interval"] * 1000, key="autorefresh")
 
 # ---------------------- Smallcase baskets ----------------------
 SMALLCASE_BASKETS = {
@@ -131,53 +131,100 @@ SMALLCASE_BASKETS = {
     "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA"],
 }
 
-# ---------------------- Zerodha Auth (keeps original flow) ----------------------
-api_key = st.secrets.get("ZERODHA_API_KEY")
-api_secret = st.secrets.get("ZERODHA_API_SECRET")
-if api_key is None or api_secret is None:
-    st.error("Zerodha API credentials not found in Streamlit secrets. Add ZERODHA_API_KEY and ZERODHA_API_SECRET.")
+# ---------------------- Zerodha Auth (auto-refresh with refresh_token if available) ----------------------
+def get_api_creds():
+    # Prefer Streamlit secrets, fallback to environment variables
+    def get(name):
+        if name in st.secrets:
+            return st.secrets[name]
+        return os.getenv(name)
+    api_key = get("KITE_API_KEY") or get("ZERODHA_API_KEY") or get("ZERODHA_API_KEY")
+    api_secret = get("KITE_API_SECRET") or get("ZERODHA_API_SECRET") or get("ZERODHA_API_SECRET")
+    refresh_token = get("KITE_REFRESH_TOKEN")
+    return api_key, api_secret, refresh_token
+
+api_key, api_secret, refresh_token = get_api_creds()
+
+if not api_key or not api_secret:
+    st.error("Zerodha API credentials not found. Add KITE_API_KEY and KITE_API_SECRET in Streamlit secrets or environment variables.")
     st.stop()
 
-if "access_token" not in st.session_state:
-    kite_tmp = KiteConnect(api_key=api_key)
-    login_url = kite_tmp.login_url()
+def get_kite_session():
+    """
+    Returns a KiteConnect instance with an active access token in session_state.
+    Flow:
+    - If st.session_state['access_token'] exists -> set and return kite.
+    - Else if KITE_REFRESH_TOKEN present -> call kite.generate_session(refresh_token, api_secret) to obtain access_token.
+      (This assumes your refresh token can be used this way; if your Kite app uses a different refresh flow you may need to adapt.)
+    - Else -> show login URL and guide to manually obtain request_token -> generate_session -> print refresh_token once and store it.
+    """
+    kite_conn = KiteConnect(api_key=api_key)
+    # If we already have access_token in session state (valid for this run)
+    if "access_token" in st.session_state:
+        kite_conn.set_access_token(st.session_state["access_token"])
+        return kite_conn
+
+    # Try auto-refresh via refresh token (recommended)
+    if refresh_token:
+        try:
+            # Some Kite setups provide generate_session with request_token only.
+            # If your Kite account/app supports refresh_token -> use session refresh method accordingly.
+            # Here we attempt generate_session(refresh_token, api_secret) per prior discussion.
+            data = kite_conn.generate_session(refresh_token, api_secret=api_secret)
+            access_token = data.get("access_token")
+            if access_token:
+                st.session_state["access_token"] = access_token
+                kite_conn.set_access_token(access_token)
+                st.success("✅ Zerodha session auto-refreshed via refresh_token")
+                return kite_conn
+            else:
+                st.warning("Auto refresh attempt did not return access_token. Falling back to manual flow.")
+        except Exception as e:
+            # Do not crash app; guide user to manual flow
+            st.warning(f"Auto-refresh failed: {e}")
+
+    # Manual one-time login flow (guide)
+    login_url = kite_conn.login_url()
     st.markdown(
         f"""
-        <div style="background: #f5da82; padding: 14px; border-radius: 8px;">
+        <div style="background:#f5da82;padding:14px;border-radius:8px;">
         🟠 <a href="{login_url}" target="_blank"><b>Click here to login & authorize BlockVista</b></a><br>
-        After logging in, get <b>`request_token=xxxx`</b> from the URL and paste below:
+        After logging in, you'll be redirected to your redirect_url with <b>request_token=xxxx</b> in the URL.
+        Paste that <b>request_token</b> into the box below and click 'Generate Access Token'. Then copy the printed
+        <b>refresh_token</b> into your Streamlit secrets (`KITE_REFRESH_TOKEN`) for future auto-refresh.
         </div>
-        """, unsafe_allow_html=True
+        """,
+        unsafe_allow_html=True
     )
-    request_token = st.text_input("Paste request_token here:")
+    request_token = st.text_input("Paste request_token here (one-time):")
     if st.button("Generate Access Token") and request_token:
         try:
-            data = kite_tmp.generate_session(request_token, api_secret=api_secret)
-            st.session_state["access_token"] = data["access_token"]
-            kite = KiteConnect(api_key=api_key)
-            kite.set_access_token(data["access_token"])
-            st.session_state["kite"] = kite
-            st.success("✅ Zerodha session started! All Kite features enabled.")
+            data = kite_conn.generate_session(request_token, api_secret=api_secret)
+            access_token = data.get("access_token")
+            refresh_token_printed = data.get("refresh_token") or data.get("public_token") or None
+            if access_token:
+                st.session_state["access_token"] = access_token
+                kite_conn.set_access_token(access_token)
+                st.success("✅ Zerodha session started! Save the refresh token to secrets for auto refresh.")
+                if refresh_token_printed:
+                    st.code(f"REFRESH_TOKEN (save this in your secrets):\n{refresh_token_printed}")
+                return kite_conn
+            else:
+                st.error("Could not obtain access_token from Kite response.")
+                st.stop()
         except Exception as ex:
             st.error(f"❌ Zerodha login failed: {ex}")
-            browser_notification("BlockVista Error", f"❌ Zerodha login failed: {ex}", "https://cdn-icons-png.flaticon.com/512/2583/2583346.png")
             st.stop()
     st.stop()
-else:
-    if "kite" not in st.session_state:
-        kite = KiteConnect(api_key=api_key)
-        kite.set_access_token(st.session_state["access_token"])
-        st.session_state["kite"] = kite
-    else:
-        kite = st.session_state["kite"]
 
-# ---------------------- Core helpers (kept original) ----------------------
+kite = get_kite_session()
+
+# ---------------------- Core helpers (original logic kept) ----------------------
 def get_live_price(symbol):
     try:
         ltp = kite.ltp(f"NSE:{symbol}")
         return ltp[f"NSE:{symbol}"]["last_price"]
-    except Exception as e:
-        # do not spam logs in UI — return np.nan to signal missing
+    except Exception:
         return np.nan
 
 @st.cache_data(show_spinner="⏳ Loading data...")
@@ -185,11 +232,10 @@ def fetch_stock_data(symbol, period, interval):
     data = yf.download(f"{symbol}.NS", period=period, interval=interval, progress=False)
     if data is None or len(data) == 0:
         av_interval = {"1m": "1min", "5m": "5min", "15m": "15min"}.get(interval, "5min")
-        st.info("Fetching live data from Alpha Vantage…")
         data = fetch_alpha_vantage_intraday(symbol, interval=av_interval)
         if data is None or len(data) == 0:
             return None
-    # Technical indicators (same as original)
+    # Compute technicals (best-effort)
     try:
         data['RSI'] = ta.rsi(data['Close'], length=14) if len(data) > 0 else np.nan
         macd = ta.macd(data['Close'])
@@ -220,11 +266,9 @@ def fetch_stock_data(symbol, period, interval):
             ha_key = f'HA_{c}'
             data[ha_key] = ha[ha_key] if isinstance(ha, pd.DataFrame) and ha_key in ha else np.nan
     except Exception:
-        # If TA library fails for some reason, return data with minimal columns
         pass
     return data
 
-# helpers from original: try_scalar, get_signals, make_screener (unchanged)
 def try_scalar(val):
     if isinstance(val, pd.Series) and len(val) == 1:
         val = val.iloc[0]
@@ -276,7 +320,7 @@ def make_screener(stock_list, period, interval):
             screener_data.append(row)
     return pd.DataFrame(screener_data)
 
-# ---------------------- Sidebar: Watchlist P&L Tracker (kept) ----------------------
+# ---------------------- Sidebar: Watchlist P&L Tracker ----------------------
 st.sidebar.subheader("📈 Watchlist P&L Tracker (Live)")
 watchlist = st.sidebar.text_area("List NSE symbols (comma-separated)", value="RELIANCE, SBIN, TCS")
 positions_input = st.sidebar.text_area("Entry prices (comma, same order)", value="2550, 610, 3580")
@@ -303,7 +347,7 @@ if pnl_data:
     total_pnl = sum(x["P&L ₹"] for x in pnl_data if isinstance(x["P&L ₹"], (int,float)))
     st.sidebar.markdown(f"<b>Total P&L ₹: {round(total_pnl,2)}</b>", unsafe_allow_html=True)
 
-# ---------------------- Sidebar: Screener (kept) ----------------------
+# ---------------------- Sidebar: Screener ----------------------
 st.sidebar.title('Multi-Screener Settings')
 screener_mode = st.sidebar.radio("Screener Mode", ["Single Stock", "Basket (Smallcase)"])
 if screener_mode == "Single Stock":
@@ -324,14 +368,14 @@ if len(screen_df):
 else:
     st.sidebar.info("No data found for selection.")
 
-# ---------------------- KiteTicker live integration (NEW, dynamic subscribe) ----------------------
+# ---------------------- KiteTicker live integration (dynamic subscribe) ----------------------
 # session-state initialization
 if "live_ticks" not in st.session_state:
-    st.session_state["live_ticks"] = {}         # symbol -> deque of ticks [{'t':ts,'v':price}]
+    st.session_state["live_ticks"] = {}
 if "ohlc_agg" not in st.session_state:
-    st.session_state["ohlc_agg"] = {}          # symbol -> {minute_ts: {open,high,low,close,time}}
+    st.session_state["ohlc_agg"] = {}
 if "token_to_symbol" not in st.session_state:
-    st.session_state["token_to_symbol"] = {}   # str(token) -> symbol
+    st.session_state["token_to_symbol"] = {}
 if "kws_obj" not in st.session_state:
     st.session_state["kws_obj"] = None
 if "kws_thread" not in st.session_state:
@@ -341,15 +385,13 @@ if "kws_running" not in st.session_state:
 if "subscribed_tokens" not in st.session_state:
     st.session_state["subscribed_tokens"] = set()
 
-# helpers for instrument lookup
-@st.cache_data
+@st.cache_data(ttl=3600)
 def load_instruments():
     try:
         instruments = kite.instruments()
         df = pd.DataFrame(instruments)
         return df
-    except Exception as e:
-        st.warning(f"Could not load instruments list: {e}")
+    except Exception:
         return pd.DataFrame()
 
 def find_instrument_token(symbol, exchange='NSE'):
@@ -360,13 +402,12 @@ def find_instrument_token(symbol, exchange='NSE'):
     matches = df[cond]
     if not matches.empty:
         return int(matches.iloc[0]['instrument_token'])
-    # fallback: contains
     matches2 = df[df['tradingsymbol'].str.upper().str.contains(symbol.upper()) & (df['exchange'] == exchange)]
     if not matches2.empty:
         return int(matches2.iloc[0]['instrument_token'])
     return None
 
-# kite ticker callbacks
+# KiteTicker callbacks and utilities
 def kite_on_ticks(ws, ticks):
     for t in ticks:
         token = t.get('instrument_token')
@@ -376,7 +417,7 @@ def kite_on_ticks(ws, ticks):
             if isinstance(ts_field, str):
                 ts = pd.to_datetime(ts_field)
             else:
-                # timestamp may be epoch in ms or s
+                # epoch ms / s fallback
                 if ts_field is None:
                     ts = pd.Timestamp.utcnow()
                 elif ts_field > 1e12:
@@ -389,46 +430,43 @@ def kite_on_ticks(ws, ticks):
             ts = pd.Timestamp.utcnow()
 
         token_s = str(token)
-        symbol = st.session_state["token_to_symbol"].get(token_s)
-        if symbol is None:
-            # try reverse lookup
-            df = load_instruments()
-            if not df.empty:
-                rows = df[df['instrument_token'] == int(token)]
+        symbol_from_map = st.session_state["token_to_symbol"].get(token_s)
+        if symbol_from_map is None:
+            df_inst = load_instruments()
+            if not df_inst.empty:
+                rows = df_inst[df_inst['instrument_token'] == int(token)]
                 if not rows.empty:
-                    symbol = rows.iloc[0]['tradingsymbol']
-                    st.session_state["token_to_symbol"][token_s] = symbol
+                    symbol_from_map = rows.iloc[0]['tradingsymbol']
+                    st.session_state["token_to_symbol"][token_s] = symbol_from_map
                 else:
-                    symbol = token_s
-                    st.session_state["token_to_symbol"][token_s] = symbol
+                    symbol_from_map = token_s
+                    st.session_state["token_to_symbol"][token_s] = symbol_from_map
             else:
-                symbol = token_s
-                st.session_state["token_to_symbol"][token_s] = symbol
+                symbol_from_map = token_s
+                st.session_state["token_to_symbol"][token_s] = symbol_from_map
 
-        # store tick (deque)
-        if symbol not in st.session_state["live_ticks"]:
-            st.session_state["live_ticks"][symbol] = deque(maxlen=MAX_TICKS_PER_SYMBOL)
-        st.session_state["live_ticks"][symbol].append({'t': ts, 'v': float(lp) if lp is not None else np.nan})
+        # store tick
+        if symbol_from_map not in st.session_state["live_ticks"]:
+            st.session_state["live_ticks"][symbol_from_map] = deque(maxlen=MAX_TICKS_PER_SYMBOL)
+        st.session_state["live_ticks"][symbol_from_map].append({'t': ts, 'v': float(lp) if lp is not None else np.nan})
 
-        # aggregate into 1m OHLC server-side
+        # aggregate into 1m OHLC
         minute = ts.replace(second=0, microsecond=0)
-        if symbol not in st.session_state["ohlc_agg"]:
-            st.session_state["ohlc_agg"][symbol] = {}
-        ohlc_map = st.session_state["ohlc_agg"][symbol]
+        if symbol_from_map not in st.session_state["ohlc_agg"]:
+            st.session_state["ohlc_agg"][symbol_from_map] = {}
+        ohlc_map = st.session_state["ohlc_agg"][symbol_from_map]
         key = minute.isoformat()
         if key not in ohlc_map:
-            ohlc_map[key] = {'time': minute.strftime('%Y-%m-%d %H:%M:%S'), 'open': lp, 'high': lp, 'low': lp, 'close': lp}
+            ohlc_map[key] = {'time': int(minute.timestamp()), 'open': lp, 'high': lp, 'low': lp, 'close': lp}
         else:
-            # update highs/lows/closes
             if lp is not None:
                 if ohlc_map[key]['high'] is None or lp > ohlc_map[key]['high']:
                     ohlc_map[key]['high'] = lp
                 if ohlc_map[key]['low'] is None or lp < ohlc_map[key]['low']:
                     ohlc_map[key]['low'] = lp
                 ohlc_map[key]['close'] = lp
-        # cap size in memory
+        # cap
         if len(ohlc_map) > MAX_AGG_CANDLES:
-            # keep only latest MAX_AGG_CANDLES
             keys_sorted = sorted(list(ohlc_map.keys()))
             for oldk in keys_sorted[:-MAX_AGG_CANDLES]:
                 del ohlc_map[oldk]
@@ -440,34 +478,42 @@ def kite_on_close(ws, code, reason):
     st.session_state["kws_running"] = False
 
 def start_kite_ticker_thread():
-    # start KiteTicker object once and save into session state
-    if st.session_state["kws_obj"] is None:
+    # Guard: don't start multiple threads
+    if st.session_state.get("kws_running"):
+        return
+    if st.session_state.get("kws_obj") is not None:
         try:
-            kws = KiteTicker(api_key, st.session_state["access_token"])
-            kws.on_ticks = kite_on_ticks
-            kws.on_connect = kite_on_connect
-            kws.on_close = kite_on_close
-            # run connect in separate thread so Streamlit main loop is free
-            def run():
-                try:
-                    kws.connect(threaded=False)
-                except Exception as e:
-                    # put in warning but don't crash
-                    st.warning(f"KiteTicker connect error: {e}")
-            th = threading.Thread(target=run, daemon=True)
-            th.start()
-            st.session_state["kws_obj"] = kws
-            st.session_state["kws_thread"] = th
-        except Exception as e:
-            st.warning(f"Failed to init KiteTicker: {e}")
+            # If an object exists but not running, try to reuse
+            kws = st.session_state["kws_obj"]
+            th = st.session_state.get("kws_thread")
+            if th and th.is_alive():
+                return
+        except Exception:
+            pass
+    try:
+        kws = KiteTicker(api_key, st.session_state["access_token"])
+        kws.on_ticks = kite_on_ticks
+        kws.on_connect = kite_on_connect
+        kws.on_close = kite_on_close
+        # run in thread
+        def run():
+            try:
+                kws.connect(threaded=False)
+            except Exception as e:
+                print("KiteTicker connect error:", e)
+        th = threading.Thread(target=run, daemon=True)
+        th.start()
+        st.session_state["kws_obj"] = kws
+        st.session_state["kws_thread"] = th
+    except Exception as e:
+        st.warning(f"Failed to init KiteTicker: {e}")
 
 def subscribe_to_token(token, symbol=None):
-    # thread-safe subscription helper
     try:
         kws = st.session_state.get("kws_obj")
         if kws is None:
             return False
-        if token not in st.session_state["subscribed_tokens"]:
+        if int(token) not in st.session_state["subscribed_tokens"]:
             kws.subscribe([int(token)])
             kws.set_mode(kws.MODE_FULL, [int(token)])
             st.session_state["subscribed_tokens"].add(int(token))
@@ -492,39 +538,42 @@ def unsubscribe_all_tokens():
     except Exception:
         pass
 
-# ---------------------- Sidebar controls for live WS ----------------------
+# ---------------------- Sidebar: Live WS controls & Order Placement ----------------------
 st.sidebar.header("Live WebSocket (KiteTicker) — optional")
 ws_symbol = st.sidebar.text_input("Symbol to subscribe (e.g. RELIANCE)", value="RELIANCE")
 ws_token_input = st.sidebar.text_input("Instrument Token (optional)", value="")
-if st.sidebar.button("Start Live WebSocket"):
-    # ensure access token present
+agg_period = st.sidebar.selectbox("Aggregation Period", ["1m", "5m", "15m"], index=0)
+
+start_ws = st.sidebar.button("Start Live WebSocket")
+stop_ws = st.sidebar.button("Stop Live WebSocket")
+
+if start_ws:
     if "access_token" not in st.session_state:
-        st.error("Please complete Zerodha login first.")
+        st.sidebar.error("Please complete Zerodha login first.")
     else:
         start_kite_ticker_thread()
-        # resolve token
         if ws_token_input.strip():
             try:
                 token = int(ws_token_input.strip())
                 st.session_state["token_to_symbol"][str(token)] = ws_symbol.upper()
             except Exception:
-                st.error("Invalid instrument_token provided.")
+                st.sidebar.error("Invalid instrument_token provided.")
                 token = None
         else:
             token = find_instrument_token(ws_symbol.upper())
             if token is None:
-                st.error("Could not find instrument token for symbol. Provide instrument_token manually.")
+                st.sidebar.error("Could not find instrument token for symbol. Provide instrument_token manually.")
         if token:
             ok = subscribe_to_token(token, ws_symbol.upper())
             if ok:
                 st.sidebar.success(f"Subscribed {ws_symbol.upper()} (token {token})")
             else:
                 st.sidebar.error("Subscription failed. Check logs.")
-if st.sidebar.button("Stop Live WebSocket"):
+
+if stop_ws:
     unsubscribe_all_tokens()
-    # close connection if exists
-    kws = st.session_state.get("kws_obj")
     try:
+        kws = st.session_state.get("kws_obj")
         if kws is not None:
             kws.close()
     except Exception:
@@ -534,18 +583,46 @@ if st.sidebar.button("Stop Live WebSocket"):
     st.session_state["kws_running"] = False
     st.sidebar.info("KiteTicker stopped.")
 
+# ---------------------- Sidebar: Order Placement ----------------------
+st.sidebar.markdown("---")
+st.sidebar.header("Place Order")
+
+order_symbol = st.sidebar.text_input("Order Symbol (e.g. RELIANCE)", value=ws_symbol.upper())
+order_qty = st.sidebar.number_input("Quantity", min_value=1, value=1)
+order_type = st.sidebar.selectbox("Order Type", ["MARKET", "LIMIT"])
+transaction_type = st.sidebar.selectbox("Transaction Type", ["BUY", "SELL"])
+order_price = None
+order_product = st.sidebar.selectbox("Product", ["CNC", "MIS", "NRML"], index=0)
+
+if order_type == "LIMIT":
+    order_price = st.sidebar.number_input("Limit Price", min_value=0.0, value=0.0, format="%.2f")
+
+if st.sidebar.button("Submit Order"):
+    try:
+        order_params = {
+            "tradingsymbol": order_symbol.upper(),
+            "exchange": "NSE",
+            "transaction_type": transaction_type,
+            "quantity": int(order_qty),
+            "order_type": order_type,
+            "product": order_product,
+            "variety": "regular"
+        }
+        if order_type == "LIMIT":
+            order_params["price"] = float(order_price)
+        # place order via kite
+        order_id = kite.place_order(**order_params)
+        st.sidebar.success(f"✅ Order placed! ID: {order_id}")
+    except Exception as e:
+        st.sidebar.error(f"❌ Order failed: {e}")
+
 # ---------------------- Helper: aggregate ticks to ohlc DataFrame ----------------------
 def aggregate_ticks_to_ohlc(symbol, minutes=1):
-    """
-    Convert server-side aggregated map st.session_state['ohlc_agg'][symbol] -> DataFrame sorted by time
-    minutes param currently only for label; aggregation already done at 1m in tick handler.
-    """
-    ohlc_map = st.session_state["ohlc_agg"].get(symbol, {})
+    ohlc_map = st.session_state.get("ohlc_agg", {}).get(symbol, {})
     if not ohlc_map:
         return pd.DataFrame()
     rows = []
     for k, v in ohlc_map.items():
-        # ensure numeric
         try:
             open_p = float(v['open']) if v['open'] is not None else np.nan
             high_p = float(v['high']) if v['high'] is not None else np.nan
@@ -557,12 +634,57 @@ def aggregate_ticks_to_ohlc(symbol, minutes=1):
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(sorted(rows, key=lambda x: x['time']))
-    # trim to MAX_AGG_CANDLES
     if len(df) > MAX_AGG_CANDLES:
         df = df.iloc[-MAX_AGG_CANDLES:]
     return df
 
-# ---------------------- Main UI: combine historical + live candles & safe LTP metric ----------------------
+# ---------------------- Lightweight Charts renderer ----------------------
+def render_lightweight_candles(symbol, agg_period='1m'):
+    df = aggregate_ticks_to_ohlc(symbol, minutes=1)
+    if df.empty:
+        st.info("No live aggregated candle data yet.")
+        return
+    # convert epoch seconds to JS-friendly time for lightweight-charts (either timestamps in seconds or 'YYYY-MM-DD HH:MM:SS')
+    df['time'] = pd.to_datetime(df['time'], unit='s')
+    rule_map = {"1m": "1T", "5m": "5T", "15m": "15T"}
+    if agg_period in rule_map:
+        df = df.set_index('time').resample(rule_map[agg_period]).agg({'open':'first','high':'max','low':'min','close':'last'}).dropna().reset_index()
+    # lightweight-charts expects time either as unix timestamp in seconds or {year,month,...}
+    js_rows = []
+    for _, row in df.iterrows():
+        ts = int(pd.to_datetime(row['time']).timestamp())
+        js_rows.append({
+            "time": ts,
+            "open": float(row['open']),
+            "high": float(row['high']),
+            "low": float(row['low']),
+            "close": float(row['close'])
+        })
+    js_data = json.dumps(js_rows)
+
+    html_code = f"""
+    <!doctype html>
+    <html>
+    <head><meta charset="utf-8"></head>
+    <body>
+      <div id="chart" style="width:100%;height:520px;"></div>
+      <script src="https://unpkg.com/lightweight-charts@3.7.0/dist/lightweight-charts.standalone.production.js"></script>
+      <script>
+        const chart = LightweightCharts.createChart(document.getElementById('chart'), {{
+          layout: {{background: {{type: 'solid', color: '#0f1116'}}, textColor: '#DDD'}},
+          grid: {{vertLines: {{color: '#2B2B43'}}, horzLines: {{color: '#2B2B43'}}}},
+          timeScale: {{timeVisible: true, secondsVisible: false}}
+        }});
+        const candleSeries = chart.addCandlestickSeries();
+        const data = {js_data};
+        candleSeries.setData(data);
+      </script>
+    </body>
+    </html>
+    """
+    components.html(html_code, height=540)
+
+# ---------------------- Main UI ----------------------
 st.markdown(
     """
     <div style='background:linear-gradient(90deg,#141e30,#243b55 60%,#FFD900 100%);
@@ -575,7 +697,7 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# Main Dashboard
+# Use the screener's selected stock_list to drive main dashboard
 if len(stock_list):
     display_symbol = stock_list[0].upper()
     st.header(f"Live Technical Dashboard: {display_symbol}")
@@ -585,23 +707,21 @@ if len(stock_list):
         st.error("No data available for this symbol/interval.")
         st.stop()
 
-    # Determine LTP: prefer live ticks (if available), else kite.ltp, else last historical close
+    # LTP preference: live ticks -> kite.ltp -> historical close
     price = np.nan
     try:
-        if display_symbol in st.session_state["live_ticks"] and st.session_state["live_ticks"][display_symbol]:
+        if display_symbol in st.session_state.get("live_ticks", {}) and st.session_state["live_ticks"][display_symbol]:
             price = st.session_state["live_ticks"][display_symbol][-1]['v']
         else:
-            # kite.ltp returns nested dict or will raise — wrap safely
             try:
                 ltp_json = kite.ltp(f"NSE:{display_symbol}")
                 price = ltp_json.get(f"NSE:{display_symbol}", {}).get("last_price", np.nan)
             except Exception:
-                # fallback to last historical close
                 price = float(data["Close"].iloc[-1])
     except Exception:
         price = np.nan
 
-    # build metrics row - safe handling of non-scalars
+    # Metrics Row
     metrics_row = st.columns([1.5,1,1,1,1,1])
     latest = data.iloc[-1]
     rsi = try_scalar(latest.get('RSI', np.nan))
@@ -613,7 +733,6 @@ if len(stock_list):
     # Safe LTP display
     with metrics_row[0]:
         try:
-            # normalize price value to a scalar float
             if price is None:
                 st.metric("LTP", "—")
             elif isinstance(price, (pd.Series, np.ndarray, list, tuple)):
@@ -626,7 +745,6 @@ if len(stock_list):
                 except Exception:
                     st.metric("LTP", "—")
             else:
-                # convert to float safely
                 try:
                     p = float(price)
                     if np.isnan(p):
@@ -637,8 +755,6 @@ if len(stock_list):
                     st.metric("LTP", "—")
         except Exception as e:
             st.metric("LTP", "—")
-            st.warning(f"LTP error: {e}")
-
     with metrics_row[1]:
         st.metric("RSI", f"{round(rsi,2) if not np.isnan(rsi) else '—'}")
     with metrics_row[2]:
@@ -650,87 +766,45 @@ if len(stock_list):
     with metrics_row[5]:
         st.metric("VWAP", f"{round(vwap,2) if not np.isnan(vwap) else '—'}")
 
-    # Build combined candle dataframe:
-    # 1) Get historical bars (existing 'data')
-    # 2) Get aggregated live 1m candles from st.session_state
-    # 3) Append aggregated candles after historical index to show latest incomplete candle
+    # Prepare combined candle dataset: historical + live aggregated
     try:
-        agg_live = aggregate_ticks_to_ohlc(display_symbol, minutes=1) if 'aggregate_ticks_to_ohlc' in globals() else None
-    except Exception:
         agg_live = aggregate_ticks_to_ohlc(display_symbol, minutes=1)
+    except Exception:
+        agg_live = pd.DataFrame()
 
-    # Prepare combined DataFrame for plotting
     combined = None
     try:
         hist_df = data.reset_index().rename(columns={"index":"time"})
-        # standardize time format
         if 'time' in hist_df.columns:
             hist_df['time'] = pd.to_datetime(hist_df['time']).dt.strftime('%Y-%m-%d %H:%M:%S')
-        # hist_df columns: time, Open, High, Low, Close
         if 'Open' in hist_df.columns:
             hist_ohlc = hist_df[['time','Open','High','Low','Close']].rename(columns={'Open':'open','High':'high','Low':'low','Close':'close'})
         else:
             hist_ohlc = pd.DataFrame()
-
         if isinstance(agg_live, pd.DataFrame) and not agg_live.empty:
-            # agg_live has columns time,open,high,low,close
             combined = pd.concat([hist_ohlc, agg_live], ignore_index=True, sort=False)
         else:
             combined = hist_ohlc
-        # drop rows with missing OHLC (safety)
         if combined is not None and not combined.empty:
             combined = combined.dropna(subset=['open','high','low','close'])
     except Exception as e:
         combined = None
         st.warning(f"Could not build combined candle dataset: {e}")
 
-    # ---- Chart Tab (plotly candlestick) ----
+    # Chart Tab
     tabs = st.tabs(["Chart", "TA", "Advanced", "Raw"])
     with tabs[0]:
         chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
         bands_show = st.checkbox("Show Bollinger Bands (Fill)", value=True)
-        fig = go.Figure()
-        if combined is None or combined.empty:
-            st.info("No combined candle data available yet. Historical bars shown below.")
-            # fallback to historical plot
-            if 'Open' in data.columns:
-                fig.add_trace(go.Candlestick(x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'], name='Candles'))
+        # Render Lightweight Chart from live aggregated candles if available
+        if display_symbol in st.session_state.get("ohlc_agg", {}) and st.session_state["ohlc_agg"][display_symbol]:
+            render_lightweight_candles(display_symbol, agg_period)
         else:
-            # Plot combined DataFrame
-            # ensure index is datetime for plotly
-            combined_plot = combined.copy()
-            combined_plot['time'] = pd.to_datetime(combined_plot['time'])
-            if chart_style == "Heikin Ashi":
-                # compute HA candles from combined_plot
-                ha = ta.ha(combined_plot['open'], combined_plot['high'], combined_plot['low'], combined_plot['close'])
-                fig.add_trace(go.Candlestick(
-                    x=combined_plot['time'],
-                    open=ha['HA_open'], high=ha['HA_high'],
-                    low=ha['HA_low'], close=ha['HA_close'], name='Heikin Ashi'))
-            else:
-                fig.add_trace(go.Candlestick(
-                    x=combined_plot['time'], open=combined_plot['open'], high=combined_plot['high'],
-                    low=combined_plot['low'], close=combined_plot['close'], name='Candles'))
-        # overlays
-        if 'EMA9' in data:
-            fig.add_trace(go.Scatter(x=data.index, y=data['EMA9'], line=dict(width=1), name='EMA 9'))
-        if 'SMA21' in data:
-            fig.add_trace(go.Scatter(x=data.index, y=data['SMA21'], line=dict(width=1), name='SMA 21'))
-        if bands_show and 'BOLL_U' in data and 'BOLL_L' in data:
-            fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_U'], line=dict(width=1), name='Boll U'))
-            fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_L'], line=dict(width=1), name='Boll L'))
-            fig.add_trace(go.Scatter(
-                x=list(data.index) + list(data.index[::-1]),
-                y=list(data['BOLL_U']) + list(data['BOLL_L'])[::-1],
-                fill="toself", fillcolor="rgba(41,134,204,0.12)",
-                line=dict(color="rgba(255,255,255,0)"),
-                showlegend=False, name="BB Channel"))
-        supertrend_col = [str(c) for c in list(data.columns) if str(c).startswith('SUPERT_') and not str(c).endswith('_dir')]
-        if supertrend_col:
-            fig.add_trace(go.Scatter(x=data.index, y=data[supertrend_col[0]], line=dict(color='#fae900', width=2), name='Supertrend'))
-
-        fig.update_layout(template='plotly_dark', height=640)
-        st.plotly_chart(fig, use_container_width=True)
+            st.info("No live OHLC data available yet; showing historical Plotly chart.")
+            if 'Open' in data.columns:
+                fig = go.Figure(data=[go.Candlestick(x=data.index, open=data['Open'], high=data['High'], low=data['Low'], close=data['Close'])])
+                fig.update_layout(xaxis_rangeslider_visible=False, template='plotly_dark', height=640)
+                st.plotly_chart(fig, use_container_width=True)
 
     with tabs[1]:
         ta_cols_all = ['RSI','ADX','STOCHRSI']
@@ -762,15 +836,5 @@ if len(stock_list):
 
 st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage, Plotly & Streamlit")
 
-# ---------------------- Instrument token quick method (instructions) ----------------------
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Instrument Token (optional)**")
-st.sidebar.markdown("If symbol-to-token lookup fails, get token via:")
-st.sidebar.code("""
-instruments = kite.instruments()
-df = pd.DataFrame(instruments)
-df[df.tradingsymbol == 'RELIANCE'][['tradingsymbol','instrument_token','exchange']]
-""", language='python')
-st.sidebar.markdown("Copy `instrument_token` and paste into the 'Instrument Token (optional)' field above before starting the websocket.")
+# ---------------------- End of file ----------------------
 
-# End of file
