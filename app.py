@@ -16,6 +16,7 @@ import feedparser
 from dateutil.parser import parse
 import pytz
 import logging
+import streamlit.components.v1 as components
 
 try:
     from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -114,7 +115,24 @@ def load_users():
     try:
         if os.path.exists(USERS_FILE):
             with open(USERS_FILE, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+            # Ensure data is a dictionary
+            if not isinstance(data, dict):
+                logging.error(f"Invalid users.json format: expected dict, got {type(data)}")
+                return {}
+            # Validate each user entry
+            valid_users = {}
+            for username, user_data in data.items():
+                if isinstance(user_data, dict) and "access_code" in user_data:
+                    user_data_clean = {
+                        "access_code": user_data.get("access_code"),
+                        "security_question": user_data.get("security_question"),
+                        "security_answer": user_data.get("security_answer")
+                    }
+                    valid_users[username] = user_data_clean
+                else:
+                    logging.warning(f"Invalid user data for {username}: {user_data}")
+            return valid_users
         return {}
     except Exception as e:
         logging.error(f"Error loading users: {e}")
@@ -122,6 +140,14 @@ def load_users():
 
 def save_users(users):
     try:
+        # Validate users data
+        if not isinstance(users, dict):
+            logging.error(f"Attempted to save invalid users data: {type(users)}")
+            return
+        for username, user_data in users.items():
+            if not isinstance(user_data, dict) or "access_code" not in user_data:
+                logging.error(f"Invalid user data for {username}: {user_data}")
+                return
         with open(USERS_FILE, 'w') as f:
             json.dump(users, f, indent=2)
     except Exception as e:
@@ -164,23 +190,6 @@ def save_trade_logs(logs):
 def hash_access_code(access_code):
     return hashlib.sha256(access_code.encode()).hexdigest()
 
-def create_admin_user():
-    users = load_users()
-    has_admin = any(user_data.get("is_admin", False) for user_data in users.values())
-    if not has_admin:
-        default_admin_username = "admin"
-        default_admin_access_code = "admin123"
-        default_security_answer = "admin"
-        users[default_admin_username] = {
-            "access_code": hash_access_code(default_admin_access_code),
-            "is_admin": True,
-            "locked": False,
-            "security_question": SECURITY_QUESTIONS[0],
-            "security_answer": hash_access_code(default_security_answer)
-        }
-        save_users(users)
-        st.info(f"Admin user '{default_admin_username}' created with access code 'admin123' and security answer 'admin'. Please change them after logging in.")
-
 def signup_user(username, access_code, security_question, security_answer):
     if not all([username, access_code, security_question, security_answer]):
         return False, "All fields are required."
@@ -191,12 +200,18 @@ def signup_user(username, access_code, security_question, security_answer):
         return False, "Username already exists."
     users[username] = {
         "access_code": hash_access_code(access_code),
-        "is_admin": False,
-        "locked": False,
         "security_question": security_question,
         "security_answer": hash_access_code(security_answer)
     }
     save_users(users)
+    # Initialize user_activity for new user
+    if username not in st.session_state["user_activity"]:
+        st.session_state["user_activity"][username] = []
+    st.session_state["user_activity"][username].append({
+        "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
+        "action": "Signup",
+        "details": "User account created"
+    })
     return True, "Account created successfully!"
 
 def login_user(username, access_code):
@@ -205,17 +220,10 @@ def login_user(username, access_code):
     timestamp = datetime.now(pytz.timezone("Asia/Kolkata")).isoformat()
     ip_address = "N/A"
     if username in users:
-        if users[username].get("locked", False):
-            login_history.append({
-                "username": username,
-                "timestamp": timestamp,
-                "success": False,
-                "reason": "Account locked",
-                "ip_address": ip_address
-            })
-            save_login_history(login_history)
-            return False, False, "Account is locked."
         if users[username]["access_code"] == hash_access_code(access_code):
+            # Initialize user_activity if not present
+            if username not in st.session_state["user_activity"]:
+                st.session_state["user_activity"][username] = []
             login_history.append({
                 "username": username,
                 "timestamp": timestamp,
@@ -224,16 +232,31 @@ def login_user(username, access_code):
                 "ip_address": ip_address
             })
             save_login_history(login_history)
-            return True, users[username].get("is_admin", False), "Login successful."
+            st.session_state["user_activity"][username].append({
+                "timestamp": timestamp,
+                "action": "Login",
+                "details": "User logged in"
+            })
+            return True, "Login successful."
+        else:
+            login_history.append({
+                "username": username,
+                "timestamp": timestamp,
+                "success": False,
+                "reason": "Invalid access code",
+                "ip_address": ip_address
+            })
+            save_login_history(login_history)
+            return False, "Invalid username or access code."
     login_history.append({
         "username": username,
         "timestamp": timestamp,
         "success": False,
-        "reason": "Invalid credentials",
+        "reason": "Username does not exist",
         "ip_address": ip_address
     })
     save_login_history(login_history)
-    return False, False, "Invalid username or access code."
+    return False, "Invalid username or access code."
 
 def reset_user_password(username, security_answer, new_access_code):
     users = load_users()
@@ -280,64 +303,16 @@ def reset_user_password(username, security_answer, new_access_code):
         "ip_address": ip_address
     })
     save_login_history(login_history)
+    # Initialize user_activity if not present
+    if username not in st.session_state["user_activity"]:
+        st.session_state["user_activity"][username] = []
+    st.session_state["user_activity"][username].append({
+        "timestamp": timestamp,
+        "action": "Password Reset",
+        "details": "User reset password"
+    })
     logging.info(f"User {username} reset their password")
     return True, "Password reset successfully."
-
-def reset_user_access_code(admin_username, target_username, new_access_code):
-    users = load_users()
-    if admin_username not in users or not users[admin_username].get("is_admin", False):
-        return False, "Only admins can reset access codes."
-    if target_username not in users:
-        return False, "User does not exist."
-    if len(new_access_code) < 6:
-        return False, "New access code must be at least 6 characters."
-    users[target_username]["access_code"] = hash_access_code(new_access_code)
-    save_users(users)
-    logging.info(f"Admin {admin_username} reset access code for {target_username}")
-    return True, f"Access code for {target_username} reset successfully."
-
-def delete_user(admin_username, target_username):
-    users = load_users()
-    if admin_username not in users or not users[admin_username].get("is_admin", False):
-        return False, "Only admins can delete users."
-    if target_username not in users:
-        return False, "User does not exist."
-    if target_username == admin_username:
-        return False, "Admins cannot delete their own account."
-    if users[target_username].get("is_admin", False):
-        return False, "Cannot delete another admin account."
-    del users[target_username]
-    save_users(users)
-    logging.info(f"Admin {admin_username} deleted user {target_username}")
-    return True, f"User {target_username} deleted successfully."
-
-def toggle_admin_status(admin_username, target_username):
-    users = load_users()
-    if admin_username not in users or not users[admin_username].get("is_admin", False):
-        return False, "Only admins can modify admin status."
-    if target_username not in users:
-        return False, "User does not exist."
-    if target_username == admin_username:
-        return False, "Admins cannot modify their own admin status."
-    users[target_username]["is_admin"] = not users[target_username].get("is_admin", False)
-    save_users(users)
-    action = "promoted to admin" if users[target_username]["is_admin"] else "demoted from admin"
-    logging.info(f"Admin {admin_username} {action} user {target_username}")
-    return True, f"User {target_username} {action} successfully."
-
-def toggle_user_lock(admin_username, target_username):
-    users = load_users()
-    if admin_username not in users or not users[admin_username].get("is_admin", False):
-        return False, "Only admins can lock/unlock users."
-    if target_username not in users:
-        return False, "User does not exist."
-    if target_username == admin_username:
-        return False, "Admins cannot lock/unlock their own account."
-    users[target_username]["locked"] = not users[target_username].get("locked", False)
-    save_users(users)
-    action = "locked" if users[target_username]["locked"] else "unlocked"
-    logging.info(f"Admin {admin_username} {action} user {target_username}")
-    return True, f"User {target_username} {action} successfully."
 
 # ---------------------- Sentiment Analysis ----------------------
 @st.cache_data(ttl=1800)
@@ -379,8 +354,6 @@ if "login_attempts" not in st.session_state:
     st.session_state["login_attempts"] = 0
 if "reset_attempts" not in st.session_state:
     st.session_state["reset_attempts"] = 0
-if "is_admin" not in st.session_state:
-    st.session_state["is_admin"] = False
 if "user_activity" not in st.session_state:
     st.session_state["user_activity"] = {}
 MAX_LOGIN_ATTEMPTS = 3
@@ -423,8 +396,6 @@ def set_terminal_style():
         """, unsafe_allow_html=True)
 
 # ---------------------- Login/Signup/Reset UI ----------------------
-create_admin_user()
-
 if not st.session_state["logged_in"]:
     st.subheader("BlockVista Terminal Account")
     auth_mode = st.selectbox("Select Action", ["Login", "Signup", "Reset Password"])
@@ -441,10 +412,8 @@ if not st.session_state["logged_in"]:
                 st.success(message)
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = signup_username
-                st.session_state["is_admin"] = False
                 st.session_state["login_attempts"] = 0
                 st.session_state["reset_attempts"] = 0
-                st.session_state["user_activity"][signup_username] = []
             else:
                 st.error(message)
     
@@ -481,18 +450,13 @@ if not st.session_state["logged_in"]:
             if st.session_state["login_attempts"] >= MAX_LOGIN_ATTEMPTS:
                 st.error("❌ Too many failed attempts. Please try again later.")
                 st.stop()
-            success, is_admin, message = login_user(login_username, login_access_code)
+            success, message = login_user(login_username, login_access_code)
             if success:
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = login_username
-                st.session_state["is_admin"] = is_admin
                 st.session_state["login_attempts"] = 0
                 st.session_state["reset_attempts"] = 0
                 st.success(f"✅ Welcome, {login_username}!")
-                if is_admin:
-                    st.info("Logged in as Admin.")
-                if login_username not in st.session_state["user_activity"]:
-                    st.session_state["user_activity"][login_username] = []
             else:
                 st.session_state["login_attempts"] += 1
                 remaining = MAX_LOGIN_ATTEMPTS - st.session_state["login_attempts"]
@@ -509,107 +473,6 @@ with refresh_col:
     st.session_state["auto_refresh"] = st.checkbox("Auto Refresh", value=st.session_state.get("auto_refresh", True))
 with toggle_col:
     st.session_state["refresh_interval"] = st.number_input("Sec", value=st.session_state.get("refresh_interval", 15), min_value=3, max_value=90, step=1)
-
-# ---------------------- Admin Dashboard ----------------------
-if st.session_state["is_admin"]:
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Admin Dashboard")
-    if st.sidebar.button("Manage Users"):
-        st.session_state["show_admin_dashboard"] = True
-    if st.sidebar.button("Back to Terminal"):
-        st.session_state["show_admin_dashboard"] = False
-
-if st.session_state.get("show_admin_dashboard", False) and st.session_state["is_admin"]:
-    st.subheader("Admin Dashboard")
-    admin_tabs = st.tabs(["Users", "Login History", "Trade Logs", "User Activity"])
-    
-    with admin_tabs[0]:
-        st.write("### User Management")
-        users = load_users()
-        user_list = [{"Username": username, "Is Admin": user_data.get("is_admin", False), "Locked": user_data.get("locked", False)} for username, user_data in users.items()]
-        st.dataframe(pd.DataFrame(user_list))
-        
-        st.write("#### Reset User Access Code")
-        target_username = st.text_input("Target Username for Reset")
-        new_access_code = st.text_input("New Access Code", type="password")
-        if st.button("Reset Access Code"):
-            success, message = reset_user_access_code(st.session_state["username"], target_username, new_access_code)
-            if success:
-                st.success(message)
-            else:
-                st.error(message)
-        
-        st.write("#### Delete User")
-        delete_username = st.text_input("Username to Delete")
-        if st.button("Delete User"):
-            success, message = delete_user(st.session_state["username"], delete_username)
-            if success:
-                st.success(message)
-            else:
-                st.error(message)
-        
-        st.write("#### Toggle Admin Status")
-        admin_toggle_username = st.text_input("Username to Toggle Admin Status")
-        if st.button("Toggle Admin Status"):
-            success, message = toggle_admin_status(st.session_state["username"], admin_toggle_username)
-            if success:
-                st.success(message)
-            else:
-                st.error(message)
-        
-        st.write("#### Lock/Unlock User")
-        lock_username = st.text_input("Username to Lock/Unlock")
-        if st.button("Toggle Lock Status"):
-            success, message = toggle_user_lock(st.session_state["username"], lock_username)
-            if success:
-                st.success(message)
-            else:
-                st.error(message)
-        
-        st.write("#### Export User Data")
-        if st.button("Export Users as CSV"):
-            csv = pd.DataFrame(user_list).to_csv(index=False)
-            st.download_button("Download Users CSV", csv, file_name="users.csv")
-
-    with admin_tabs[1]:
-        st.write("### Login History")
-        login_history = load_login_history()
-        if login_history:
-            st.dataframe(pd.DataFrame(login_history))
-            csv = pd.DataFrame(login_history).to_csv(index=False)
-            st.download_button("Download Login History CSV", csv, file_name="login_history.csv")
-        else:
-            st.info("No login history available.")
-
-    with admin_tabs[2]:
-        st.write("### Trade Logs")
-        trade_logs = load_trade_logs()
-        if trade_logs:
-            st.dataframe(pd.DataFrame(trade_logs))
-            csv = pd.DataFrame(trade_logs).to_csv(index=False)
-            st.download_button("Download Trade Logs CSV", csv, file_name="trade_logs.csv")
-        else:
-            st.info("No trade logs available.")
-
-    with admin_tabs[3]:
-        st.write("### User Activity")
-        activity_list = []
-        for username, activities in st.session_state["user_activity"].items():
-            for activity in activities:
-                activity_list.append({
-                    "Username": username,
-                    "Timestamp": activity["timestamp"],
-                    "Action": activity["action"],
-                    "Details": activity["details"]
-                })
-        if activity_list:
-            st.dataframe(pd.DataFrame(activity_list))
-            csv = pd.DataFrame(activity_list).to_csv(index=False)
-            st.download_button("Download User Activity CSV", csv, file_name="user_activity.csv")
-        else:
-            st.info("No user activity recorded.")
-
-    st.stop()
 
 # ---------------------- Smallcase Baskets ----------------------
 SMALLCASE_BASKETS = {
@@ -773,30 +636,26 @@ def fetch_stock_data(symbol, period, interval):
             logging.warning(f"Duplicate columns detected for {symbol}: {data.columns[data.columns.duplicated()].tolist()}")
             data = data.loc[:, ~data.columns.duplicated(keep='first')]
         
+        # Validate numeric data and Series type
         for col in required_cols:
+            if not isinstance(data[col], pd.Series):
+                logging.error(f"Column {col} for {symbol} is not a pandas Series: {type(data[col])}")
+                st.warning(f"Invalid data type for {col} in {symbol}: {type(data[col])}")
+                return None
             data[col] = pd.to_numeric(data[col], errors='coerce')
             if data[col].isna().all():
                 logging.warning(f"Column {col} for {symbol} contains no valid numeric data.")
                 st.warning(f"Column {col} for {symbol} contains no valid numeric data.")
                 return None
         
-        if not isinstance(data, pd.DataFrame) or len(data) < 2:
-            logging.warning(f"Invalid or insufficient data for {symbol}: {len(data)} rows.")
-            st.warning(f"Invalid or insufficient data for {symbol}: {len(data)} rows.")
-            return None
-        
-        # Validate Close column is a Series with sufficient length
-        if not isinstance(data['Close'], pd.Series):
-            logging.error(f"data['Close'] is not a pandas Series for {symbol}: {type(data['Close'])}")
-            st.warning(f"Invalid data type for Close column in {symbol}: {type(data['Close'])}")
-            return None
-        if len(data['Close']) < 2:
-            logging.error(f"Insufficient data in Close column for {symbol}: {len(data['Close'])} rows")
-            st.warning(f"Insufficient data in Close column for {symbol}: {len(data['Close'])} rows")
+        if len(data) < 2:
+            logging.warning(f"Insufficient data for {symbol}: {len(data)} rows.")
+            st.warning(f"Insufficient data for {symbol}: {len(data)} rows.")
             return None
         
         logging.debug(f"Data for {symbol}: {data.tail(5)}")
         
+        # Compute technical indicators only if data is sufficient
         try:
             if len(data) > 14:
                 data['RSI'] = ta.rsi(data['Close'], length=14)
@@ -859,6 +718,7 @@ def fetch_stock_data(symbol, period, interval):
         except Exception as e:
             logging.error(f"Error computing indicators for {symbol}: {e}")
             st.warning(f"Error computing indicators for {symbol}: {e}")
+            return data
         return data
     except Exception as e:
         logging.error(f"Error fetching data for {symbol}: {e}")
@@ -973,7 +833,10 @@ else:
 
 # Record user activity for screener
 if st.session_state["logged_in"] and len(stock_list) > 0:
-    st.session_state["user_activity"][st.session_state["username"]].append({
+    username = st.session_state["username"]
+    if username not in st.session_state["user_activity"]:
+        st.session_state["user_activity"][username] = []
+    st.session_state["user_activity"][username].append({
         "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
         "action": "Screener Viewed",
         "details": f"Symbols: {', '.join(stock_list)}, Period: {screen_period}, Interval: {screen_interval}"
@@ -993,6 +856,7 @@ if order_type == "LIMIT":
 
 if st.sidebar.button("Submit Order"):
     trade_logs = load_trade_logs()
+    username = st.session_state["username"]
     try:
         order_params = {
             "tradingsymbol": order_symbol.upper(),
@@ -1008,7 +872,7 @@ if st.sidebar.button("Submit Order"):
         order_id = kite.place_order(**order_params)
         trade_logs.append({
             "order_id": order_id,
-            "username": st.session_state["username"],
+            "username": username,
             "symbol": order_symbol.upper(),
             "quantity": int(order_qty),
             "order_type": order_type,
@@ -1020,8 +884,10 @@ if st.sidebar.button("Submit Order"):
         })
         save_trade_logs(trade_logs)
         st.sidebar.success(f"✅ Order placed! ID: {order_id}")
-        logging.info(f"Order placed by {st.session_state['username']}: {order_params}")
-        st.session_state["user_activity"][st.session_state["username"]].append({
+        logging.info(f"Order placed by {username}: {order_params}")
+        if username not in st.session_state["user_activity"]:
+            st.session_state["user_activity"][username] = []
+        st.session_state["user_activity"][username].append({
             "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
             "action": "Order Placed",
             "details": f"Order ID: {order_id}, Symbol: {order_symbol}, Qty: {order_qty}, Type: {order_type}"
@@ -1029,7 +895,7 @@ if st.sidebar.button("Submit Order"):
     except Exception as e:
         trade_logs.append({
             "order_id": "N/A",
-            "username": st.session_state["username"],
+            "username": username,
             "symbol": order_symbol.upper(),
             "quantity": int(order_qty),
             "order_type": order_type,
@@ -1041,7 +907,7 @@ if st.sidebar.button("Submit Order"):
         })
         save_trade_logs(trade_logs)
         st.sidebar.error(f"❌ Order failed: {e}")
-        logging.error(f"Order failed by {st.session_state['username']}: {e}")
+        logging.error(f"Order failed by {username}: {e}")
 
 # ---------------------- Lightweight Charts Renderer ----------------------
 def render_lightweight_candles(df, chart_style="Candlestick"):
