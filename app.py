@@ -1,4 +1,4 @@
-# app.py - BlockVista Terminal Production-ready
+# app.py - BlockVista Terminal Full Trading Version
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from kiteconnect import KiteConnect
@@ -7,15 +7,17 @@ import numpy as np
 import plotly.graph_objs as go
 import time
 from datetime import datetime
-import requests
 import threading
+import requests
 
 st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 
 # ---- CONFIGURATION ----
 API_KEY = "your_kite_api_key"
 API_SECRET = "your_kite_api_secret"
-ACCESS_TOKEN = "your_access_token"  # Can refresh manually first time
+ACCESS_TOKEN = "your_access_token"
+TELEGRAM_BOT_TOKEN = "your_telegram_bot_token"
+TELEGRAM_CHAT_ID = "your_telegram_chat_id"
 
 # ---- KITE SESSION HELPER ----
 def get_kite_session():
@@ -26,13 +28,13 @@ def get_kite_session():
 kite = get_kite_session()
 st.success("✅ Kite session initialized")
 
-# ---- NOTIFICATION HELPER ----
+# ---- NOTIFICATIONS ----
 def browser_notification(title, body):
     st.write(f"🔔 {title}: {body}")
 
-def telegram_notification(bot_token, chat_id, message):
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message}
+def telegram_notification(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
         requests.post(url, data=payload)
     except:
@@ -52,7 +54,7 @@ class LiveTickerManager:
 
     def update(self, symbol):
         try:
-            ltp = self.kite.ltp(f"NSE:{symbol}")  # get last price
+            ltp = self.kite.ltp(f"NSE:{symbol}")
             now = datetime.now()
             row = {
                 "timestamp": now,
@@ -64,7 +66,6 @@ class LiveTickerManager:
             }
             with self.lock:
                 self.data[symbol] = pd.concat([self.data[symbol], pd.DataFrame([row])], ignore_index=True)
-                # Keep last 500 rows to optimize memory
                 if len(self.data[symbol]) > 500:
                     self.data[symbol] = self.data[symbol].iloc[-500:]
         except Exception as e:
@@ -105,7 +106,6 @@ def render_chart(symbol, df):
     if df.empty:
         st.warning(f"No data yet for {symbol}")
         return
-
     df = add_indicators(df)
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
@@ -121,14 +121,40 @@ def render_chart(symbol, df):
     fig.update_layout(title=f"{symbol} Live Chart", xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
-# ---- SYMBOLS AND REFRESH ----
+# ---- ORDER MANAGEMENT ----
+def place_order(symbol, transaction_type, quantity, order_type="MARKET", product="MIS"):
+    try:
+        order_id = kite.place_order(
+            tradingsymbol=symbol,
+            exchange="NSE",
+            transaction_type=transaction_type,
+            quantity=quantity,
+            order_type=order_type,
+            product=product,
+            variety="regular"
+        )
+        message = f"Order placed: {transaction_type} {quantity} {symbol} ({order_type})"
+        st.success(message)
+        telegram_notification(message)
+        return order_id
+    except Exception as e:
+        st.error(f"Order error: {e}")
+        return None
+
+def get_positions():
+    try:
+        return pd.DataFrame(kite.positions()["net"])
+    except:
+        return pd.DataFrame()
+
+# ---- SYMBOLS & REFRESH ----
 symbols = st.multiselect("Select Symbols", ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"], default=["RELIANCE"])
 refresh_interval = st.slider("Refresh Interval (seconds)", min_value=5, max_value=30, value=10)
 
 ltm = LiveTickerManager(kite)
 ltm.subscribe(symbols)
 
-# ---- BACKGROUND THREAD TO UPDATE DATA ----
+# ---- BACKGROUND DATA THREAD ----
 def background_fetch():
     while True:
         for sym in symbols:
@@ -138,26 +164,34 @@ def background_fetch():
 thread = threading.Thread(target=background_fetch, daemon=True)
 thread.start()
 
-# ---- DISPLAY TABS PER SYMBOL ----
-tabs = st.tabs(symbols)
-for i, symbol in enumerate(symbols):
+# ---- DISPLAY TABS ----
+tabs = st.tabs(symbols + ["Positions / Orders"])
+for i, symbol in enumerate(symbols + ["Positions / Orders"]):
     with tabs[i]:
-        df = ltm.get_aggregated(symbol)
-        render_chart(symbol, df)
+        if symbol != "Positions / Orders":
+            df = ltm.get_aggregated(symbol)
+            render_chart(symbol, df)
+            st.write("Latest Data")
+            st.dataframe(df.tail(5))
+            st.download_button(f"Download CSV {symbol}", df.to_csv(index=False), f"{symbol}_data.csv", "text/csv")
 
-        # Screener metrics table
-        st.write("Latest Data")
-        st.dataframe(df.tail(5))
-
-        # CSV Download
-        st.download_button(f"Download CSV {symbol}", df.to_csv(index=False), f"{symbol}_data.csv", "text/csv")
-
-        # Alerts Example
-        if not df.empty and df['RSI'].iloc[-1] > 70:
-            browser_notification(symbol, "RSI overbought!")
-        elif not df.empty and df['RSI'].iloc[-1] < 30:
-            browser_notification(symbol, "RSI oversold!")
+            # Alerts Example
+            if not df.empty and df['RSI'].iloc[-1] > 70:
+                browser_notification(symbol, "RSI overbought!")
+            elif not df.empty and df['RSI'].iloc[-1] < 30:
+                browser_notification(symbol, "RSI oversold!")
+            
+            # ---- ORDER PLACEMENT UI ----
+            st.subheader("Place Order")
+            side = st.selectbox(f"{symbol} Side", ["BUY", "SELL"], key=f"{symbol}_side")
+            qty = st.number_input(f"Quantity {symbol}", min_value=1, value=1, key=f"{symbol}_qty")
+            product = st.selectbox(f"Product {symbol}", ["MIS", "CNC"], key=f"{symbol}_prod")
+            if st.button(f"Place {side} Order for {symbol}"):
+                place_order(symbol, side, qty, product=product)
+        else:
+            st.subheader("Open Positions")
+            positions = get_positions()
+            st.dataframe(positions)
 
 # ---- AUTO REFRESH ----
 st_autorefresh(interval=refresh_interval*1000, key="ticker_refresh")
-
