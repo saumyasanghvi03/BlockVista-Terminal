@@ -2,6 +2,7 @@ import os
 import time
 import json
 import threading
+import hashlib
 from collections import deque
 from datetime import datetime, timedelta
 import streamlit as st
@@ -16,12 +17,19 @@ from alpha_vantage.timeseries import TimeSeries
 import plotly.graph_objects as go
 import feedparser
 from dateutil.parser import parse
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    vader_available = True
+except ModuleNotFoundError:
+    vader_available = False
+    st.warning("vaderSentiment not installed. Sentiment meter disabled.")
 
 # ---------------------- CONFIG ----------------------
 AV_API_KEY = "2R0I2OXW1A1HMD9N"
 MAX_TICKS_PER_SYMBOL = 4000
 MAX_AGG_CANDLES = 500
+USERS_FILE = "users.json"
 SYMBOL_TO_COMPANY = {
     "RELIANCE": ["Reliance Industries", "Reliance"],
     "SBIN": ["State Bank of India", "SBI"],
@@ -82,9 +90,43 @@ def fetch_alpha_vantage_intraday(symbol, interval='1min', outputsize='compact'):
     except Exception:
         return None
 
+# ---------------------- User Management ----------------------
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_users(users):
+    with open(USERS_FILE, 'w') as f:
+        json.dump(users, f, indent=2)
+
+def hash_access_code(access_code):
+    return hashlib.sha256(access_code.encode()).hexdigest()
+
+def signup_user(username, access_code):
+    if not username or not access_code:
+        return False, "Username and access code cannot be empty."
+    if len(access_code) < 6:
+        return False, "Access code must be at least 6 characters."
+    users = load_users()
+    if username in users:
+        return False, "Username already exists."
+    users[username] = hash_access_code(access_code)
+    save_users(users)
+    return True, "Account created successfully!"
+
+def login_user(username, access_code):
+    users = load_users()
+    if username in users and users[username] == hash_access_code(access_code):
+        return True
+    return False
+
 # ---------------------- Sentiment Analysis ----------------------
-@st.cache_data(ttl=1800)  # Cache for 30 minutes
+@st.cache_data(ttl=1800)
 def get_nifty50_sentiment():
+    if not vader_available:
+        return 0.0, "Neutral"
     analyzer = SentimentIntensityAnalyzer()
     rss_urls = [
         "https://www.financialexpress.com/market/feed/",
@@ -151,14 +193,58 @@ def set_terminal_style():
         </style>
         """, unsafe_allow_html=True)
 
-theme_choice = st.sidebar.selectbox("Terminal Theme", ["Bloomberg Dark", "Bloomberg Light"])
-st.session_state.theme = theme_choice
-set_terminal_style()
-
 if "auto_refresh" not in st.session_state:
     st.session_state["auto_refresh"] = True
 if "refresh_interval" not in st.session_state:
     st.session_state["refresh_interval"] = 15
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "login_attempts" not in st.session_state:
+    st.session_state["login_attempts"] = 0
+MAX_LOGIN_ATTEMPTS = 3
+
+# ---------------------- Login/Signup UI ----------------------
+if not st.session_state["logged_in"]:
+    st.subheader("BlockVista Terminal Account")
+    auth_mode = st.selectbox("Select Action", ["Login", "Signup"])
+    
+    if auth_mode == "Signup":
+        st.write("Create a new BlockVista Terminal account")
+        signup_username = st.text_input("New Username")
+        signup_access_code = st.text_input("New Access Code", type="password")
+        if st.button("Sign Up"):
+            success, message = signup_user(signup_username, signup_access_code)
+            if success:
+                st.success(message)
+                st.session_state["logged_in"] = True
+                st.session_state["username"] = signup_username
+                st.session_state["login_attempts"] = 0
+            else:
+                st.error(message)
+    
+    else:
+        st.write("Login to your BlockVista Terminal account")
+        login_username = st.text_input("Username")
+        login_access_code = st.text_input("Access Code", type="password")
+        if st.button("Login"):
+            if st.session_state["login_attempts"] >= MAX_LOGIN_ATTEMPTS:
+                st.error("❌ Too many failed attempts. Please try again later.")
+                st.stop()
+            if login_user(login_username, login_access_code):
+                st.session_state["logged_in"] = True
+                st.session_state["username"] = login_username
+                st.session_state["login_attempts"] = 0
+                st.success(f"✅ Welcome, {login_username}!")
+            else:
+                st.session_state["login_attempts"] += 1
+                remaining = MAX_LOGIN_ATTEMPTS - st.session_state["login_attempts"]
+                st.error(f"❌ Invalid username or access code. {remaining} attempts remaining.")
+    
+    st.stop()
+
+theme_choice = st.sidebar.selectbox("Terminal Theme", ["Bloomberg Dark", "Bloomberg Light"])
+st.session_state.theme = theme_choice
+set_terminal_style()
 
 refresh_col, toggle_col = st.sidebar.columns([2,2])
 with refresh_col:
@@ -231,7 +317,7 @@ def get_kite_session():
                 st.session_state["access_token"] = access_token
                 st.session_state["request_token_verified"] = True
                 kite_conn.set_access_token(access_token)
-                st.success("✅ Zerodha session started! Proceed to terminal login.")
+                st.success("✅ Zerodha session started!")
                 if refresh_token_printed:
                     st.code(f"KITE_REFRESH_TOKEN={refresh_token_printed}")
                 return kite_conn
@@ -245,40 +331,8 @@ def get_kite_session():
 
 kite = get_kite_session()
 
-# ---------------------- Additional Login after Zerodha Auth ----------------------
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "login_attempts" not in st.session_state:
-    st.session_state["login_attempts"] = 0
-MAX_LOGIN_ATTEMPTS = 3
-
-if not st.session_state["logged_in"]:
-    st.subheader("BlockVista Terminal Login")
-    username = st.text_input("Username")
-    access_code = st.text_input("Access Code", type="password")
-    if st.button("Login"):
-        valid_users = st.secrets.get("VALID_USERS", {})
-        if (username in valid_users and valid_users[username] == access_code) or (username and access_code):  # Fallback for demo
-            st.session_state["logged_in"] = True
-            st.session_state["username"] = username
-            st.session_state["login_attempts"] = 0
-            st.success(f"✅ Welcome, {username}!")
-        else:
-            st.session_state["login_attempts"] += 1
-            remaining = MAX_LOGIN_ATTEMPTS - st.session_state["login_attempts"]
-            st.error(f"❌ Invalid username or access code. {remaining} attempts remaining.")
-            if remaining <= 0:
-                st.error("❌ Too many failed attempts. Please try again later.")
-                st.stop()
-    if st.button("Logout"):
-        st.session_state["logged_in"] = False
-        st.session_state["username"] = None
-        st.session_state["login_attempts"] = 0
-        st.info("Logged out.")
-    st.stop()
-
 # ---------------------- News Parser from RSS ----------------------
-@st.cache_data(ttl=600)  # Cache for 10 minutes
+@st.cache_data(ttl=600)
 def get_news(symbol):
     rss_urls = [
         "https://www.financialexpress.com/market/feed/",
@@ -354,10 +408,11 @@ def fetch_stock_data(symbol, period, interval):
             if isinstance(ha, pd.DataFrame):
                 for c in ['open', 'high', 'low', 'close']:
                     data[f'HA_{c}'] = ha[f'HA_{c}'] if f'HA_{c}' in ha else np.nan
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning(f"Error computing indicators for {symbol}: {e}")
         return data
-    except Exception:
+    except Exception as e:
+        st.warning(f"Error fetching data for {symbol}: {e}")
         return None
 
 def try_scalar(val):
@@ -766,28 +821,29 @@ st.markdown(
 )
 
 # ---------------------- Sentiment Meter ----------------------
-sentiment_score, sentiment_label = get_nifty50_sentiment()
-with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
-    delta_color = "red" if sentiment_score < -0.05 else "green" if sentiment_score > 0.05 else "normal"
-    st.metric("NIFTY 50 Sentiment", sentiment_label, f"{sentiment_score:.2f}", delta_color=delta_color)
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=sentiment_score,
-        domain={'x': [0, 1], 'y': [0, 1]},
-        gauge={
-            'axis': {'range': [-1, 1], 'tickwidth': 1, 'tickcolor': "#FFFF00"},
-            'bar': {'color': "#00CC00" if sentiment_score > 0 else "#FF3333"},
-            'bgcolor': "#000000" if st.session_state.theme == "Bloomberg Dark" else "#F0F0F0",
-            'bordercolor': "#FFFF00",
-            'steps': [
-                {'range': [-1, -0.05], 'color': "#FF3333"},
-                {'range': [-0.05, 0.05], 'color': "#666666"},
-                {'range': [0.05, 1], 'color': "#00CC00"}
-            ]
-        }
-    ))
-    fig.update_layout(height=200)
-    st.plotly_chart(fig, use_container_width=True)
+if vader_available:
+    sentiment_score, sentiment_label = get_nifty50_sentiment()
+    with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
+        delta_color = "red" if sentiment_score < -0.05 else "green" if sentiment_score > 0.05 else "normal"
+        st.metric("NIFTY 50 Sentiment", sentiment_label, f"{sentiment_score:.2f}", delta_color=delta_color)
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=sentiment_score,
+            domain={'x': [0, 1], 'y': [0, 1]},
+            gauge={
+                'axis': {'range': [-1, 1], 'tickwidth': 1, 'tickcolor': "#FFFF00"},
+                'bar': {'color': "#00CC00" if sentiment_score > 0 else "#FF3333"},
+                'bgcolor': "#000000" if st.session_state.theme == "Bloomberg Dark" else "#F0F0F0",
+                'bordercolor': "#FFFF00",
+                'steps': [
+                    {'range': [-1, -0.05], 'color': "#FF3333"},
+                    {'range': [-0.05, 0.05], 'color': "#666666"},
+                    {'range': [0.05, 1], 'color': "#00CC00"}
+                ]
+            }
+        ))
+        fig.update_layout(height=200)
+        st.plotly_chart(fig, use_container_width=True)
 
 # ---------------------- News Section Below Header ----------------------
 if len(stock_list):
@@ -902,17 +958,26 @@ if len(stock_list):
                 st.warning("Insufficient data for candlestick chart.")
 
     with tabs[1]:
+        st.subheader("Technical Analysis")
         ta_cols = [c for c in ['RSI', 'ADX', 'STOCHRSI'] if c in data.columns]
-        if ta_cols:
+        if ta_cols and not data[ta_cols].dropna().empty:
             st.line_chart(data[ta_cols].dropna())
+        else:
+            st.info("No valid technical analysis data available.")
         macd_cols = [c for c in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9'] if c in data.columns]
-        if macd_cols:
+        if macd_cols and not data[macd_cols].dropna().empty:
             st.line_chart(data[macd_cols].dropna())
-        if 'ATR' in data.columns:
+        else:
+            st.info("No valid MACD data available.")
+        if 'ATR' in data.columns and not data['ATR'].dropna().empty:
             st.line_chart(data['ATR'].dropna())
+        else:
+            st.info("No valid ATR data available.")
         last_cols = [c for c in ['Close', 'RSI', 'ADX', 'STOCHRSI', 'ATR', 'VWAP'] if c in data.columns]
-        if last_cols:
+        if last_cols and not data[last_cols].dropna().empty:
             st.write("Latest Values:", data.iloc[-1][last_cols])
+        else:
+            st.info("No valid latest values available.")
 
     with tabs[2]:
         st.subheader("Signals & Analysis")
@@ -923,13 +988,18 @@ if len(stock_list):
                 delta_color = "green" if "Bullish" in v or "Strong" in v or "Oversold" in v else "red" if "Bearish" in v or "Overbought" in v else "normal"
                 st.metric(label=k, value=v, delta_color=delta_color)
         advanced_cols = [c for c in ['SMA21', 'EMA9', 'BOLL_L', 'BOLL_M', 'BOLL_U', 'ATR', 'VWAP'] if c in data.columns]
-        if advanced_cols:
+        if advanced_cols and not data[advanced_cols].tail(20).dropna().empty:
             st.line_chart(data[advanced_cols].tail(20))
+        else:
+            st.info("No valid advanced indicators available.")
 
     with tabs[3]:
         st.subheader("Raw Data")
         raw_df = combined if combined is not None and not combined.empty else data
-        st.dataframe(raw_df)
+        if not raw_df.empty:
+            st.dataframe(raw_df)
+        else:
+            st.info("No raw data available.")
 
     if st.session_state.get("auto_refresh", True):
         st_autorefresh(interval=st.session_state.get("refresh_interval", 15) * 1000, key="data_refresh")
