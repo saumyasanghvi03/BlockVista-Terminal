@@ -7,3 +7,4 @@ plotly
 kiteconnect
 streamlit-autorefresh
 feedparser
+alpha_vantage
