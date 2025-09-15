@@ -54,37 +54,6 @@ SYMBOL_TO_COMPANY = {
 }
 NIFTY50_TOP = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS"]
 
-# NSE Holidays 2025 (compiled from NSE, Groww, Zerodha, Angel One)
-NSE_HOLIDAYS_2025 = {
-    '2025-02-19',  # Chhatrapati Shivaji Maharaj Jayanti
-    '2025-02-26',  # Maha Shivratri
-    '2025-03-14',  # Holi
-    '2025-03-31',  # Id-Ul-Fitr (Ramzan Eid)
-    '2025-04-10',  # Mahavir Jayanti
-    '2025-04-14',  # Dr. Baba Saheb Ambedkar Jayanti
-    '2025-04-18',  # Good Friday
-    '2025-05-01',  # Maharashtra Day
-    '2025-08-15',  # Independence Day
-    '2025-08-27',  # Ganesh Chaturthi
-    '2025-10-02',  # Mahatma Gandhi Jayanti
-    '2025-10-21',  # Diwali Laxmi Pujan
-    '2025-10-22',  # Diwali Balipratipada
-    '2025-11-12',  # Guru Nanak Jayanti
-    '2025-12-25'   # Christmas
-}
-
-# Function to check if market is open (IST time)
-def is_market_open():
-    ist = pytz.timezone('Asia/Kolkata')
-    now = datetime.now(ist)
-    current_date = now.date().strftime('%Y-%m-%d')
-    current_time = now.time()
-    if now.weekday() > 4 or current_date in NSE_HOLIDAYS_2025:
-        return False
-    start_time = datetime.strptime("09:15", "%H:%M").time()
-    end_time = datetime.strptime("15:30", "%H:%M").time()
-    return start_time <= current_time <= end_time
-
 # ---------------------- UTILITIES ----------------------
 def browser_notification(title, body, icon=None):
     icon_line = f'icon: "{icon}",' if icon else ""
@@ -455,36 +424,74 @@ def fetch_stock_data(symbol, period, interval):
             st.warning(f"Duplicate columns detected for {symbol}: {data.columns[data.columns.duplicated()].tolist()}")
             data = data.loc[:, ~data.columns.duplicated(keep='first')]
         
-        # Ensure numeric data
+        # Ensure numeric data and sufficient length
         for col in required_cols:
             data[col] = pd.to_numeric(data[col], errors='coerce')
+            if data[col].isna().all():
+                st.warning(f"Column {col} for {symbol} contains no valid numeric data.")
+                return None
         
-        # Skip TA calculations if data is too short
-        if len(data) < 14:
-            return data  # Return raw data without TA
+        # Ensure data is a DataFrame with sufficient rows
+        if not isinstance(data, pd.DataFrame) or len(data) < 2:
+            st.warning(f"Invalid or insufficient data for {symbol}: {len(data)} rows.")
+            return None
         
+        # Calculate technical indicators only if data is valid
         try:
-            data['RSI'] = ta.rsi(data['Close'], length=14)
-            macd = ta.macd(data['Close'])
-            if isinstance(macd, pd.DataFrame) and not macd.empty:
-                for col in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']:
-                    data[col] = macd[col] if col in macd else np.nan
-            data['SMA21'] = ta.sma(data['Close'], length=21) if len(data) > 21 else np.nan
-            data['EMA9'] = ta.ema(data['Close'], length=9) if len(data) > 9 else np.nan
-            bbands = ta.bbands(data['Close'], length=20)
-            if isinstance(bbands, pd.DataFrame):
-                for label, key in zip(['BOLL_L', 'BOLL_M', 'BOLL_U'], ['BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']):
-                    data[label] = bbands[key] if key in bbands else np.nan
-            data['ATR'] = ta.atr(data['High'], data['Low'], data['Close'], length=14)
-            adx = ta.adx(data['High'], data['Low'], data['Close'], length=14)
-            data['ADX'] = adx['ADX_14'] if isinstance(adx, pd.DataFrame) and 'ADX_14' in adx else np.nan
-            stochrsi = ta.stochrsi(data['Close'], length=14)
-            data['STOCHRSI'] = stochrsi["STOCHRSIk_14_14_3_3"] if isinstance(stochrsi, pd.DataFrame) and "STOCHRSIk_14_14_3_3" in stochrsi else np.nan
-            supertrend = ta.supertrend(data['High'], data['Low'], data['Close'])
-            if isinstance(supertrend, pd.DataFrame) and not supertrend.empty:
-                for col in supertrend.columns:
-                    data[col] = supertrend[col]
-            data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume']) if len(data) > 0 else np.nan
+            if len(data) > 14:
+                data['RSI'] = ta.rsi(data['Close'], length=14)
+                data['ATR'] = ta.atr(data['High'], data['Low'], data['Close'], length=14)
+                adx = ta.adx(data['High'], data['Low'], data['Close'], length=14)
+                data['ADX'] = adx['ADX_14'] if isinstance(adx, pd.DataFrame) and 'ADX_14' in adx else np.nan
+                stochrsi = ta.stochrsi(data['Close'], length=14)
+                data['STOCHRSI'] = stochrsi["STOCHRSIk_14_14_3_3"] if isinstance(stochrsi, pd.DataFrame) and "STOCHRSIk_14_14_3_3" in stochrsi else np.nan
+            else:
+                data['RSI'] = np.nan
+                data['ATR'] = np.nan
+                data['ADX'] = np.nan
+                data['STOCHRSI'] = np.nan
+            
+            if len(data) > 12:
+                macd = ta.macd(data['Close'])
+                if isinstance(macd, pd.DataFrame) and not macd.empty:
+                    for col in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']:
+                        data[col] = macd[col] if col in macd else np.nan
+            else:
+                data['MACD_12_26_9'] = np.nan
+                data['MACDh_12_26_9'] = np.nan
+                data['MACDs_12_26_9'] = np.nan
+            
+            if len(data) > 21:
+                data['SMA21'] = ta.sma(data['Close'], length=21)
+            else:
+                data['SMA21'] = np.nan
+            
+            if len(data) > 9:
+                data['EMA9'] = ta.ema(data['Close'], length=9)
+            else:
+                data['EMA9'] = np.nan
+            
+            if len(data) > 20:
+                bbands = ta.bbands(data['Close'], length=20)
+                if isinstance(bbands, pd.DataFrame):
+                    for label, key in zip(['BOLL_L', 'BOLL_M', 'BOLL_U'], ['BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']):
+                        data[label] = bbands[key] if key in bbands else np.nan
+            else:
+                data['BOLL_L'] = np.nan
+                data['BOLL_M'] = np.nan
+                data['BOLL_U'] = np.nan
+            
+            if len(data) > 7:
+                supertrend = ta.supertrend(data['High'], data['Low'], data['Close'])
+                if isinstance(supertrend, pd.DataFrame) and not supertrend.empty:
+                    for col in supertrend.columns:
+                        data[col] = supertrend[col]
+            
+            if len(data) > 0 and 'Volume' in data.columns:
+                data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume'])
+            else:
+                data['VWAP'] = np.nan
+            
             ha = ta.ha(data['Open'], data['High'], data['Low'], data['Close'])
             if isinstance(ha, pd.DataFrame):
                 for c in ['open', 'high', 'low', 'close']:
@@ -813,7 +820,7 @@ def aggregate_ticks_to_ohlc(symbol, minutes=1):
     rows = []
     for k, v in ohlc_map.items():
         try:
-            if any(x is None for x in [v['open'], v['high'], v['low'], v['close']]):
+            if any(x is None for x in [v['open'], v['high'], v['low'], 'close']):
                 continue
             rows.append({
                 'time': v['time'],
@@ -889,8 +896,24 @@ def render_lightweight_candles(symbol, agg_period='1m'):
     components.html(html_code, height=540)
 
 # ---------------------- Main UI ----------------------
-market_status = "LIVE" if is_market_open() else "Closed"
-status_color = "green" if market_status == "LIVE" else "red"
+# Define NSE holidays for 2025
+NSE_HOLIDAYS_2025 = [
+    "2025-01-26", "2025-02-17", "2025-03-06", "2025-03-31", "2025-04-10",
+    "2025-04-14", "2025-04-18", "2025-05-01", "2025-08-15", "2025-08-27",
+    "2025-10-02", "2025-10-21", "2025-11-05", "2025-12-25"
+]
+
+# Get current IST time
+ist = pytz.timezone("Asia/Kolkata")
+now = datetime.now(ist)
+current_date = now.strftime("%Y-%m-%d")
+is_weekday = now.weekday() < 5  # Monday to Friday
+is_market_hours = (now.time() >= datetime.strptime("09:15", "%H:%M").time() and
+                  now.time() <= datetime.strptime("15:30", "%H:%M").time())
+is_holiday = current_date in NSE_HOLIDAYS_2025
+market_status = "LIVE" if is_weekday and not is_holiday and is_market_hours else "Closed"
+status_color = "#FFFF00" if market_status == "LIVE" else "#FF3333"
+
 st.markdown(
     f"""
     <div style='background:linear-gradient(90deg,{ '#000000' if st.session_state.theme == 'Bloomberg Dark' else '#F0F0F0' },#1a1a1a 60%,#00CC00 100%);
@@ -968,6 +991,11 @@ if len(stock_list):
         st.error("No data available for this symbol/interval.")
         st.stop()
 
+    # Debug DataFrame structure
+    st.write(f"Debug: data.columns = {list(data.columns)}")
+    st.write(f"Debug: data.index = {data.index[:5]}")
+    st.write(f"Debug: data.tail(1) = {data.tail(1)}")
+
     price = np.nan
     try:
         if display_symbol in st.session_state.get("live_ticks", {}) and st.session_state["live_ticks"][display_symbol]:
@@ -982,6 +1010,9 @@ if len(stock_list):
 
     metrics_row = st.columns([1.5,1,1,1,1,1])
     latest = data.iloc[-1]
+    # Debug latest Series
+    st.write(f"Debug: type(latest) = {type(latest)}, latest['Close'] = {latest['Close']}, type(latest['Close']) = {type(latest['Close'])}")
+    
     rsi = try_scalar(latest.get('RSI', np.nan))
     macd = try_scalar(latest.get('MACD_12_26_9', np.nan))
     adx = try_scalar(latest.get('ADX', np.nan))
