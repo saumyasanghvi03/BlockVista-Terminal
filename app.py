@@ -409,9 +409,24 @@ def fetch_stock_data(symbol, period, interval):
             av_interval = {"1m": "1min", "5m": "5min", "15m": "15min"}.get(interval, "5min")
             data = fetch_alpha_vantage_intraday(symbol, interval=av_interval)
             if data is None or data.empty:
+                st.warning(f"No data fetched for {symbol}.")
                 return None
-        if not all(col in data.columns for col in ['Open', 'High', 'Low', 'Close']):
+        
+        # Validate columns
+        required_cols = ['Open', 'High', 'Low', 'Close']
+        if not all(col in data.columns for col in required_cols):
+            st.warning(f"Missing required columns for {symbol}: {list(data.columns)}")
             return None
+        
+        # Check for duplicate columns
+        if len(data.columns[data.columns.duplicated()]) > 0:
+            st.warning(f"Duplicate columns detected for {symbol}: {data.columns[data.columns.duplicated()].tolist()}")
+            data = data.loc[:, ~data.columns.duplicated(keep='first')]
+        
+        # Ensure numeric data
+        for col in required_cols:
+            data[col] = pd.to_numeric(data[col], errors='coerce')
+        
         try:
             data['RSI'] = ta.rsi(data['Close'], length=14) if len(data) > 14 else np.nan
             macd = ta.macd(data['Close'])
@@ -762,7 +777,7 @@ def aggregate_ticks_to_ohlc(symbol, minutes=1):
     rows = []
     for k, v in ohlc_map.items():
         try:
-            if any(x is None for x in [v['open'], v['high'], v['low'], v['close']]):
+            if any(x is None for x in [v['open'], v['high'], v['low'], 'close']):
                 continue
             rows.append({
                 'time': v['time'],
@@ -850,19 +865,17 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# ---------------------- Sentiment Meter (kept above news section) ----------------------
+# ---------------------- Sentiment Meter ----------------------
 if vader_available:
     try:
         sentiment_score, sentiment_label = get_nifty50_sentiment()
-        # Log for debugging
-        st.write(f"Debug: sentiment_score={sentiment_score}, type={type(sentiment_score)}, sentiment_label={sentiment_label}, type={type(sentiment_label)}")
         # Validate sentiment_score and sentiment_label
         if not isinstance(sentiment_score, (int, float)) or pd.isna(sentiment_score):
             sentiment_score, sentiment_label = 0.0, "Neutral"
             delta_color = "normal"
         else:
             sentiment_score = float(sentiment_score)  # Ensure float
-            delta_color = "red" if sentiment_score < -0.05 else "green" if sentiment_score > 0.05 else "normal"
+            delta_color = "normal"  # Use Streamlit's default coloring
         if not isinstance(sentiment_label, str):
             sentiment_label = "Neutral"
         with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
@@ -917,6 +930,11 @@ if len(stock_list):
         st.error("No data available for this symbol/interval.")
         st.stop()
 
+    # Debug DataFrame structure
+    st.write(f"Debug: data.columns = {list(data.columns)}")
+    st.write(f"Debug: data.index = {data.index[:5]}")
+    st.write(f"Debug: data.tail(1) = {data.tail(1)}")
+
     price = np.nan
     try:
         if display_symbol in st.session_state.get("live_ticks", {}) and st.session_state["live_ticks"][display_symbol]:
@@ -931,14 +949,22 @@ if len(stock_list):
 
     metrics_row = st.columns([1.5,1,1,1,1,1])
     latest = data.iloc[-1]
+    # Debug latest Series
+    st.write(f"Debug: type(latest) = {type(latest)}, latest['Close'] = {latest['Close']}, type(latest['Close']) = {type(latest['Close'])}")
+    
     rsi = try_scalar(latest.get('RSI', np.nan))
     macd = try_scalar(latest.get('MACD_12_26_9', np.nan))
     adx = try_scalar(latest.get('ADX', np.nan))
     atr = try_scalar(latest.get('ATR', np.nan))
     vwap = try_scalar(latest.get('VWAP', np.nan))
+    close_price = try_scalar(latest.get('Close', np.nan))  # Ensure scalar
 
     with metrics_row[0]:
-        st.metric("LTP", f"{round(float(price), 2) if not np.isnan(price) else '—'}", delta_color="red" if price < try_scalar(latest['Close']) else "green")
+        if np.isnan(close_price) or np.isnan(price):
+            st.metric("LTP", f"{round(float(price), 2) if not np.isnan(price) else '—'}", delta=None, delta_color="off")
+        else:
+            delta = price - close_price
+            st.metric("LTP", f"{round(float(price), 2)}", delta=f"{round(delta, 2)}", delta_color="normal")
     with metrics_row[1]:
         st.metric("RSI", f"{round(rsi, 2) if not np.isnan(rsi) else '—'}", delta_color="red" if rsi > 70 else "green" if rsi < 30 else "normal")
     with metrics_row[2]:
@@ -1058,4 +1084,4 @@ if len(stock_list):
     if st.sidebar.button("Notify LTP"):
         browser_notification(f"{display_symbol} Live Price", f"LTP: {price if not np.isnan(price) else '—'}")
 
-    st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage, Plotly & Streamlit")
+    st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage")
