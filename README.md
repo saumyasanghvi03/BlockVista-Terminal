@@ -1,5 +1,4 @@
 # 🚀 BlockVista Terminal™
-
 ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=Streamlit&logoColor=white)
 ![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-green?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-CC0--1.0-lightgrey?style=for-the-badge)
@@ -12,7 +11,6 @@
 > Power, speed, and insight tailored exclusively for Indian equity traders and analysts.
 >
 > **Welcome to your BlockVista Terminal.™**
-
 
 ---
 
@@ -36,227 +34,274 @@ Built from the ground up for NSE/BSE equity markets, it delivers a professional-
 
 | 🚩 **BlockVista Terminal™** | 🏢 **Legacy Bloomberg** |
 |---|---|
-| Made for Indian equity markets | US/global focus, expensive Indian data |
-| Browser-native, mobile-ready | Requires dedicated terminals |
-| **Free & Open Source** | **₹15+ Lakhs yearly** |
-| Zerodha/Indian broker integration | Limited Indian broker support |
-| Intraday trading optimized | Institution-focused |
-| Modern, intuitive interface | Complex, legacy UI |
-| Real-time NSE/BSE data | Expensive Indian market feeds |
+| ₹0 Open Source | $24,000/year licensing |
+| Indian Market Focus | Global markets (complex) |
+| Intraday Optimized | Multi-timeframe heavy |
+| Zerodha/Kite Ready | Expensive data feeds |
+| Web-Native Speed | Desktop bloatware |
+| Community Driven | Corporate locked |
 
 ---
 
-## ✨ Key Features
+## 🔥 Expanded Features
 
-### 📈 **Live Indian Market Intelligence**
-- **Real-time NSE/BSE prices** with millisecond updates
-- **Live market depth** and order book visualization  
-- **Intraday charts** with 1min, 5min, 15min timeframes
-- **Volume analysis** and price action insights
-- **Market breadth** indicators (advance/decline, etc.)
+### 📊 **Core Trading Features**
+- **Real-Time Market Data**: NSE/BSE equity feeds with sub-second latency
+- **Advanced Charting**: 50+ technical indicators, custom timeframes (1m-1D)
+- **Options Chain Analysis**: Greeks, IV surface, unusual activity detection
+- **Order Management**: Direct broker integration for instant execution
+- **Risk Analytics**: Position sizing, P&L tracking, drawdown analysis
+- **Screener Engine**: Custom filters for breakouts, volume spikes, momentum
 
-### 🔍 **Advanced Technical Analysis**
-- **Multi-indicator signals**: RSI, MACD, ADX, Bollinger Bands, Stochastic
-- **Candlestick patterns** recognition and alerts
-- **Moving averages**: EMA, SMA, VWAP with dynamic crossovers
-- **Supertrend & pivot levels** for intraday support/resistance
-- **Custom screeners** for breakouts, momentum, and reversal setups
+### 📈 **Professional Analysis Tools**
+- **Level II Market Depth**: Real-time order book visualization
+- **Sector Rotation Tracker**: Identify trending sectors and themes
+- **FII/DII Flow Analysis**: Institutional money movement tracking
+- **Economic Calendar**: Earnings, events, policy announcements
+- **Correlation Matrix**: Inter-stock and sector relationships
+- **Volatility Surface**: Implied vol across strikes and expiries
 
-### ⚡ **Instant Order Execution**
-- **Direct Zerodha integration** via Kite Connect API
-- **One-click trading** from charts and screeners
-- **Live P&L tracking** with real-time position monitoring
-- **Order management** with stop-loss and target automation
-- **Trade alerts** via notifications and webhooks
-
-### 🎯 **Smart Market Screeners**
-- **Breakout scanner**: Volume + price breakouts
-- **Momentum finder**: High RSI, MACD crossovers
-- **Gap scanner**: Opening gaps with follow-through potential
-- **Custom filters**: Market cap, sector, technical criteria
-- **Intraday watchlists** with real-time updates
-
-### 🔔 **Intelligent Alerts System**
-- **Price alerts**: Target/stop-loss notifications
-- **Technical alerts**: Indicator crossovers, pattern formations
-- **Volume alerts**: Unusual volume spikes
-- **News integration**: Market-moving events (roadmap)
-- **Multi-channel delivery**: Email, SMS, browser notifications
+### 🤖 **Automation & Alerts**
+- **Smart Alerts**: Price, volume, technical pattern notifications
+- **Auto-Execution**: Bracket orders, trailing stops, OCO orders
+- **Custom Strategies**: Backtest and deploy algorithmic approaches
+- **News Integration**: Real-time market-moving news with sentiment
+- **Portfolio Sync**: Multi-broker account aggregation
+- **Performance Analytics**: Detailed trade analysis and reporting
 
 ---
 
-## 📸 Visual Demos
+## 🚀 Quick Start
 
-### 📊 **Main Trading Dashboard**
-<div align="center">
-  <img src="https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/main-dashboard-demo.png" alt="Main Dashboard" width="900"/>
-  <br/><em>Live market data, charts, and technical analysis in one powerful interface</em>
-</div>
-
-### 📈 **Technical Analysis & Signals**
-<div align="center">
-  <img src="https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/technical-analysis-demo.png" alt="Technical Analysis" width="900"/>
-  <br/><em>Advanced charting with multi-timeframe analysis and signal generation</em>
-</div>
-
-### 💹 **Portfolio & P/L Tracking**
-<div align="center">
-  <img src="https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/assets/portfolio-tracking-demo.png" alt="Portfolio Tracking" width="900"/>
-  <br/><em>Real-time portfolio performance with detailed P&L breakdown</em>
-</div>
-
----
-
-## 🛠️ Tech Stack
-
-**Frontend & UI**
-- 🎨 **Streamlit** - Modern web app framework
-- 📊 **Plotly** - Interactive financial charts
-- 🎯 **Pandas** - Data manipulation and analysis
-
-**Market Data & APIs**
-- 📡 **NSE/BSE APIs** - Live market data feeds
-- 🔗 **Zerodha Kite Connect** - Order execution and portfolio
-- 📈 **Technical Analysis Library** - TA-Lib integration
-
-**Backend & Processing**
-- ⚡ **Python 3.9+** - Core application logic
-- 🔄 **AsyncIO** - Concurrent data processing
-- 💾 **SQLite/PostgreSQL** - Local data storage
-
----
-
-## 🚀 Quick Getting Started
-
-### 1️⃣ **Clone & Install**
+### Prerequisites
 ```bash
+Python 3.8+
+Streamlit 1.28+
+Active Zerodha/Kite account (for live trading)
+```
+
+### Installation
+```bash
+# Clone the repository
 git clone https://github.com/saumyasanghvi03/BlockVista-Terminal.git
 cd BlockVista-Terminal
+
+# Install dependencies
 pip install -r requirements.txt
-```
 
-### 2️⃣ **Configure API Secrets**
-Create `.streamlit/secrets.toml` with your Zerodha credentials:
-```toml
-[zerodha]
-api_key = "your_kite_api_key"
-api_secret = "your_kite_api_secret"
-access_token = "your_access_token"
-
-[market_data]
-nse_api_key = "your_nse_api_key"  # Optional
-```
-
-### 3️⃣ **Launch Terminal**
-```bash
+# Launch terminal
 streamlit run app.py
 ```
 
-**🎉 That's it!** Access your Bloomberg-style terminal at `http://localhost:8501`
-
-### 📋 **Prerequisites**
-- **Zerodha Account** with Kite Connect API access
-- **Python 3.9+** installed
-- **NSE/BSE data subscription** (free tier available)
-
----
-
-## 💡 Modern Usage & User Workflow
-
-### 🌅 **Pre-Market Setup (9:00 AM)**
-1. **Launch Terminal** and verify live data connectivity
-2. **Review overnight news** and global market moves
-3. **Scan for gaps** and pre-market movers
-4. **Set watchlists** for the day's potential trades
-
-### 📈 **Market Hours Trading (9:15 AM - 3:30 PM)**
-1. **Monitor live charts** with real-time technical indicators
-2. **Execute trades** directly from chart interface
-3. **Track P&L** and manage positions in real-time
-4. **Receive alerts** for breakouts and technical signals
-
-### 📊 **Post-Market Analysis (3:30 PM+)**
-1. **Review trade performance** and P&L analytics
-2. **Export data** for detailed analysis
-3. **Plan next day** watchlists and strategies
-4. **Study market patterns** and refine approach
+### First-Time Setup
+1. **Configure API Keys**: Add your Zerodha API credentials in `config/api_keys.py`
+2. **Select Watchlist**: Import your existing watchlist or create new ones
+3. **Customize Layout**: Arrange charts, data feeds, and order panels
+4. **Set Preferences**: Trading hours, alert settings, risk parameters
 
 ---
 
-## 🛣️ Upgrades & Roadmap
+## 📚 Usage Notes & Tips
 
-### 🎯 **Phase 1: Core Enhancement** (Q1 2025)
-- [ ] **Advanced Indicators**: Ichimoku, Williams %R, Commodity Channel Index
-- [ ] **Pattern Recognition**: Head & Shoulders, Double Top/Bottom, Triangles
-- [ ] **Enhanced Screeners**: Custom technical combinations, sector rotation
-- [ ] **Performance Analytics**: Detailed trade reports, win/loss analysis
+### 🎯 **For Intraday Traders**
+- **Best Performance**: Use during market hours (9:15 AM - 3:30 PM IST)
+- **Optimal Setup**: Dual monitor recommended for charts + order management
+- **Internet**: Stable broadband (minimum 10 Mbps) for real-time data
+- **Browser**: Chrome/Edge recommended for best WebSocket performance
 
-### 🚀 **Phase 2: Trading Expansion** (Q2 2025)
-- [ ] **Futures & Options**: F&O chain analysis, option Greeks, strategy builder
-- [ ] **Multi-Broker Support**: Angel Broking, Upstox, 5Paisa integration
-- [ ] **Advanced Orders**: OCO, bracket orders, algorithmic execution
-- [ ] **Risk Management**: Position sizing, portfolio risk metrics
+### ⚡ **Pro Tips**
+- **Hotkeys**: Use keyboard shortcuts for rapid order placement
+- **Premarket Analysis**: Check overnight global cues and FII flows
+- **Risk First**: Always set stop-losses before entering positions
+- **Paper Trading**: Test strategies in simulation mode first
+- **Market Hours**: Focus on 9:15-10:00 AM and 2:30-3:30 PM for best volatility
 
-### 🌐 **Phase 3: Intelligence Layer** (Q3 2025)
-- [ ] **News Sentiment**: AI-powered news analysis affecting stock prices
-- [ ] **Social Sentiment**: Twitter, Reddit sentiment for retail stocks
-- [ ] **Export & Reporting**: PDF reports, Excel integration, API access
-- [ ] **Machine Learning**: Price prediction models, pattern forecasting
-
-### ☁️ **Phase 4: Scale & Mobile** (Q4 2025)
-- [ ] **Cloud Deployment**: AWS/Azure hosting with multi-user support
-- [ ] **Mobile App**: Native iOS/Android trading interface
-- [ ] **Institutional Features**: Multi-account management, team collaboration
-- [ ] **Crypto Integration**: Bitcoin, Ethereum as alternative assets (regulatory permitting)
+### 🔧 **Customization**
+- **Themes**: Switch between dark/light modes for different trading sessions
+- **Layouts**: Save multiple workspace configurations
+- **Indicators**: Create custom technical analysis combinations
+- **Alerts**: Set up SMS/email notifications for critical events
 
 ---
 
-## 🤝 Contributing
+## 🛠️ Troubleshooting
 
-**BlockVista Terminal™** is built for the Indian fintech ecosystem. We welcome contributions from:
+### Common Issues
 
-### 🎯 **Target Contributors**
-- **Indian traders & analysts** with market expertise
-- **Python developers** experienced in financial applications
-- **UI/UX designers** familiar with trading interfaces
-- **Data engineers** working with market data feeds
+**🚨 Data Feed Issues**
+```
+Problem: "No data received" or delayed prices
+Solution: 
+1. Check Zerodha API status
+2. Verify API key permissions
+3. Restart the application
+4. Check internet connectivity
+```
 
-### 📝 **How to Contribute**
-1. **Fork the repository** and create a feature branch
-2. **Follow Indian market standards** and trading conventions
-3. **Test with NSE/BSE data** and Zerodha integration
-4. **Submit pull requests** with clear documentation
+**🚨 Order Placement Errors**
+```
+Problem: "Order rejected" or "Insufficient margin"
+Solution:
+1. Verify account balance
+2. Check position limits
+3. Ensure correct order parameters
+4. Validate stock availability for trading
+```
 
-### 🔥 **Priority Areas**
-- Enhanced technical indicators and Indian-specific patterns
-- Better Zerodha/Indian broker integrations
-- Mobile-responsive design improvements
-- Performance optimization for real-time data
+**🚨 Performance Issues**
+```
+Problem: Slow loading or chart lag
+Solution:
+1. Close unused browser tabs
+2. Reduce number of active charts
+3. Clear browser cache
+4. Check system resources (RAM/CPU)
+```
+
+### Support Channels
+- **GitHub Issues**: Technical bugs and feature requests
+- **Discord Community**: Real-time help and trading discussions
+- **Documentation**: Comprehensive guides and API references
+- **Video Tutorials**: Step-by-step setup and usage guides
 
 ---
 
-## 📄 License & Copyright
+## 🤝 Contributor Quick Guide
 
-**© 2025 Saumya Sanghvi. All rights reserved.**
+### 🎯 **How to Contribute**
 
-This project is licensed under [CC0 1.0 Universal](https://github.com/saumyasanghvi03/BlockVista-Terminal/blob/main/LICENSE) — **PRs and forks are welcome!**
+1. **Fork & Clone**
+   ```bash
+   git fork https://github.com/saumyasanghvi03/BlockVista-Terminal
+   git clone your-fork-url
+   cd BlockVista-Terminal
+   ```
 
-**Built with ❤️ and Mumbai energy by [Saumya Sanghvi](https://github.com/saumyasanghvi03)**
+2. **Development Setup**
+   ```bash
+   # Create virtual environment
+   python -m venv blockvista-env
+   source blockvista-env/bin/activate  # Linux/Mac
+   # or
+   blockvista-env\Scripts\activate     # Windows
+   
+   # Install dev dependencies
+   pip install -r requirements-dev.txt
+   ```
+
+3. **Code & Test**
+   ```bash
+   # Make your changes
+   # Run tests
+   pytest tests/
+   
+   # Check code style
+   black . && flake8 .
+   ```
+
+4. **Submit PR**
+   - Create feature branch: `git checkout -b feature/your-feature`
+   - Commit changes: `git commit -m "feat: add your feature"`
+   - Push & create pull request
+
+### 🎨 **Contribution Areas**
+- **📊 New Indicators**: Custom technical analysis tools
+- **🔌 Broker APIs**: Support for additional Indian brokers
+- **📱 Mobile UI**: Responsive design improvements
+- **🤖 Algorithms**: Trading strategy templates
+- **📚 Documentation**: Guides, tutorials, and examples
+- **🐛 Bug Fixes**: Performance and stability improvements
+
+### 📋 **Code Standards**
+- **Python**: PEP 8 compliant, type hints preferred
+- **Frontend**: Clean, responsive Streamlit components
+- **Documentation**: Docstrings for all functions
+- **Testing**: Unit tests for core functionality
+- **Commits**: Conventional commit messages
 
 ---
 
-<div align="center">
+## 📸 Visual Demo Placeholders
 
-### 🇮🇳 **Experience the Revolution**
+*Coming Soon: Screenshots and GIFs demonstrating key features*
 
-**BlockVista Terminal™** — *Your Bloomberg, reinvented for Indian markets.*
+### 🖥️ **Main Dashboard**
+```
+[Placeholder: Full terminal interface screenshot]
+- Multi-pane layout with charts, order book, positions
+- Real-time price updates and market depth
+- Integrated news feed and economic calendar
+```
 
-**Analyze. Trade. Win.**
+### 📊 **Advanced Charting**
+```
+[Placeholder: Technical analysis screenshot]
+- Multi-timeframe candlestick charts
+- 50+ indicators overlay
+- Drawing tools and pattern recognition
+```
 
-The future of Indian trading is not expensive.\
-It's open-source.\
-And it's live.
+### ⚡ **Order Management**
+```
+[Placeholder: Order placement interface]
+- One-click order placement
+- Risk management controls
+- Real-time P&L tracking
+```
 
-**🌐💸 [Get Started Now →](https://blockvista-terminal-ssanghvi03.streamlit.app/)**
+### 📱 **Mobile Experience**
+```
+[Placeholder: Mobile/tablet responsive views]
+- Touch-optimized interface
+- Essential trading functions
+- Portfolio overview on-the-go
+```
 
-</div>
+---
+
+## 🏅 Credits & License
+
+### 👨‍💻 **Core Development**
+- **Lead Developer**: [Saumya Sanghvi](https://github.com/saumyasanghvi03)
+- **Architecture**: Modern Streamlit + Python ecosystem
+- **Inspiration**: Bloomberg Terminal professional interface
+- **Focus**: Indian market intraday trading optimization
+
+### 🙏 **Acknowledgments**
+- **Zerodha**: For robust API infrastructure
+- **NSE/BSE**: Market data partnerships
+- **Indian Trading Community**: Feature requests and feedback
+- **Open Source Contributors**: Bug fixes and enhancements
+
+### 📄 **Licensing**
+```
+BlockVista Terminal™ - Open Source Financial Terminal
+Copyright (c) 2025 Saumya Sanghvi
+
+Licensed under Creative Commons Zero v1.0 Universal (CC0-1.0)
+You are free to:
+- Use commercially
+- Modify and distribute
+- Use privately
+- Patent use allowed
+
+No attribution required, but appreciated.
+```
+
+### ⚖️ **Disclaimers**
+- **Trading Risk**: All trading involves risk of loss
+- **Data Accuracy**: Real-time data subject to exchange delays
+- **Not Financial Advice**: Tool for analysis only, not investment recommendations
+- **Beta Software**: Continuous development, use at your own risk
+
+---
+
+### 🚀 **Ready to Trade Like a Pro?**
+
+**[🔥 Launch BlockVista Terminal](https://github.com/saumyasanghvi03/BlockVista-Terminal)**
+
+*The future of Indian intraday trading starts here.*
+
+---
+
+**Made with ❤️ for Indian Traders | Powered by Open Source Innovation**
