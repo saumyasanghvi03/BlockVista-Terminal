@@ -504,10 +504,13 @@ if len(stock_list):
     price = get_live_price(stock_list[0])
 
     tabs = st.tabs(["Chart", "TA", "Advanced", "Raw"])
+    
     with tabs[0]:
+    def plot_live_chart(symbol, data, ltp):
         chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
         bands_show = st.checkbox("Show Bollinger Bands (Fill)", value=True)
         fig = go.Figure()
+        # -- Main candlestick/HA Chart --
         if chart_style == "Heikin Ashi":
             fig.add_trace(go.Candlestick(
                 x=data.index,
@@ -519,12 +522,7 @@ if len(stock_list):
                 x=data.index, open=data['Open'], high=data['High'],
                 low=data['Low'], close=data['Close'], name='Candles'))
             last_price = float(data['Close'].iloc[-1])
-        if 'EMA9' in data:
-            fig.add_trace(go.Scatter(
-                x=data.index, y=data['EMA9'], line=dict(color='#00FF99', width=1), name='EMA 9'))
-        if 'SMA21' in data:
-            fig.add_trace(go.Scatter(
-                x=data.index, y=data['SMA21'], line=dict(color='#FFA500', width=1), name='SMA 21'))
+        # -- Overlays --
         if bands_show and 'BOLL_U' in data and 'BOLL_L' in data:
             fig.add_trace(go.Scatter(
                 x=data.index, y=data['BOLL_U'], line=dict(color='#2986cc', width=1), name='Boll U'))
@@ -536,35 +534,68 @@ if len(stock_list):
                 fill="toself", fillcolor="rgba(41,134,204,0.12)",
                 line=dict(color="rgba(255,255,255,0)"),
                 showlegend=False, name="BB Channel"))
+        if 'EMA9' in data:
+            fig.add_trace(go.Scatter(
+                x=data.index, y=data['EMA9'], line=dict(color='#00FF99', width=1), name='EMA 9'))
+        if 'SMA21' in data:
+            fig.add_trace(go.Scatter(
+                x=data.index, y=data['SMA21'], line=dict(color='#FFA500', width=1), name='SMA 21'))
         supertrend_col = [str(c) for c in list(data.columns) if str(c).startswith('SUPERT_') and not str(c).endswith('_dir')]
         if supertrend_col:
             fig.add_trace(go.Scatter(
                 x=data.index, y=data[supertrend_col[0]],
                 line=dict(color='#fae900', width=2), name='Supertrend'))
-        fig.update_layout(template='plotly_dark')
-        st.plotly_chart(fig, use_container_width=True)
 
-        # Trade from chart
-        st.markdown("#### Place Order Directly from Chart")
-        chosen_price = st.number_input("Trade Price (pick from chart, autofilled with last close)", value=last_price)
-        side = st.radio("Side", ["BUY", "SELL"], horizontal=True)
-        qty = st.number_input("Quantity", min_value=1, value=1)
-        if st.button(f"{side} Now (Chart Tab)"):
-            try:
-                placed_order = kite.place_order(
-                    tradingsymbol=stock_list[0], exchange="NSE",
-                    transaction_type=side, quantity=int(qty),
-                    order_type="LIMIT", price=chosen_price,
-                    variety="regular", product="CNC", validity="DAY"
-                )
-                st.success(f"Order {side} placed for {qty} at ₹{chosen_price:.2f}. ID: {placed_order}")
-            except Exception as e:
-                st.error(f"Order failed: {e}")
-                browser_notification(
-                    "BlockVista Error",
-                    f"❌ Order failed: {e}",
-                    "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-                )
+        # --- LIVE PRICE LINE ---
+        if pd.notna(ltp):
+            fig.add_hline(
+                y=ltp, line_color="#FFD900", line_width=2,
+                annotation_text=f"Live ₹{ltp:.2f}", annotation_position="top right",
+                annotation=dict(font_size=12, font_color="#FFD900")
+            )
+
+        # --- LIVE PRICE CANDLE (if missing from yfinance data) ---
+        last_time = pd.to_datetime(data.index[-1])
+        current_time = pd.Timestamp.now(tz=last_time.tz if hasattr(last_time, 'tz') else None).floor('min')
+        if current_time > last_time:
+            # Add a live candle-only bar for the current minute if missing
+            fig.add_trace(go.Candlestick(
+                x=[current_time],
+                open=[ltp], high=[ltp], low=[ltp], close=[ltp],
+                increasing_line_color='#FFD900', decreasing_line_color='#FFD900',
+                name='Live LTP'
+            ))
+
+        fig.update_layout(template='plotly_dark', xaxis_rangeslider_visible=False)
+        st.plotly_chart(fig, use_container_width=True)
+        return ltp if pd.notna(ltp) else last_price
+
+    ltp_tab = get_live_price(stock_list[0])
+    last_price = plot_live_chart(stock_list[0], data, ltp_tab)
+
+    # --- Trade from chart UI ---
+    st.markdown("#### Place Order Directly from Chart")
+    chosen_price = st.number_input("Trade Price (pick from chart, autofilled with last close)", value=last_price if last_price else 0)
+    side = st.radio("Side", ["BUY", "SELL"], horizontal=True)
+    qty = st.number_input("Quantity", min_value=1, value=1)
+    if st.button(f"{side} Now (Chart Tab)"):
+        try:
+            placed_order = kite.place_order(
+                tradingsymbol=stock_list[0], exchange="NSE",
+                transaction_type=side, quantity=int(qty),
+                order_type="LIMIT", price=chosen_price,
+                variety="regular", product="CNC", validity="DAY"
+            )
+            st.success(f"Order {side} placed for {qty} at ₹{chosen_price:.2f}. ID: {placed_order}")
+        except Exception as e:
+            st.error(f"Order failed: {e}")
+            browser_notification(
+                "BlockVista Error",
+                f"❌ Order failed: {e}",
+                "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+            )
+
+    
     with tabs[1]:
         ta_cols_all = ['RSI','ADX','STOCHRSI']
         ta_cols = [c for c in ta_cols_all if c in list(data.columns)]
