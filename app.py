@@ -117,11 +117,9 @@ def load_users():
         if os.path.exists(USERS_FILE):
             with open(USERS_FILE, 'r') as f:
                 data = json.load(f)
-            # Ensure data is a dictionary
             if not isinstance(data, dict):
                 logging.error(f"Invalid users.json format: expected dict, got {type(data)}")
                 return {}
-            # Validate each user entry
             valid_users = {}
             for username, user_data in data.items():
                 if isinstance(user_data, dict) and "access_code" in user_data:
@@ -141,7 +139,6 @@ def load_users():
 
 def save_users(users):
     try:
-        # Validate users data
         if not isinstance(users, dict):
             logging.error(f"Attempted to save invalid users data: {type(users)}")
             return
@@ -205,7 +202,6 @@ def signup_user(username, access_code, security_question, security_answer):
         "security_answer": hash_access_code(security_answer)
     }
     save_users(users)
-    # Initialize user_activity for new user
     if username not in st.session_state["user_activity"]:
         st.session_state["user_activity"][username] = []
     st.session_state["user_activity"][username].append({
@@ -222,7 +218,6 @@ def login_user(username, access_code):
     ip_address = "N/A"
     if username in users:
         if users[username]["access_code"] == hash_access_code(access_code):
-            # Initialize user_activity if not present
             if username not in st.session_state["user_activity"]:
                 st.session_state["user_activity"][username] = []
             login_history.append({
@@ -304,7 +299,6 @@ def reset_user_password(username, security_answer, new_access_code):
         "ip_address": ip_address
     })
     save_login_history(login_history)
-    # Initialize user_activity if not present
     if username not in st.session_state["user_activity"]:
         st.session_state["user_activity"][username] = []
     st.session_state["user_activity"][username].append({
@@ -615,7 +609,6 @@ def get_live_price(symbol):
 @st.cache_data(show_spinner="⏳ Loading data...")
 def fetch_stock_data(symbol, period, interval):
     try:
-        # Try yfinance first
         logging.debug(f"Fetching yfinance data for {symbol}.NS, period={period}, interval={interval}")
         data = yf.download(f"{symbol}.NS", period=period, interval=interval, progress=False)
         if data.empty or not isinstance(data, pd.DataFrame):
@@ -627,19 +620,15 @@ def fetch_stock_data(symbol, period, interval):
                 st.warning(f"No data fetched for {symbol}.")
                 return None
         
-        # Log data structure for debugging
         logging.debug(f"Data columns for {symbol}: {list(data.columns)}")
         logging.debug(f"Data head for {symbol}:\n{data.head().to_string()}")
         
-        # Handle MultiIndex columns
         if isinstance(data.columns, pd.MultiIndex):
             logging.debug(f"MultiIndex detected for {symbol}. Attempting to flatten columns.")
-            # Select columns for the specific symbol
             try:
                 data = data.xs(f"{symbol}.NS", level=1, axis=1, drop_level=True)
             except KeyError:
                 logging.warning(f"Symbol {symbol}.NS not found in MultiIndex columns: {data.columns}")
-                # Fallback to selecting common columns if available
                 available_cols = [col for col in data.columns if col[0] in ['Open', 'High', 'Low', 'Close', 'Volume']]
                 if not available_cols:
                     logging.warning(f"No valid columns found for {symbol} in MultiIndex.")
@@ -658,7 +647,6 @@ def fetch_stock_data(symbol, period, interval):
             logging.warning(f"Duplicate columns detected for {symbol}: {data.columns[data.columns.duplicated()].tolist()}")
             data = data.loc[:, ~data.columns.duplicated(keep='first')]
         
-        # Validate numeric data and Series type
         for col in required_cols:
             if not isinstance(data[col], pd.Series):
                 logging.error(f"Column {col} for {symbol} is not a pandas Series: {type(data[col])}")
@@ -677,7 +665,6 @@ def fetch_stock_data(symbol, period, interval):
         
         logging.debug(f"Processed data for {symbol}: {data.tail(5)}")
         
-        # Compute technical indicators only if data is sufficient
         try:
             if len(data) > 14:
                 data['RSI'] = ta.rsi(data['Close'], length=14)
@@ -853,7 +840,6 @@ if not screen_df.empty:
 else:
     st.sidebar.info("No data found for selection.")
 
-# Record user activity for screener
 if st.session_state["logged_in"] and len(stock_list) > 0:
     username = st.session_state["username"]
     if username not in st.session_state["user_activity"]:
@@ -1087,6 +1073,7 @@ if len(stock_list):
     
     rsi = try_scalar(latest.get('RSI', np.nan))
     macd = try_scalar(latest.get('MACD_12_26_9', np.nan))
+    macds = try_scalar(latest.get('MACDs_12_26_9', np.nan))
     adx = try_scalar(latest.get('ADX', np.nan))
     atr = try_scalar(latest.get('ATR', np.nan))
     vwap = try_scalar(latest.get('VWAP', np.nan))
@@ -1099,15 +1086,20 @@ if len(stock_list):
             delta = price - close_price
             st.metric("LTP", f"{round(float(price), 2)}", delta=f"{round(delta, 2)}", delta_color="normal")
     with metrics_row[1]:
-        st.metric("RSI", f"{round(rsi, 2) if not np.isnan(rsi) else '—'}", delta_color="red" if rsi > 70 else "green" if rsi < 30 else "normal")
+        rsi_label = f"{round(rsi, 2)} {'(Overbought)' if rsi > 70 else '(Oversold)' if rsi < 30 else ''}" if not np.isnan(rsi) else '—'
+        st.metric("RSI", rsi_label, delta=None, delta_color="off")
     with metrics_row[2]:
-        st.metric("MACD", f"{round(macd, 2) if not np.isnan(macd) else '—'}", delta_color="green" if macd > try_scalar(latest.get('MACDs_12_26_9', np.nan)) else "red")
+        if np.isnan(macd) or np.isnan(macds):
+            st.metric("MACD", f"{round(macd, 2) if not np.isnan(macd) else '—'}", delta=None, delta_color="off")
+        else:
+            macd_delta = macd - macds
+            st.metric("MACD", f"{round(macd, 2)}", delta=f"{round(macd_delta, 2)}", delta_color="normal")
     with metrics_row[3]:
-        st.metric("ADX", f"{round(adx, 2) if not np.isnan(adx) else '—'}", delta_color="green" if adx > 25 else "normal")
+        st.metric("ADX", f"{round(adx, 2) if not np.isnan(adx) else '—'}", delta_color="normal" if adx > 25 else "off")
     with metrics_row[4]:
-        st.metric("ATR", f"{round(atr, 2) if not np.isnan(atr) else '—'}")
+        st.metric("ATR", f"{round(atr, 2) if not np.isnan(atr) else '—'}", delta=None, delta_color="off")
     with metrics_row[5]:
-        st.metric("VWAP", f"{round(vwap, 2) if not np.isnan(vwap) else '—'}")
+        st.metric("VWAP", f"{round(vwap, 2) if not np.isnan(vwap) else '—'}", delta=None, delta_color="off")
 
     tabs = st.tabs(["Chart", "TA", "Signals", "Raw"])
     with tabs[0]:
