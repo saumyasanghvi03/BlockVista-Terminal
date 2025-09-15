@@ -806,34 +806,30 @@ if len(stock_list):
         last_cols = [c for c in last_cols_all if c in list(data.columns)]
         st.write("Latest Values:", data.iloc[-1][last_cols])
         
-    with st.expander("Show Analysis"):
-    st.subheader("Advanced Analysis & Signals")
-    # Add your analysis widgets, charts, or metrics here
-    st.write("Coming soon: AI-powered trade signals and strategy insights 🚀")
-    signals = get_signals(data)
-    for k, v in signals.items():
+        with st.expander("Show Analysis"):
+        st.subheader("Advanced Analysis & Signals")
+        # Add your analysis widgets, charts, or metrics here
+        st.write("Coming soon: AI-powered trade signals and strategy insights 🚀")
+        signals = get_signals(data)
+        for k, v in signals.items():
         st.metric(label=k, value=v)
-    st.markdown("### Additional Advanced Indicators")
-    advanced_cols = ['SMA21', 'EMA9', 'BOLL_L', 'BOLL_M', 'BOLL_U', 'ATR', 'VWAP']
-    adv_data = data[advanced_cols].tail(20) if all(c in data.columns for c in advanced_cols) else None
-    if adv_data is not None:
+        st.markdown("### Additional Advanced Indicators")\
+        advanced_cols = ['SMA21', 'EMA9', 'BOLL_L', 'BOLL_M', 'BOLL_U', 'ATR', 'VWAP']
+        adv_data = data[advanced_cols].tail(20) if all(c in data.columns for c in advanced_cols) else None
+        if adv_data is not None:
         st.line_chart(adv_data)
-    else:
+        else:
         st.info("No advanced indicator data available.")
-
-with tabs[3]:
-    st.subheader("Raw Data")
-    raw_df = combined if combined is not None else data
-    st.dataframe(raw_df)
-
-# Auto-refresh
-if st.session_state.get("auto_refresh", True):
-    st_autorefresh(interval=st.session_state.get("refresh_interval", 15) * 1000, key="data_refresh")
-
-# Browser notification example
-if st.sidebar.button("Notify LTP"):
-    browser_notification(f"{display_symbol} Live Price", f"LTP: {price}")
-
-st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage, Plotly & Streamlit")
+        with tabs[3]:
+        st.subheader("Raw Data")
+        raw_df = combined if combined is not None else data
+        st.dataframe(raw_df)
+        # Auto-refresh
+        if st.session_state.get("auto_refresh", True):
+        st_autorefresh(interval=st.session_state.get("refresh_interval", 15) * 1000, key="data_refresh")
+        if st.sidebar.button("Notify LTP"):
+        browser_notification(f"{display_symbol} Live Price", f"LTP: {price}")
+        
+        st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage, Plotly & Streamlit")
 
 # ---------------------- End of file -----------
