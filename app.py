@@ -27,7 +27,7 @@ except ModuleNotFoundError:
     st.warning("vaderSentiment not installed. Sentiment meter disabled.")
 
 # ---------------------- CONFIG ----------------------
-AV_API_KEY = "2R0I2OXW1A1HMD9N"
+AV_API_KEY = "M8BZLO3RLZW7GRCC"
 MAX_TICKS_PER_SYMBOL = 4000
 MAX_AGG_CANDLES = 500
 USERS_FILE = "users.json"
