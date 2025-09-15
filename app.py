@@ -822,28 +822,43 @@ st.markdown(
 
 # ---------------------- Sentiment Meter ----------------------
 if vader_available:
-    sentiment_score, sentiment_label = get_nifty50_sentiment()
+    try:
+        sentiment_score, sentiment_label = get_nifty50_sentiment()
+        # Validate sentiment_score
+        if not isinstance(sentiment_score, (int, float)) or pd.isna(sentiment_score):
+            sentiment_score, sentiment_label = 0.0, "Neutral"
+            delta_color = "normal"
+        else:
+            delta_color = "red" if sentiment_score < -0.05 else "green" if sentiment_score > 0.05 else "normal"
+        with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
+            st.metric("NIFTY 50 Sentiment", sentiment_label, f"{sentiment_score:.2f}", delta_color=delta_color)
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=sentiment_score,
+                domain={'x': [0, 1], 'y': [0, 1]},
+                gauge={
+                    'axis': {'range': [-1, 1], 'tickwidth': 1, 'tickcolor': "#FFFF00"},
+                    'bar': {'color': "#00CC00" if sentiment_score > 0 else "#FF3333"},
+                    'bgcolor': "#000000" if st.session_state.theme == "Bloomberg Dark" else "#F0F0F0",
+                    'bordercolor': "#FFFF00",
+                    'steps': [
+                        {'range': [-1, -0.05], 'color': "#FF3333"},
+                        {'range': [-0.05, 0.05], 'color': "#666666"},
+                        {'range': [0.05, 1], 'color': "#00CC00"}
+                    ]
+                }
+            ))
+            fig.update_layout(height=200)
+            st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.warning(f"Failed to render sentiment meter: {e}")
+        sentiment_score, sentiment_label = 0.0, "Neutral"
+        with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
+            st.metric("NIFTY 50 Sentiment", sentiment_label, f"{sentiment_score:.2f}", delta_color="normal")
+else:
+    sentiment_score, sentiment_label = 0.0, "Neutral"
     with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
-        delta_color = "red" if sentiment_score < -0.05 else "green" if sentiment_score > 0.05 else "normal"
-        st.metric("NIFTY 50 Sentiment", sentiment_label, f"{sentiment_score:.2f}", delta_color=delta_color)
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=sentiment_score,
-            domain={'x': [0, 1], 'y': [0, 1]},
-            gauge={
-                'axis': {'range': [-1, 1], 'tickwidth': 1, 'tickcolor': "#FFFF00"},
-                'bar': {'color': "#00CC00" if sentiment_score > 0 else "#FF3333"},
-                'bgcolor': "#000000" if st.session_state.theme == "Bloomberg Dark" else "#F0F0F0",
-                'bordercolor': "#FFFF00",
-                'steps': [
-                    {'range': [-1, -0.05], 'color': "#FF3333"},
-                    {'range': [-0.05, 0.05], 'color': "#666666"},
-                    {'range': [0.05, 1], 'color': "#00CC00"}
-                ]
-            }
-        ))
-        fig.update_layout(height=200)
-        st.plotly_chart(fig, use_container_width=True)
+        st.metric("NIFTY 50 Sentiment", sentiment_label, f"{sentiment_score:.2f}", delta_color="normal")
 
 # ---------------------- News Section Below Header ----------------------
 if len(stock_list):
