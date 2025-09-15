@@ -573,6 +573,27 @@ def plot_live_chart(symbol, data, ltp):
     st.plotly_chart(fig, use_container_width=True)
     return ltp if pd.notna(ltp) else last_price
 
+    # Show LIVE LTP
+st.metric("Live Price (LTP)", f"₹{ltp_tab:.2f}" if ltp_tab is not None and not pd.isna(ltp_tab) else "N/A")
+
+# Get latest row safely
+latest = data.iloc[-1]
+
+# Show MACD and RSI values
+macd_val = latest.get('MACD_12_26_9', 'N/A')
+rsi_val = latest.get('RSI', 'N/A')
+
+# Nice formatting/rounding
+if not pd.isna(macd_val):
+    macd_val = f"{macd_val:.2f}"
+if not pd.isna(rsi_val):
+    rsi_val = f"{rsi_val:.2f}"
+
+st.write(
+    f"**RSI:** {rsi_val} &nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp; **MACD:** {macd_val}"
+)
+
+
 # --- Now, inside your main UI code ---
 with tabs[0]:
     ltp_tab = get_live_price(stock_list[0])
