@@ -9,3 +9,4 @@ streamlit>=1.39.0
 streamlit-autorefresh>=0.0.1
 yfinance>=0.2.43
 vaderSentiment>=3.3.2
+pytz>=2024.2
