@@ -174,7 +174,7 @@ def get_live_price(symbol):
         )
         return np.nan
 
-@st.cache_data(ttl=60) # Cache the data for 60 seconds
+@st.cache_data(ttl=60)
 def fetch_stock_data(symbol, period, interval):
     data = yf.download(f"{symbol}.NS", period=period, interval=interval, progress=False)
     if data.empty:
@@ -186,7 +186,6 @@ def fetch_stock_data(symbol, period, interval):
         
     data.columns = [c.replace(' ', '_').replace('.', '_').replace('-', '_') for c in data.columns]
     
-    # Calculate indicators, handling potential empty DataFrames
     if not data.empty:
         data['RSI'] = ta.rsi(data['Close'], length=14)
         macd_res = ta.macd(data['Close'])
@@ -360,8 +359,14 @@ for i, s in enumerate(symbols):
 if pnl_data:
     df_pnl = pd.DataFrame(pnl_data)
     st.sidebar.dataframe(df_pnl.set_index('Symbol'))
-    total_pnl = df_pnl['P&L ₹'].sum() if all(isinstance(x, (int, float)) for x in df_pnl['P&L ₹']) else "N/A"
-    st.sidebar.markdown(f"<b>Total P&L ₹: {round(total_pnl, 2)}</b>", unsafe_allow_html=True)
+    
+    # Corrected code block below
+    try:
+        total_pnl = df_pnl['P&L ₹'].astype(float).sum()
+        st.sidebar.markdown(f"<b>Total P&L ₹: {round(total_pnl, 2)}</b>", unsafe_allow_html=True)
+    except ValueError:
+        st.sidebar.markdown(f"<b>Total P&L ₹: N/A</b>", unsafe_allow_html=True)
+        
 
 # ---- Sidebar: Order Placement (Kite) ----
 st.sidebar.subheader("Order Placement (Kite)")
@@ -598,11 +603,10 @@ if len(stock_list) > 0:
                             line=dict(color='#fae900', width=2), name='Supertrend'))
 
                 if pd.notna(ltp) and not data.empty:
-                    # Use the last timestamp from the data to extend the line, if available
                     last_time = data.index[-1] if not data.empty else datetime.now()
                     fig.add_trace(
                         go.Scatter(
-                            x=[data.index.min(), last_time + timedelta(minutes=5)], # Extends line slightly to the right
+                            x=[data.index.min(), last_time + timedelta(minutes=5)],
                             y=[ltp, ltp], 
                             mode='lines',
                             line=dict(color="#FFD900", width=2, dash='dash'),
