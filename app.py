@@ -1,3 +1,4 @@
+```python
 import os
 import time
 import json
@@ -18,6 +19,8 @@ import plotly.graph_objects as go
 import feedparser
 from dateutil.parser import parse
 import pytz
+import time
+import logging
 
 try:
     from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -27,10 +30,12 @@ except ModuleNotFoundError:
     st.warning("vaderSentiment not installed. Sentiment meter disabled.")
 
 # ---------------------- CONFIG ----------------------
-AV_API_KEY = "M8BZLO3RLZW7GRCC"
+AV_API_KEY = "2R0I2OXW1A1HMD9N"  # Ensure this is your valid Alpha Vantage API key
 MAX_TICKS_PER_SYMBOL = 4000
 MAX_AGG_CANDLES = 500
 USERS_FILE = "users.json"
+LOGIN_HISTORY_FILE = "login_history.json"
+TRADE_LOGS_FILE = "trade_logs.json"
 SYMBOL_TO_COMPANY = {
     "RELIANCE": ["Reliance Industries", "Reliance"],
     "SBIN": ["State Bank of India", "SBI"],
@@ -50,9 +55,13 @@ SYMBOL_TO_COMPANY = {
     "HINDUNILVR": ["Hindustan Unilever"],
     "NESTLEIND": ["Nestle India"],
     "ITC": ["ITC"],
-    "BRITANNIA": ["Britannia Industries"]
+    "BRITANNIA": ["Britannia Industries"],
+    "BEL": ["Bharat Electronics"]
 }
 NIFTY50_TOP = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS"]
+
+# Setup logging
+logging.basicConfig(filename='app.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ---------------------- UTILITIES ----------------------
 def browser_notification(title, body, icon=None):
@@ -73,37 +82,99 @@ def browser_notification(title, body, icon=None):
         """, unsafe_allow_html=True
     )
 
-def fetch_alpha_vantage_intraday(symbol, interval='1min', outputsize='compact'):
-    try:
-        ts = TimeSeries(key=AV_API_KEY, output_format='pandas')
-        symbol_av = symbol.upper() + ".NSE" if not symbol.upper().endswith(".NSE") else symbol.upper()
-        data, _ = ts.get_intraday(symbol=symbol_av, interval=interval, outputsize=outputsize)
-        df = data.rename(columns={
-            '1. open': "Open",
-            '2. high': "High",
-            '3. low': "Low",
-            '4. close': "Close",
-            '5. volume': "Volume"
-        })
-        df.index = pd.to_datetime(df.index)
-        df = df.sort_index()
-        return df
-    except Exception:
-        return None
+def fetch_alpha_vantage_intraday(symbol, interval='1min', outputsize='compact', retries=3, delay=5):
+    for attempt in range(retries):
+        try:
+            ts = TimeSeries(key=AV_API_KEY, output_format='pandas')
+            symbol_av = symbol.upper() + ".NSE" if not symbol.upper().endswith(".NSE") else symbol.upper()
+            logging.debug(f"Fetching Alpha Vantage data for {symbol_av}, interval={interval}, attempt={attempt+1}")
+            data, _ = ts.get_intraday(symbol=symbol_av, interval=interval, outputsize=outputsize)
+            df = data.rename(columns={
+                '1. open': "Open",
+                '2. high': "High",
+                '3. low': "Low",
+                '4. close': "Close",
+                '5. volume': "Volume"
+            })
+            df.index = pd.to_datetime(df.index)
+            df = df.sort_index()
+            logging.debug(f"Alpha Vantage data for {symbol_av}: {df.shape}")
+            return df
+        except Exception as e:
+            logging.error(f"Alpha Vantage error for {symbol_av}: {e}")
+            if attempt < retries - 1:
+                time.sleep(delay * (2 ** attempt))  # Exponential backoff
+            continue
+    return None
 
 # ---------------------- User Management ----------------------
 def load_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+    try:
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, 'r') as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        logging.error(f"Error loading users: {e}")
+        return {}
 
 def save_users(users):
-    with open(USERS_FILE, 'w') as f:
-        json.dump(users, f, indent=2)
+    try:
+        with open(USERS_FILE, 'w') as f:
+            json.dump(users, f, indent=2)
+    except Exception as e:
+        logging.error(f"Error saving users: {e}")
+
+def load_login_history():
+    try:
+        if os.path.exists(LOGIN_HISTORY_FILE):
+            with open(LOGIN_HISTORY_FILE, 'r') as f:
+                return json.load(f)
+        return []
+    except Exception as e:
+        logging.error(f"Error loading login history: {e}")
+        return []
+
+def save_login_history(history):
+    try:
+        with open(LOGIN_HISTORY_FILE, 'w') as f:
+            json.dump(history, f, indent=2)
+    except Exception as e:
+        logging.error(f"Error saving login history: {e}")
+
+def load_trade_logs():
+    try:
+        if os.path.exists(TRADE_LOGS_FILE):
+            with open(TRADE_LOGS_FILE, 'r') as f:
+                return json.load(f)
+        return []
+    except Exception as e:
+        logging.error(f"Error loading trade logs: {e}")
+        return []
+
+def save_trade_logs(logs):
+    try:
+        with open(TRADE_LOGS_FILE, 'w') as f:
+            json.dump(logs, f, indent=2)
+    except Exception as e:
+        logging.error(f"Error saving trade logs: {e}")
 
 def hash_access_code(access_code):
     return hashlib.sha256(access_code.encode()).hexdigest()
+
+def create_admin_user():
+    users = load_users()
+    has_admin = any(user_data.get("is_admin", False) for user_data in users.values())
+    if not has_admin:
+        default_admin_username = "admin"
+        default_admin_access_code = "admin123"  # Change to secure code in production
+        users[default_admin_username] = {
+            "access_code": hash_access_code(default_admin_access_code),
+            "is_admin": True,
+            "locked": False
+        }
+        save_users(users)
+        st.info(f"Admin user '{default_admin_username}' created with access code '{default_admin_access_code}'. Please change the access code after logging in.")
 
 def signup_user(username, access_code):
     if not username or not access_code:
@@ -113,15 +184,105 @@ def signup_user(username, access_code):
     users = load_users()
     if username in users:
         return False, "Username already exists."
-    users[username] = hash_access_code(access_code)
+    users[username] = {
+        "access_code": hash_access_code(access_code),
+        "is_admin": False,
+        "locked": False
+    }
     save_users(users)
     return True, "Account created successfully!"
 
 def login_user(username, access_code):
     users = load_users()
-    if username in users and users[username] == hash_access_code(access_code):
-        return True
-    return False
+    login_history = load_login_history()
+    timestamp = datetime.now(pytz.timezone("Asia/Kolkata")).isoformat()
+    ip_address = "N/A"  # Streamlit Cloud doesn't provide IP; use if available in local deployment
+    if username in users:
+        if users[username].get("locked", False):
+            login_history.append({
+                "username": username,
+                "timestamp": timestamp,
+                "success": False,
+                "reason": "Account locked",
+                "ip_address": ip_address
+            })
+            save_login_history(login_history)
+            return False, False, "Account is locked."
+        if users[username]["access_code"] == hash_access_code(access_code):
+            login_history.append({
+                "username": username,
+                "timestamp": timestamp,
+                "success": True,
+                "reason": "Successful login",
+                "ip_address": ip_address
+            })
+            save_login_history(login_history)
+            return True, users[username].get("is_admin", False), "Login successful."
+    login_history.append({
+        "username": username,
+        "timestamp": timestamp,
+        "success": False,
+        "reason": "Invalid credentials",
+        "ip_address": ip_address
+    })
+    save_login_history(login_history)
+    return False, False, "Invalid username or access code."
+
+def reset_user_access_code(admin_username, target_username, new_access_code):
+    users = load_users()
+    if admin_username not in users or not users[admin_username].get("is_admin", False):
+        return False, "Only admins can reset access codes."
+    if target_username not in users:
+        return False, "User does not exist."
+    if len(new_access_code) < 6:
+        return False, "New access code must be at least 6 characters."
+    users[target_username]["access_code"] = hash_access_code(new_access_code)
+    save_users(users)
+    logging.info(f"Admin {admin_username} reset access code for {target_username}")
+    return True, f"Access code for {target_username} reset successfully."
+
+def delete_user(admin_username, target_username):
+    users = load_users()
+    if admin_username not in users or not users[admin_username].get("is_admin", False):
+        return False, "Only admins can delete users."
+    if target_username not in users:
+        return False, "User does not exist."
+    if target_username == admin_username:
+        return False, "Admins cannot delete their own account."
+    if users[target_username].get("is_admin", False):
+        return False, "Cannot delete another admin account."
+    del users[target_username]
+    save_users(users)
+    logging.info(f"Admin {admin_username} deleted user {target_username}")
+    return True, f"User {target_username} deleted successfully."
+
+def toggle_admin_status(admin_username, target_username):
+    users = load_users()
+    if admin_username not in users or not users[admin_username].get("is_admin", False):
+        return False, "Only admins can modify admin status."
+    if target_username not in users:
+        return False, "User does not exist."
+    if target_username == admin_username:
+        return False, "Admins cannot modify their own admin status."
+    users[target_username]["is_admin"] = not users[target_username].get("is_admin", False)
+    save_users(users)
+    action = "promoted to admin" if users[target_username]["is_admin"] else "demoted from admin"
+    logging.info(f"Admin {admin_username} {action} user {target_username}")
+    return True, f"User {target_username} {action} successfully."
+
+def toggle_user_lock(admin_username, target_username):
+    users = load_users()
+    if admin_username not in users or not users[admin_username].get("is_admin", False):
+        return False, "Only admins can lock/unlock users."
+    if target_username not in users:
+        return False, "User does not exist."
+    if target_username == admin_username:
+        return False, "Admins cannot lock/unlock their own account."
+    users[target_username]["locked"] = not users[target_username].get("locked", False)
+    save_users(users)
+    action = "locked" if users[target_username]["locked"] else "unlocked"
+    logging.info(f"Admin {admin_username} {action} user {target_username}")
+    return True, f"User {target_username} {action} successfully."
 
 # ---------------------- Sentiment Analysis ----------------------
 @st.cache_data(ttl=1800)
@@ -157,6 +318,15 @@ def get_nifty50_sentiment():
 st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 if "theme" not in st.session_state:
     st.session_state.theme = "Bloomberg Dark"
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "login_attempts" not in st.session_state:
+    st.session_state["login_attempts"] = 0
+if "is_admin" not in st.session_state:
+    st.session_state["is_admin"] = False
+if "user_activity" not in st.session_state:
+    st.session_state["user_activity"] = {}
+MAX_LOGIN_ATTEMPTS = 3
 
 def set_terminal_style():
     if st.session_state.theme == "Bloomberg Dark":
@@ -194,17 +364,9 @@ def set_terminal_style():
         </style>
         """, unsafe_allow_html=True)
 
-if "auto_refresh" not in st.session_state:
-    st.session_state["auto_refresh"] = True
-if "refresh_interval" not in st.session_state:
-    st.session_state["refresh_interval"] = 15
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "login_attempts" not in st.session_state:
-    st.session_state["login_attempts"] = 0
-MAX_LOGIN_ATTEMPTS = 3
-
 # ---------------------- Login/Signup UI ----------------------
+create_admin_user()
+
 if not st.session_state["logged_in"]:
     st.subheader("BlockVista Terminal Account")
     auth_mode = st.selectbox("Select Action", ["Login", "Signup"])
@@ -219,7 +381,9 @@ if not st.session_state["logged_in"]:
                 st.success(message)
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = signup_username
+                st.session_state["is_admin"] = False
                 st.session_state["login_attempts"] = 0
+                st.session_state["user_activity"][signup_username] = []
             else:
                 st.error(message)
     
@@ -231,15 +395,21 @@ if not st.session_state["logged_in"]:
             if st.session_state["login_attempts"] >= MAX_LOGIN_ATTEMPTS:
                 st.error("❌ Too many failed attempts. Please try again later.")
                 st.stop()
-            if login_user(login_username, login_access_code):
+            success, is_admin, message = login_user(login_username, login_access_code)
+            if success:
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = login_username
+                st.session_state["is_admin"] = is_admin
                 st.session_state["login_attempts"] = 0
                 st.success(f"✅ Welcome, {login_username}!")
+                if is_admin:
+                    st.info("Logged in as Admin.")
+                if login_username not in st.session_state["user_activity"]:
+                    st.session_state["user_activity"][login_username] = []
             else:
                 st.session_state["login_attempts"] += 1
                 remaining = MAX_LOGIN_ATTEMPTS - st.session_state["login_attempts"]
-                st.error(f"❌ Invalid username or access code. {remaining} attempts remaining.")
+                st.error(f"❌ {message}. {remaining} attempts remaining.")
     
     st.stop()
 
@@ -249,9 +419,110 @@ set_terminal_style()
 
 refresh_col, toggle_col = st.sidebar.columns([2,2])
 with refresh_col:
-    st.session_state["auto_refresh"] = st.checkbox("Auto Refresh", value=st.session_state["auto_refresh"])
+    st.session_state["auto_refresh"] = st.checkbox("Auto Refresh", value=st.session_state.get("auto_refresh", True))
 with toggle_col:
-    st.session_state["refresh_interval"] = st.number_input("Sec", value=st.session_state["refresh_interval"], min_value=3, max_value=90, step=1)
+    st.session_state["refresh_interval"] = st.number_input("Sec", value=st.session_state.get("refresh_interval", 15), min_value=3, max_value=90, step=1)
+
+# ---------------------- Admin Dashboard ----------------------
+if st.session_state["is_admin"]:
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Admin Dashboard")
+    if st.sidebar.button("Manage Users"):
+        st.session_state["show_admin_dashboard"] = True
+    if st.sidebar.button("Back to Terminal"):
+        st.session_state["show_admin_dashboard"] = False
+
+if st.session_state.get("show_admin_dashboard", False) and st.session_state["is_admin"]:
+    st.subheader("Admin Dashboard")
+    admin_tabs = st.tabs(["Users", "Login History", "Trade Logs", "User Activity"])
+    
+    with admin_tabs[0]:
+        st.write("### User Management")
+        users = load_users()
+        user_list = [{"Username": username, "Is Admin": user_data.get("is_admin", False), "Locked": user_data.get("locked", False)} for username, user_data in users.items()]
+        st.dataframe(pd.DataFrame(user_list))
+        
+        st.write("#### Reset User Access Code")
+        target_username = st.text_input("Target Username for Reset")
+        new_access_code = st.text_input("New Access Code", type="password")
+        if st.button("Reset Access Code"):
+            success, message = reset_user_access_code(st.session_state["username"], target_username, new_access_code)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+        
+        st.write("#### Delete User")
+        delete_username = st.text_input("Username to Delete")
+        if st.button("Delete User"):
+            success, message = delete_user(st.session_state["username"], delete_username)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+        
+        st.write("#### Toggle Admin Status")
+        admin_toggle_username = st.text_input("Username to Toggle Admin Status")
+        if st.button("Toggle Admin Status"):
+            success, message = toggle_admin_status(st.session_state["username"], admin_toggle_username)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+        
+        st.write("#### Lock/Unlock User")
+        lock_username = st.text_input("Username to Lock/Unlock")
+        if st.button("Toggle Lock Status"):
+            success, message = toggle_user_lock(st.session_state["username"], lock_username)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+        
+        st.write("#### Export User Data")
+        if st.button("Export Users as CSV"):
+            csv = pd.DataFrame(user_list).to_csv(index=False)
+            st.download_button("Download Users CSV", csv, file_name="users.csv")
+
+    with admin_tabs[1]:
+        st.write("### Login History")
+        login_history = load_login_history()
+        if login_history:
+            st.dataframe(pd.DataFrame(login_history))
+            csv = pd.DataFrame(login_history).to_csv(index=False)
+            st.download_button("Download Login History CSV", csv, file_name="login_history.csv")
+        else:
+            st.info("No login history available.")
+
+    with admin_tabs[2]:
+        st.write("### Trade Logs")
+        trade_logs = load_trade_logs()
+        if trade_logs:
+            st.dataframe(pd.DataFrame(trade_logs))
+            csv = pd.DataFrame(trade_logs).to_csv(index=False)
+            st.download_button("Download Trade Logs CSV", csv, file_name="trade_logs.csv")
+        else:
+            st.info("No trade logs available.")
+
+    with admin_tabs[3]:
+        st.write("### User Activity")
+        activity_list = []
+        for username, activities in st.session_state["user_activity"].items():
+            for activity in activities:
+                activity_list.append({
+                    "Username": username,
+                    "Timestamp": activity["timestamp"],
+                    "Action": activity["action"],
+                    "Details": activity["details"]
+                })
+        if activity_list:
+            st.dataframe(pd.DataFrame(activity_list))
+            csv = pd.DataFrame(activity_list).to_csv(index=False)
+            st.download_button("Download User Activity CSV", csv, file_name="user_activity.csv")
+        else:
+            st.info("No user activity recorded.")
+
+    st.stop()
 
 # ---------------------- Smallcase Baskets ----------------------
 SMALLCASE_BASKETS = {
@@ -282,14 +553,13 @@ if not api_key or not api_secret:
 def get_kite_session():
     kite_conn = KiteConnect(api_key=api_key)
     
-    # Check if already authenticated
     if "access_token" in st.session_state and "zerodha_authenticated" in st.session_state and st.session_state["zerodha_authenticated"]:
         try:
             kite_conn.set_access_token(st.session_state["access_token"])
-            # Validate session with a simple API call
-            kite_conn.profile()  # Will raise an exception if token is invalid
+            kite_conn.profile()
             return kite_conn
         except Exception as e:
+            logging.error(f"Zerodha session invalid: {e}")
             st.warning(f"Zerodha session invalid: {e}. Please re-authenticate.")
             st.session_state.pop("access_token", None)
             st.session_state.pop("zerodha_authenticated", None)
@@ -307,9 +577,9 @@ def get_kite_session():
             else:
                 st.warning("Auto-refresh did not return access_token.")
         except Exception as e:
+            logging.error(f"Zerodha auto-refresh failed: {e}")
             st.warning(f"Auto-refresh failed: {e}")
 
-    # Show login UI only if not authenticated
     st.markdown(
         f"""
         <div style="background:#1a1a1a;padding:14px;border-radius:8px;border:1px solid #FFFF00;">
@@ -336,13 +606,13 @@ def get_kite_session():
                 st.error("Failed to obtain access_token.")
                 st.stop()
         except Exception as e:
+            logging.error(f"Zerodha login failed: {e}")
             st.error(f"❌ Zerodha login failed: {e}")
             st.stop()
     st.stop()
 
 kite = get_kite_session()
 
-# Add logout button in sidebar
 st.sidebar.markdown("---")
 if "zerodha_authenticated" in st.session_state and st.session_state["zerodha_authenticated"]:
     if st.sidebar.button("Logout from Zerodha"):
@@ -399,44 +669,55 @@ def get_live_price(symbol):
     try:
         ltp = kite.ltp(f"NSE:{symbol}")
         return ltp[f"NSE:{symbol}"]["last_price"]
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error getting live price for {symbol}: {e}")
         return np.nan
 
 @st.cache_data(show_spinner="⏳ Loading data...")
 def fetch_stock_data(symbol, period, interval):
     try:
+        # Try yfinance first
+        logging.debug(f"Fetching yfinance data for {symbol}.NS, period={period}, interval={interval}")
         data = yf.download(f"{symbol}.NS", period=period, interval=interval, progress=False)
-        if data.empty:
+        if data.empty or not isinstance(data, pd.DataFrame):
+            logging.warning(f"yfinance returned empty or invalid data for {symbol}.NS")
             av_interval = {"1m": "1min", "5m": "5min", "15m": "15min"}.get(interval, "5min")
             data = fetch_alpha_vantage_intraday(symbol, interval=av_interval)
             if data is None or data.empty:
+                logging.warning(f"No data fetched for {symbol} from Alpha Vantage.")
                 st.warning(f"No data fetched for {symbol}.")
                 return None
         
-        # Validate columns
         required_cols = ['Open', 'High', 'Low', 'Close']
         if not all(col in data.columns for col in required_cols):
+            logging.warning(f"Missing required columns for {symbol}: {list(data.columns)}")
             st.warning(f"Missing required columns for {symbol}: {list(data.columns)}")
             return None
         
-        # Check for duplicate columns
         if len(data.columns[data.columns.duplicated()]) > 0:
-            st.warning(f"Duplicate columns detected for {symbol}: {data.columns[data.columns.duplicated()].tolist()}")
+            logging.warning(f"Duplicate columns detected for {symbol}: {data.columns[data.columns.duplicated()].tolist()}")
             data = data.loc[:, ~data.columns.duplicated(keep='first')]
         
-        # Ensure numeric data and sufficient length
         for col in required_cols:
             data[col] = pd.to_numeric(data[col], errors='coerce')
             if data[col].isna().all():
+                logging.warning(f"Column {col} for {symbol} contains no valid numeric data.")
                 st.warning(f"Column {col} for {symbol} contains no valid numeric data.")
                 return None
         
-        # Ensure data is a DataFrame with sufficient rows
         if not isinstance(data, pd.DataFrame) or len(data) < 2:
+            logging.warning(f"Invalid or insufficient data for {symbol}: {len(data)} rows.")
             st.warning(f"Invalid or insufficient data for {symbol}: {len(data)} rows.")
             return None
         
-        # Calculate technical indicators only if data is valid
+        # Validate Close column is a Series
+        if not isinstance(data['Close'], pd.Series):
+            logging.error(f"data['Close'] is not a pandas Series for {symbol}: {type(data['Close'])}")
+            st.warning(f"Invalid data type for Close column in {symbol}: {type(data['Close'])}")
+            return None
+        
+        logging.debug(f"Data for {symbol}: {data.tail(5)}")
+        
         try:
             if len(data) > 14:
                 data['RSI'] = ta.rsi(data['Close'], length=14)
@@ -497,9 +778,11 @@ def fetch_stock_data(symbol, period, interval):
                 for c in ['open', 'high', 'low', 'close']:
                     data[f'HA_{c}'] = ha[f'HA_{c}'] if f'HA_{c}' in ha else np.nan
         except Exception as e:
+            logging.error(f"Error computing indicators for {symbol}: {e}")
             st.warning(f"Error computing indicators for {symbol}: {e}")
         return data
     except Exception as e:
+        logging.error(f"Error fetching data for {symbol}: {e}")
         st.warning(f"Error fetching data for {symbol}: {e}")
         return None
 
@@ -580,7 +863,8 @@ for i, s in enumerate(symbols):
             live = d["Close"].iloc[-1] if d is not None and not d.empty else np.nan
         pnl = (live - entry_prices[i]) * quantities[i]
         pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": live, "Qty": quantities[i], "P&L ₹": round(pnl,2)})
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error calculating P&L for {s}: {e}")
         pnl_data.append({"Symbol": s, "Entry": entry_prices[i] if i < len(entry_prices) else "—", "LTP": "Err", "Qty": quantities[i] if i < len(quantities) else "—", "P&L ₹": "Err"})
 if pnl_data:
     st.sidebar.dataframe(pd.DataFrame(pnl_data))
@@ -608,6 +892,14 @@ if not screen_df.empty:
 else:
     st.sidebar.info("No data found for selection.")
 
+# Record user activity for screener
+if st.session_state["logged_in"] and len(stock_list) > 0:
+    st.session_state["user_activity"][st.session_state["username"]].append({
+        "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
+        "action": "Screener Viewed",
+        "details": f"Symbols: {', '.join(stock_list)}, Period: {screen_period}, Interval: {screen_interval}"
+    })
+
 # ---------------------- KiteTicker Live Integration ----------------------
 if "live_ticks" not in st.session_state:
     st.session_state["live_ticks"] = {}
@@ -629,12 +921,14 @@ def load_instruments():
     try:
         instruments = kite.instruments()
         return pd.DataFrame(instruments)
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error loading instruments: {e}")
         return pd.DataFrame()
 
 def find_instrument_token(symbol, exchange='NSE'):
     df = load_instruments()
     if df.empty:
+        logging.warning(f"Empty instrument list for {symbol}")
         return None
     cond = (df['tradingsymbol'].str.upper() == symbol.upper()) & (df['exchange'] == exchange)
     matches = df[cond]
@@ -643,6 +937,7 @@ def find_instrument_token(symbol, exchange='NSE'):
     matches2 = df[df['tradingsymbol'].str.upper().str.contains(symbol.upper()) & (df['exchange'] == exchange)]
     if not matches2.empty:
         return int(matches2.iloc[0]['instrument_token'])
+    logging.warning(f"No instrument token found for {symbol}")
     return None
 
 def kite_on_ticks(ws, ticks):
@@ -711,12 +1006,14 @@ def start_kite_ticker_thread():
             try:
                 kws.connect(threaded=False)
             except Exception as e:
+                logging.error(f"KiteTicker connect error: {e}")
                 st.error(f"KiteTicker connect error: {e}")
         th = threading.Thread(target=run, daemon=True)
         th.start()
         st.session_state["kws_obj"] = kws
         st.session_state["kws_thread"] = th
     except Exception as e:
+        logging.error(f"Failed to init KiteTicker: {e}")
         st.error(f"Failed to init KiteTicker: {e}")
 
 def subscribe_to_token(token, symbol=None):
@@ -731,8 +1028,16 @@ def subscribe_to_token(token, symbol=None):
             st.session_state["subscribed_tokens"].add(int(token))
         if symbol and str(token) not in st.session_state["token_to_symbol"]:
             st.session_state["token_to_symbol"][str(token)] = symbol
+        # Record user activity
+        if st.session_state["logged_in"]:
+            st.session_state["user_activity"][st.session_state["username"]].append({
+                "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
+                "action": "WebSocket Subscription",
+                "details": f"Subscribed to {symbol} (token {token})"
+            })
         return True
     except Exception as e:
+        logging.error(f"Subscribe error: {e}")
         st.warning(f"Subscribe error: {e}")
         return False
 
@@ -795,6 +1100,7 @@ if order_type == "LIMIT":
     order_price = st.sidebar.number_input("Limit Price", min_value=0.0, value=0.0, format="%.2f")
 
 if st.sidebar.button("Submit Order"):
+    trade_logs = load_trade_logs()
     try:
         order_params = {
             "tradingsymbol": order_symbol.upper(),
@@ -808,9 +1114,43 @@ if st.sidebar.button("Submit Order"):
         if order_type == "LIMIT":
             order_params["price"] = float(order_price)
         order_id = kite.place_order(**order_params)
+        trade_logs.append({
+            "order_id": order_id,
+            "username": st.session_state["username"],
+            "symbol": order_symbol.upper(),
+            "quantity": int(order_qty),
+            "order_type": order_type,
+            "transaction_type": transaction_type,
+            "product": order_product,
+            "price": float(order_price) if order_type == "LIMIT" else None,
+            "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
+            "status": "Success"
+        })
+        save_trade_logs(trade_logs)
         st.sidebar.success(f"✅ Order placed! ID: {order_id}")
+        logging.info(f"Order placed by {st.session_state['username']}: {order_params}")
+        # Record user activity
+        st.session_state["user_activity"][st.session_state["username"]].append({
+            "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
+            "action": "Order Placed",
+            "details": f"Order ID: {order_id}, Symbol: {order_symbol}, Qty: {order_qty}, Type: {order_type}"
+        })
     except Exception as e:
+        trade_logs.append({
+            "order_id": "N/A",
+            "username": st.session_state["username"],
+            "symbol": order_symbol.upper(),
+            "quantity": int(order_qty),
+            "order_type": order_type,
+            "transaction_type": transaction_type,
+            "product": order_product,
+            "price": float(order_price) if order_type == "LIMIT" else None,
+            "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(),
+            "status": f"Failed: {str(e)}"
+        })
+        save_trade_logs(trade_logs)
         st.sidebar.error(f"❌ Order failed: {e}")
+        logging.error(f"Order failed by {st.session_state['username']}: {e}")
 
 # ---------------------- Helper: Aggregate Ticks to OHLC ----------------------
 def aggregate_ticks_to_ohlc(symbol, minutes=1):
@@ -896,18 +1236,16 @@ def render_lightweight_candles(symbol, agg_period='1m'):
     components.html(html_code, height=540)
 
 # ---------------------- Main UI ----------------------
-# Define NSE holidays for 2025
 NSE_HOLIDAYS_2025 = [
     "2025-01-26", "2025-02-17", "2025-03-06", "2025-03-31", "2025-04-10",
     "2025-04-14", "2025-04-18", "2025-05-01", "2025-08-15", "2025-08-27",
     "2025-10-02", "2025-10-21", "2025-11-05", "2025-12-25"
 ]
 
-# Get current IST time
 ist = pytz.timezone("Asia/Kolkata")
 now = datetime.now(ist)
 current_date = now.strftime("%Y-%m-%d")
-is_weekday = now.weekday() < 5  # Monday to Friday
+is_weekday = now.weekday() < 5
 is_market_hours = (now.time() >= datetime.strptime("09:15", "%H:%M").time() and
                   now.time() <= datetime.strptime("15:30", "%H:%M").time())
 is_holiday = current_date in NSE_HOLIDAYS_2025
@@ -930,13 +1268,12 @@ st.markdown(
 if vader_available:
     try:
         sentiment_score, sentiment_label = get_nifty50_sentiment()
-        # Validate sentiment_score and sentiment_label
         if not isinstance(sentiment_score, (int, float)) or pd.isna(sentiment_score):
             sentiment_score, sentiment_label = 0.0, "Neutral"
             delta_color = "normal"
         else:
-            sentiment_score = float(sentiment_score)  # Ensure float
-            delta_color = "normal"  # Use Streamlit's default coloring
+            sentiment_score = float(sentiment_score)
+            delta_color = "normal"
         if not isinstance(sentiment_label, str):
             sentiment_label = "Neutral"
         with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
@@ -960,6 +1297,7 @@ if vader_available:
             fig.update_layout(height=200)
             st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
+        logging.error(f"Failed to render sentiment meter: {e}")
         st.warning(f"Failed to render sentiment meter: {e}")
         sentiment_score, sentiment_label = 0.0, "Neutral"
         with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
@@ -991,7 +1329,6 @@ if len(stock_list):
         st.error("No data available for this symbol/interval.")
         st.stop()
 
-    # Debug DataFrame structure
     st.write(f"Debug: data.columns = {list(data.columns)}")
     st.write(f"Debug: data.index = {data.index[:5]}")
     st.write(f"Debug: data.tail(1) = {data.tail(1)}")
@@ -1005,12 +1342,12 @@ if len(stock_list):
             price = ltp_json.get(f"NSE:{display_symbol}", {}).get("last_price", np.nan)
             if np.isnan(price):
                 price = float(data["Close"].iloc[-1])
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error getting LTP for {display_symbol}: {e}")
         price = np.nan
 
     metrics_row = st.columns([1.5,1,1,1,1,1])
     latest = data.iloc[-1]
-    # Debug latest Series
     st.write(f"Debug: type(latest) = {type(latest)}, latest['Close'] = {latest['Close']}, type(latest['Close']) = {type(latest['Close'])}")
     
     rsi = try_scalar(latest.get('RSI', np.nan))
@@ -1018,7 +1355,7 @@ if len(stock_list):
     adx = try_scalar(latest.get('ADX', np.nan))
     atr = try_scalar(latest.get('ATR', np.nan))
     vwap = try_scalar(latest.get('VWAP', np.nan))
-    close_price = try_scalar(latest.get('Close', np.nan))  # Ensure scalar
+    close_price = try_scalar(latest.get('Close', np.nan))
 
     with metrics_row[0]:
         if np.isnan(close_price) or np.isnan(price):
@@ -1039,7 +1376,8 @@ if len(stock_list):
 
     try:
         agg_live = aggregate_ticks_to_ohlc(display_symbol, minutes=1)
-    except Exception:
+    except Exception as e:
+        logging.error(f"Error aggregating ticks for {display_symbol}: {e}")
         agg_live = pd.DataFrame()
 
     combined = None
@@ -1060,6 +1398,7 @@ if len(stock_list):
         if combined is not None and not combined.empty:
             combined = combined.dropna(subset=['open', 'high', 'low', 'close'])
     except Exception as e:
+        logging.error(f"Could not build combined candle dataset for {display_symbol}: {e}")
         st.warning(f"Could not build combined candle dataset: {e}")
         combined = None
 
@@ -1072,77 +1411,4 @@ if len(stock_list):
         else:
             st.info("No live OHLC data. Showing historical chart.")
             required_cols = ['Open', 'High', 'Low', 'Close']
-            if all(col in data.columns for col in required_cols):
-                fig = go.Figure(data=[
-                    go.Candlestick(
-                        x=data.index,
-                        open=data['Open'],
-                        high=data['High'],
-                        low=data['Low'],
-                        close=data['Close']
-                    )
-                ])
-                if bands_show and all(col in data for col in ['BOLL_L', 'BOLL_M', 'BOLL_U']):
-                    fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_U'], name='Upper BB', line=dict(color='#00CC00')))
-                    fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_L'], name='Lower BB', line=dict(color='#FF3333')))
-                    fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_M'], name='Middle BB', line=dict(color='#FFFF00')))
-                fig.update_layout(
-                    xaxis_rangeslider_visible=False,
-                    template='plotly_dark' if st.session_state.theme == "Bloomberg Dark" else 'plotly_white',
-                    height=640
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Insufficient data for candlestick chart. Required columns: Open, High, Low, Close.")
-
-    with tabs[1]:
-        st.subheader("Technical Analysis")
-        ta_cols = [c for c in ['RSI', 'ADX', 'STOCHRSI'] if c in data.columns]
-        if ta_cols and not data[ta_cols].dropna().empty:
-            st.line_chart(data[ta_cols].dropna())
-        else:
-            st.info("No valid technical analysis data available.")
-        macd_cols = [c for c in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9'] if c in data.columns]
-        if macd_cols and not data[macd_cols].dropna().empty:
-            st.line_chart(data[macd_cols].dropna())
-        else:
-            st.info("No valid MACD data available.")
-        if 'ATR' in data.columns and not data['ATR'].dropna().empty:
-            st.line_chart(data['ATR'].dropna())
-        else:
-            st.info("No valid ATR data available.")
-        last_cols = [c for c in ['Close', 'RSI', 'ADX', 'STOCHRSI', 'ATR', 'VWAP'] if c in data.columns]
-        if last_cols and not data[last_cols].dropna().empty:
-            st.write("Latest Values:", data.iloc[-1][last_cols])
-        else:
-            st.info("No valid latest values available.")
-
-    with tabs[2]:
-        st.subheader("Signals & Analysis")
-        signals = get_signals(data)
-        cols = st.columns(3)
-        for i, (k, v) in enumerate(signals.items()):
-            with cols[i % 3]:
-                delta_color = "green" if "Bullish" in v or "Strong" in v or "Oversold" in v else "red" if "Bearish" in v or "Overbought" in v else "normal"
-                st.metric(label=k, value=v, delta_color=delta_color)
-        advanced_cols = [c for c in ['SMA21', 'EMA9', 'BOLL_L', 'BOLL_M', 'BOLL_U', 'ATR', 'VWAP'] if c in data.columns]
-        if advanced_cols and not data[advanced_cols].tail(20).dropna().empty:
-            st.line_chart(data[advanced_cols].tail(20))
-        else:
-            st.info("No valid advanced indicators available.")
-
-    with tabs[3]:
-        st.subheader("Raw Data")
-        raw_df = combined if combined is not None and not combined.empty else data
-        if not raw_df.empty:
-            st.dataframe(raw_df)
-        else:
-            st.info("No raw data available.")
-
-    if st.session_state.get("auto_refresh", True):
-        st_autorefresh(interval=st.session_state.get("refresh_interval", 15) * 1000, key="data_refresh")
-
-    if st.sidebar.button("Notify LTP"):
-        browser_notification(f"{display_symbol} Live Price", f"LTP: {price if not np.isnan(price) else '—'}")
-
-    st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage, Plotly & Streamlit")
+            if all(col in data.columns for col in required_cols
