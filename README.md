@@ -1,5 +1,4 @@
 # 🚀 BlockVista Terminal™
-
 ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=Streamlit&logoColor=white)
 ![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-green?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-CC0--1.0-lightgrey?style=for-the-badge)
@@ -11,6 +10,8 @@
 > As a fintech founder and intraday trader, I built BlockVista Terminal™ to solve the access inequality in financial technology. While Wall Street has Bloomberg Terminals, Indian traders deserve world-class tools without the $24,000 price tag.
 >
 > **This is my vision: Every Indian trader empowered with institutional-grade technology.**
+
+> **Built for Indian traders and analysts, BlockVista Terminal is offered as an affordable yearly subscription in the range of ₹1,999 to ₹4,999, putting world-class fintech tools within reach.**
 
 ---
 
@@ -33,8 +34,8 @@ Built from the ground up for NSE/BSE equity markets, it delivers a professional-
 ## 🌐 Why Choose BlockVista Terminal?
 
 | 🚩 **BlockVista Terminal™** | 🏢 **Legacy Bloomberg** |
-|---|---|
-| ₹0 Open Source | $24,000/year licensing |
+|------------------------------|-------------------------|
+| Affordable Indian subscription (₹1,999–₹4,999/yr) | $24,000/year licensing |
 | Indian Market Focus | Global markets (complex) |
 | Intraday Optimized | Multi-timeframe heavy |
 | Zerodha/Kite Ready | Expensive data feeds |
@@ -184,14 +185,14 @@ As the founder of BlockVista Terminal™, I believe in the power of community-dr
 
 **Ready to make an impact? Here's how:**
 
-1. **Fork & Clone**
+**1. Fork & Clone**
 ```bash
 git fork https://github.com/saumyasanghvi03/BlockVista-Terminal
 git clone your-fork-url
 cd BlockVista-Terminal
 ```
 
-2. **Development Setup**
+**2. Development Setup**
 ```bash
 # Create virtual environment
 python -m venv blockvista-env
@@ -203,7 +204,7 @@ blockvista-env\Scripts\activate     # Windows
 pip install -r requirements-dev.txt
 ```
 
-3. **Code & Test**
+**3. Code & Test**
 ```bash
 # Make your changes
 
@@ -214,31 +215,31 @@ pytest tests/
 black . && flake8 .
 ```
 
-4. **Submit PR or Connect Directly**
-   • Create feature branch: `git checkout -b feature/your-feature`
-   • Commit changes: `git commit -m "feat: add your feature"`
-   • **Submit a Pull Request**, or
-   • **Reach out directly**: Email me at **saumyasanghvi03@gmail.com** for collaboration, partnership ideas, or strategic discussions
+**4. Submit PR or Connect Directly**
+• Create feature branch: `git checkout -b feature/your-feature`
+• Commit changes: `git commit -m "feat: add your feature"`
+• Submit a Pull Request, or
+• Reach out directly: Email me at saumyasanghvi03@gmail.com for collaboration, partnership ideas, or strategic discussions
 
 ### 💼 Let's Build Together
 
 I'm always looking for passionate developers, traders, and fintech enthusiasts to join the mission. Whether you want to:
 
-- 🚀 **Contribute code** and shape the product roadmap
-- 💡 **Share ideas** for new features or market integrations
-- 🤝 **Explore partnerships** in the fintech ecosystem
-- 📈 **Collaborate** on trading strategies or market analysis
+• 🚀 **Contribute code** and shape the product roadmap
+• 💡 **Share ideas** for new features or market integrations
+• 🤝 **Explore partnerships** in the fintech ecosystem
+• 📈 **Collaborate** on trading strategies or market analysis
 
 **Don't hesitate to reach out: saumyasanghvi03@gmail.com**
 
 ### 🎨 Contribution Areas
 
-• 📊 **New Indicators**: Custom technical analysis tools
-• 🔌 **Broker APIs**: Support for additional Indian brokers
-• 📱 **Mobile UI**: Responsive design improvements
-• 🤖 **Algorithms**: Trading strategy templates
-• 📚 **Documentation**: Guides, tutorials, and examples
-• 🐛 **Bug Fixes**: Performance and stability improvements
+• **📊 New Indicators**: Custom technical analysis tools
+• **🔌 Broker APIs**: Support for additional Indian brokers
+• **📱 Mobile UI**: Responsive design improvements
+• **🤖 Algorithms**: Trading strategy templates
+• **📚 Documentation**: Guides, tutorials, and examples
+• **🐛 Bug Fixes**: Performance and stability improvements
 
 ### 📋 Code Standards
 
@@ -255,6 +256,7 @@ I'm always looking for passionate developers, traders, and fintech enthusiasts t
 *Coming Soon: Screenshots and GIFs demonstrating key features*
 
 ### 🖥️ Main Dashboard
+
 ```
 [Placeholder: Full terminal interface screenshot]
 - Multi-pane layout with charts, order book, positions
@@ -263,6 +265,7 @@ I'm always looking for passionate developers, traders, and fintech enthusiasts t
 ```
 
 ### 📊 Advanced Charting
+
 ```
 [Placeholder: Technical analysis screenshot]
 - Multi-timeframe candlestick charts
@@ -271,6 +274,7 @@ I'm always looking for passionate developers, traders, and fintech enthusiasts t
 ```
 
 ### ⚡ Order Management
+
 ```
 [Placeholder: Order placement interface]
 - One-click order placement
@@ -279,6 +283,7 @@ I'm always looking for passionate developers, traders, and fintech enthusiasts t
 ```
 
 ### 📱 Mobile Experience
+
 ```
 [Placeholder: Mobile/tablet responsive views]
 - Touch-optimized interface
