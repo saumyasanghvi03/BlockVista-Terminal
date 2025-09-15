@@ -17,6 +17,7 @@ from alpha_vantage.timeseries import TimeSeries
 import plotly.graph_objects as go
 import feedparser
 from dateutil.parser import parse
+import pytz
 
 try:
     from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -52,6 +53,37 @@ SYMBOL_TO_COMPANY = {
     "BRITANNIA": ["Britannia Industries"]
 }
 NIFTY50_TOP = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS"]
+
+# NSE Holidays 2025 (compiled from NSE, Groww, Zerodha, Angel One)
+NSE_HOLIDAYS_2025 = {
+    '2025-02-19',  # Chhatrapati Shivaji Maharaj Jayanti
+    '2025-02-26',  # Maha Shivratri
+    '2025-03-14',  # Holi
+    '2025-03-31',  # Id-Ul-Fitr (Ramzan Eid)
+    '2025-04-10',  # Mahavir Jayanti
+    '2025-04-14',  # Dr. Baba Saheb Ambedkar Jayanti
+    '2025-04-18',  # Good Friday
+    '2025-05-01',  # Maharashtra Day
+    '2025-08-15',  # Independence Day
+    '2025-08-27',  # Ganesh Chaturthi
+    '2025-10-02',  # Mahatma Gandhi Jayanti
+    '2025-10-21',  # Diwali Laxmi Pujan
+    '2025-10-22',  # Diwali Balipratipada
+    '2025-11-12',  # Guru Nanak Jayanti
+    '2025-12-25'   # Christmas
+}
+
+# Function to check if market is open (IST time)
+def is_market_open():
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    current_date = now.date().strftime('%Y-%m-%d')
+    current_time = now.time()
+    if now.weekday() > 4 or current_date in NSE_HOLIDAYS_2025:
+        return False
+    start_time = datetime.strptime("09:15", "%H:%M").time()
+    end_time = datetime.strptime("15:30", "%H:%M").time()
+    return start_time <= current_time <= end_time
 
 # ---------------------- UTILITIES ----------------------
 def browser_notification(title, body, icon=None):
@@ -427,8 +459,12 @@ def fetch_stock_data(symbol, period, interval):
         for col in required_cols:
             data[col] = pd.to_numeric(data[col], errors='coerce')
         
+        # Skip TA calculations if data is too short
+        if len(data) < 14:
+            return data  # Return raw data without TA
+        
         try:
-            data['RSI'] = ta.rsi(data['Close'], length=14) if len(data) > 14 else np.nan
+            data['RSI'] = ta.rsi(data['Close'], length=14)
             macd = ta.macd(data['Close'])
             if isinstance(macd, pd.DataFrame) and not macd.empty:
                 for col in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']:
@@ -439,7 +475,7 @@ def fetch_stock_data(symbol, period, interval):
             if isinstance(bbands, pd.DataFrame):
                 for label, key in zip(['BOLL_L', 'BOLL_M', 'BOLL_U'], ['BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']):
                     data[label] = bbands[key] if key in bbands else np.nan
-            data['ATR'] = ta.atr(data['High'], data['Low'], data['Close'], length=14) if len(data) > 14 else np.nan
+            data['ATR'] = ta.atr(data['High'], data['Low'], data['Close'], length=14)
             adx = ta.adx(data['High'], data['Low'], data['Close'], length=14)
             data['ADX'] = adx['ADX_14'] if isinstance(adx, pd.DataFrame) and 'ADX_14' in adx else np.nan
             stochrsi = ta.stochrsi(data['Close'], length=14)
@@ -777,7 +813,7 @@ def aggregate_ticks_to_ohlc(symbol, minutes=1):
     rows = []
     for k, v in ohlc_map.items():
         try:
-            if any(x is None for x in [v['open'], v['high'], v['low'], 'close']):
+            if any(x is None for x in [v['open'], v['high'], v['low'], v['close']]):
                 continue
             rows.append({
                 'time': v['time'],
@@ -853,14 +889,16 @@ def render_lightweight_candles(symbol, agg_period='1m'):
     components.html(html_code, height=540)
 
 # ---------------------- Main UI ----------------------
+market_status = "LIVE" if is_market_open() else "Closed"
+status_color = "green" if market_status == "LIVE" else "red"
 st.markdown(
     f"""
     <div style='background:linear-gradient(90deg,{ '#000000' if st.session_state.theme == 'Bloomberg Dark' else '#F0F0F0' },#1a1a1a 60%,#00CC00 100%);
      padding:10px 24px;border-radius:8px;margin-bottom:18px;box-shadow:0 4px 10px #0007;'>
         <span style='color:#FFFF00;font-family:"Courier New",monospace;font-size:2.1rem;font-weight:bold;letter-spacing:2px;'>
         BlockVista Terminal</span>
-        <span style='float:right;color:#FFFF00;font-size:1.25rem;font-family:monospace;padding-top:16px;'>
-        INDIA • INTRADAY • LIVE</span>
+        <span style='float:right;color:{status_color};font-size:1.25rem;font-family:monospace;padding-top:16px;'>
+        INDIA • INTRADAY • {market_status}</span>
     </div>
     """, unsafe_allow_html=True
 )
@@ -930,11 +968,6 @@ if len(stock_list):
         st.error("No data available for this symbol/interval.")
         st.stop()
 
-    # Debug DataFrame structure
-    st.write(f"Debug: data.columns = {list(data.columns)}")
-    st.write(f"Debug: data.index = {data.index[:5]}")
-    st.write(f"Debug: data.tail(1) = {data.tail(1)}")
-
     price = np.nan
     try:
         if display_symbol in st.session_state.get("live_ticks", {}) and st.session_state["live_ticks"][display_symbol]:
@@ -949,9 +982,6 @@ if len(stock_list):
 
     metrics_row = st.columns([1.5,1,1,1,1,1])
     latest = data.iloc[-1]
-    # Debug latest Series
-    st.write(f"Debug: type(latest) = {type(latest)}, latest['Close'] = {latest['Close']}, type(latest['Close']) = {type(latest['Close'])}")
-    
     rsi = try_scalar(latest.get('RSI', np.nan))
     macd = try_scalar(latest.get('MACD_12_26_9', np.nan))
     adx = try_scalar(latest.get('ADX', np.nan))
@@ -1084,4 +1114,4 @@ if len(stock_list):
     if st.sidebar.button("Notify LTP"):
         browser_notification(f"{display_symbol} Live Price", f"LTP: {price if not np.isnan(price) else '—'}")
 
-    st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage")
+    st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage, Plotly & Streamlit")
