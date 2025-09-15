@@ -94,14 +94,11 @@ SMALLCASE_BASKETS = {
     "Top Equity": ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"],
     "Banking": ["KOTAKBANK", "SBIN", "AXISBANK", "ICICIBANK"],
     "FMCG": ["HINDUNILVR", "NESTLEIND", "ITC", "BRITANNIA"],
-    "Defense": ["HAL", "BEL", "BEML", "MTARTECH", "BDL", "MAZDOCK", "SOLARA", "COCHINSHIP"],  # Example major defense stocks
+    "Defense": ["HAL", "BEL", "BEML", "MTARTECH", "BDL", "MAZDOCK", "SOLARA", "COCHINSHIP"],
 }
 
 
 # ---- Zerodha Login ----
-# api_key = st.secrets["ZERODHA_API_KEY"]
-# api_secret = st.secrets["ZERODHA_API_SECRET"]
-# Replace the above with placeholders for demonstration
 api_key = "YOUR_ZERODHA_API_KEY"
 api_secret = "YOUR_ZERODHA_API_SECRET"
 
@@ -156,7 +153,11 @@ def get_live_price(symbol):
 
 def fetch_stock_data(symbol, period, interval):
     data = yf.download(f"{symbol}.NS", period=period, interval=interval)
-    if len(data) == 0:
+    if data.empty:
+        st.warning(f"No {interval} data for {symbol} for {period}. Fetching last 5 days.")
+        data = yf.download(f"{symbol}.NS", period='5d', interval=interval)
+
+    if data.empty:
         return None
     data['RSI'] = ta.rsi(data['Close'], length=14) if len(data) > 0 else np.nan
     macd = ta.macd(data['Close'])
@@ -436,8 +437,6 @@ from datetime import datetime
 if "sentiment_history" not in st.session_state:
     st.session_state["sentiment_history"] = []
 
-# Only add new point if different from last (avoid redundant spam)
-# Or you can append each refresh for a full refresh-driven trend
 now = datetime.now()
 if not st.session_state["sentiment_history"] or \
    st.session_state["sentiment_history"][-1][1] != sent_val:
@@ -505,113 +504,94 @@ if len(stock_list):
 
     tabs = st.tabs(["Chart", "TA", "Advanced", "Raw"])
 
-    # Place this function at the top level, outside any with/if blocks:
     def plot_live_chart(symbol, data, ltp):
-        import plotly.graph_objs as go
-        import pandas as pd
-
         chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
         bands_show = st.checkbox("Show Bollinger Bands (Fill)", value=True)
         fig = go.Figure()
 
-        # Main candlestick/HA chart
-        if chart_style == "Heikin Ashi":
-            fig.add_trace(go.Candlestick(
-                x=data.index,
-                open=data['HA_open'], high=data['HA_high'],
-                low=data['HA_low'], close=data['HA_close'], name='Heikin Ashi'))
-            last_price = float(data['HA_close'].iloc[-1])
-        else:
-            fig.add_trace(go.Candlestick(
-                x=data.index, open=data['Open'], high=data['High'],
-                low=data['Low'], close=data['Close'], name='Candles'))
-            last_price = float(data['Close'].iloc[-1])
+        if not data.empty:
+            if chart_style == "Heikin Ashi":
+                fig.add_trace(go.Candlestick(
+                    x=data.index,
+                    open=data['HA_open'], high=data['HA_high'],
+                    low=data['HA_low'], close=data['HA_close'], name='Heikin Ashi'))
+            else:
+                fig.add_trace(go.Candlestick(
+                    x=data.index, open=data['Open'], high=data['High'],
+                    low=data['Low'], close=data['Close'], name='Candles'))
 
-        # Overlays
-        if bands_show and 'BOLL_U' in data and 'BOLL_L' in data:
-            fig.add_trace(go.Scatter(
-                x=data.index, y=data['BOLL_U'], line=dict(color='#2986cc', width=1), name='Boll U'))
-            fig.add_trace(go.Scatter(
-                x=data.index, y=data['BOLL_L'], line=dict(color='#cc2929', width=1), name='Boll L'))
-            fig.add_trace(go.Scatter(
-                x=list(data.index) + list(data.index[::-1]),
-                y=list(data['BOLL_U']) + list(data['BOLL_L'])[::-1],
-                fill="toself", fillcolor="rgba(41,134,204,0.12)",
-                line=dict(color="rgba(255,255,255,0)"),
-                showlegend=False, name="BB Channel"))
-        if 'EMA9' in data:
-            fig.add_trace(go.Scatter(
-                x=data.index, y=data['EMA9'], line=dict(color='#00FF99', width=1), name='EMA 9'))
-        if 'SMA21' in data:
-            fig.add_trace(go.Scatter(
-                x=data.index, y=data['SMA21'], line=dict(color='#FFA500', width=1), name='SMA 21'))
-        supertrend_col = [str(c) for c in list(data.columns) if str(c).startswith('SUPERT_') and not str(c).endswith('_dir')]
-        if supertrend_col:
-            fig.add_trace(go.Scatter(
-                x=data.index, y=data[supertrend_col[0]],
-                line=dict(color='#fae900', width=2), name='Supertrend'))
+            if bands_show and 'BOLL_U' in data and 'BOLL_L' in data:
+                fig.add_trace(go.Scatter(
+                    x=data.index, y=data['BOLL_U'], line=dict(color='#2986cc', width=1), name='Boll U'))
+                fig.add_trace(go.Scatter(
+                    x=data.index, y=data['BOLL_L'], line=dict(color='#cc2929', width=1), name='Boll L'))
+                fig.add_trace(go.Scatter(
+                    x=list(data.index) + list(data.index[::-1]),
+                    y=list(data['BOLL_U']) + list(data['BOLL_L'])[::-1],
+                    fill="toself", fillcolor="rgba(41,134,204,0.12)",
+                    line=dict(color="rgba(255,255,255,0)"),
+                    showlegend=False, name="BB Channel"))
+            if 'EMA9' in data:
+                fig.add_trace(go.Scatter(
+                    x=data.index, y=data['EMA9'], line=dict(color='#00FF99', width=1), name='EMA 9'))
+            if 'SMA21' in data:
+                fig.add_trace(go.Scatter(
+                    x=data.index, y=data['SMA21'], line=dict(color='#FFA500', width=1), name='SMA 21'))
+            supertrend_col = [str(c) for c in list(data.columns) if str(c).startswith('SUPERT_') and not str(c).endswith('_dir')]
+            if supertrend_col:
+                fig.add_trace(go.Scatter(
+                    x=data.index, y=data[supertrend_col[0]],
+                    line=dict(color='#fae900', width=2), name='Supertrend'))
 
-        # LIVE PRICE LINE
+        # LIVE PRICE LINE AND MARKER
         if pd.notna(ltp):
             fig.add_hline(
                 y=ltp, line_color="#FFD900", line_width=2,
                 annotation_text=f"Live ₹{ltp:.2f}", annotation_position="top right",
                 annotation=dict(font_size=12, font_color="#FFD900")
             )
-        # LIVE PRICE CANDLE if missing from yfinance
-        last_time = pd.to_datetime(data.index[-1])
-        current_time = pd.Timestamp.now(tz=last_time.tz if hasattr(last_time, 'tz') else None).floor('min')
-        if current_time > last_time:
-            fig.add_trace(go.Candlestick(
-                x=[current_time],
-                open=[ltp], high=[ltp], low=[ltp], close=[ltp],
-                increasing_line_color='#FFD900', decreasing_line_color='#FFD900',
-                name='Live LTP'
-            ))
+            if not data.empty:
+                last_idx = data.index[-1]
+                fig.add_trace(go.Scatter(
+                    x=[last_idx], y=[ltp], mode='markers',
+                    marker=dict(size=10, color='yellow', symbol='circle'),
+                    name='Live Price'
+                ))
+            else:
+                now = pd.Timestamp.now()
+                fig.add_trace(go.Scatter(
+                    x=[now], y=[ltp], mode='markers',
+                    marker=dict(size=10, color='yellow', symbol='circle'),
+                    name='Live Price'
+                ))
 
         fig.update_layout(template='plotly_dark', xaxis_rangeslider_visible=False)
         st.plotly_chart(fig, use_container_width=True)
-        return ltp if pd.notna(ltp) else last_price
+        return ltp if pd.notna(ltp) else (data['Close'].iloc[-1] if not data.empty else 0)
 
-    # --- Now, inside your main UI code ---
     with tabs[0]:
-        # 1. Define ltp_tab first
         ltp_tab = get_live_price(stock_list[0])
-
-        # 2. Then use it in metrics and logic
         st.metric(
             "Live Price (LTP)",
             f"₹{ltp_tab:.2f}" if ltp_tab is not None and not pd.isna(ltp_tab) else "N/A"
         )
-
-        # 3. Extract latest indicators
         latest = data.iloc[-1]
         macd_val = latest.get('MACD_12_26_9', 'N/A')
         rsi_val = latest.get('RSI', 'N/A')
-
-        # Updated to handle potential pandas Series returned from get()
         if isinstance(macd_val, pd.Series):
             macd_val_scalar = macd_val.iloc[-1]
         else:
             macd_val_scalar = macd_val
-
         if isinstance(rsi_val, pd.Series):
             rsi_val_scalar = rsi_val.iloc[-1]
         else:
             rsi_val_scalar = rsi_val
-
-        # Nice formatting/rounding
         macd_val_formatted = f"{macd_val_scalar:.2f}" if not pd.isna(macd_val_scalar) else "N/A"
         rsi_val_formatted = f"{rsi_val_scalar:.2f}" if not pd.isna(rsi_val_scalar) else "N/A"
-
         st.write(
             f"**RSI:** {rsi_val_formatted} &nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp; **MACD:** {macd_val_formatted}"
         )
-
-        # 4. Pass the live price into your chart
         last_price = plot_live_chart(stock_list[0], data, ltp_tab)
-
-        # 5. Continue with trade-from-chart / other logic...
         st.markdown("#### Place Order Directly from Chart")
         chosen_price = st.number_input(
             "Trade Price (pick from chart, autofilled with last close)",
@@ -636,7 +616,6 @@ if len(stock_list):
                     "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
                 )
 
-        
     with tabs[1]:
         ta_cols_all = ['RSI','ADX','STOCHRSI']
         ta_cols = [c for c in ta_cols_all if c in list(data.columns)]
