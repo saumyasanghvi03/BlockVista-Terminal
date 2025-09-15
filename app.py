@@ -42,7 +42,7 @@ def browser_notification(title, body, icon=None):
 st.markdown(
     """
     <div style='background:linear-gradient(90deg,#141e30,#243b55 60%,#FFD900 100%);
-      padding:10px 24px 6px 24px;border-radius:8px;margin-bottom:18px;box-shadow:0 4px 10px #0007; '>
+     padding:10px 24px 6px 24px;border-radius:8px;margin-bottom:18px;box-shadow:0 4px 10px #0007; '>
         <span style='color:#FFD900;font-family:monospace;font-size:2.1rem;font-weight:bold;vertical-align:middle;letter-spacing:2px;'>
         BLOCKVISTA TERMINAL</span>
         <span style='float:right;color:#30ff96;font-size:1.25rem;font-family:monospace;padding-top:16px;font-weight:bold;'>
@@ -174,6 +174,7 @@ def get_live_price(symbol):
         )
         return np.nan
 
+@st.cache_data(ttl=60) # Cache the data for 60 seconds
 def fetch_stock_data(symbol, period, interval):
     data = yf.download(f"{symbol}.NS", period=period, interval=interval, progress=False)
     if data.empty:
@@ -182,51 +183,51 @@ def fetch_stock_data(symbol, period, interval):
 
     if data.empty:
         return None
-    
-    # Ensure columns exist before using them
+        
     data.columns = [c.replace(' ', '_').replace('.', '_').replace('-', '_') for c in data.columns]
     
     # Calculate indicators, handling potential empty DataFrames
-    data['RSI'] = ta.rsi(data['Close'], length=14)
-    macd_res = ta.macd(data['Close'])
-    if isinstance(macd_res, pd.DataFrame) and not macd_res.empty:
-        for col in macd_res.columns:
-            data[col] = macd_res[col]
-    
-    data['SMA21'] = ta.sma(data['Close'], length=21)
-    data['EMA9'] = ta.ema(data['Close'], length=9)
-    
-    bbands_res = ta.bbands(data['Close'], length=20)
-    if isinstance(bbands_res, pd.DataFrame) and not bbands_res.empty:
-        for label, key in zip(['BOLL_L', 'BOLL_M', 'BOLL_U'], ['BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']):
-            if key in bbands_res.columns:
-                data[label] = bbands_res[key]
-            else:
-                data[label] = np.nan
-    
-    data['ATR'] = ta.atr(data['High'], data['Low'], data['Close'], length=14)
-    adx_res = ta.adx(data['High'], data['Low'], data['Close'], length=14)
-    if isinstance(adx_res, pd.DataFrame) and 'ADX_14' in adx_res.columns:
-        data['ADX'] = adx_res['ADX_14']
-    
-    stochrsi_res = ta.stochrsi(data['Close'], length=14)
-    if isinstance(stochrsi_res, pd.DataFrame) and 'STOCHRSIk_14_14_3_3' in stochrsi_res.columns:
-        data['STOCHRSI'] = stochrsi_res["STOCHRSIk_14_14_3_3"]
-    
-    supertrend_res = ta.supertrend(data['High'], data['Low'], data['Close'])
-    if isinstance(supertrend_res, pd.DataFrame) and not supertrend_res.empty:
-        for col in supertrend_res.columns:
-            data[col] = supertrend_res[col]
-    
-    data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume'])
-    
-    ha_res = ta.ha(data['Open'], data['High'], data['Low'], data['Close'])
-    if isinstance(ha_res, pd.DataFrame) and not ha_res.empty:
-        for c in ['open','high','low','close']:
-            ha_key = f'HA_{c}'
-            if ha_key in ha_res.columns:
-                data[ha_key] = ha_res[ha_key]
-    
+    if not data.empty:
+        data['RSI'] = ta.rsi(data['Close'], length=14)
+        macd_res = ta.macd(data['Close'])
+        if isinstance(macd_res, pd.DataFrame) and not macd_res.empty:
+            for col in macd_res.columns:
+                data[col] = macd_res[col]
+        
+        data['SMA21'] = ta.sma(data['Close'], length=21)
+        data['EMA9'] = ta.ema(data['Close'], length=9)
+        
+        bbands_res = ta.bbands(data['Close'], length=20)
+        if isinstance(bbands_res, pd.DataFrame) and not bbands_res.empty:
+            for label, key in zip(['BOLL_L', 'BOLL_M', 'BOLL_U'], ['BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']):
+                if key in bbands_res.columns:
+                    data[label] = bbands_res[key]
+                else:
+                    data[label] = np.nan
+        
+        data['ATR'] = ta.atr(data['High'], data['Low'], data['Close'], length=14)
+        adx_res = ta.adx(data['High'], data['Low'], data['Close'], length=14)
+        if isinstance(adx_res, pd.DataFrame) and 'ADX_14' in adx_res.columns:
+            data['ADX'] = adx_res['ADX_14']
+        
+        stochrsi_res = ta.stochrsi(data['Close'], length=14)
+        if isinstance(stochrsi_res, pd.DataFrame) and 'STOCHRSIk_14_14_3_3' in stochrsi_res.columns:
+            data['STOCHRSI'] = stochrsi_res["STOCHRSIk_14_14_3_3"]
+        
+        supertrend_res = ta.supertrend(data['High'], data['Low'], data['Close'])
+        if isinstance(supertrend_res, pd.DataFrame) and not supertrend_res.empty:
+            for col in supertrend_res.columns:
+                data[col] = supertrend_res[col]
+        
+        data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume'])
+        
+        ha_res = ta.ha(data['Open'], data['High'], data['Low'], data['Close'])
+        if isinstance(ha_res, pd.DataFrame) and not ha_res.empty:
+            for c in ['open','high','low','close']:
+                ha_key = f'HA_{c}'
+                if ha_key in ha_res.columns:
+                    data[ha_key] = ha_res[ha_key]
+        
     return data
 
 def try_scalar(val):
@@ -443,6 +444,7 @@ with st.expander("📰 Quick News Deck (Yahoo Finance Headlines)", expanded=Fals
         st.info("No headlines found or invalid symbol. Try ^NSEI or another stock!")
 
 # ---- Sentiment Meter (Live Market Mood) ----
+@st.cache_data(ttl=60)
 def get_market_sentiment(stock_list):
     pos, neg = 0, 0
     for sym in stock_list:
@@ -516,7 +518,7 @@ screen_period = st.sidebar.selectbox('Period', ['1d','5d'])
 screen_interval = st.sidebar.selectbox('Interval', ['1m','5m','15m'])
 screen_df = make_screener(stock_list, screen_period, screen_interval)
 st.sidebar.subheader("Screener Results")
-if len(screen_df):
+if not screen_df.empty:
     st.sidebar.dataframe(screen_df)
     csv = screen_df.to_csv(index=False)
     st.sidebar.download_button("Export Screener CSV", csv, file_name="screener_results.csv")
@@ -595,11 +597,18 @@ if len(stock_list) > 0:
                             x=data.index, y=data[supertrend_col[0]],
                             line=dict(color='#fae900', width=2), name='Supertrend'))
 
-                if pd.notna(ltp):
-                    fig.add_hline(
-                        y=ltp, line_color="#FFD900", line_width=2,
-                        annotation_text=f"Live ₹{ltp:.2f}", annotation_position="top right",
-                        annotation=dict(font_size=12, font_color="#FFD900")
+                if pd.notna(ltp) and not data.empty:
+                    # Use the last timestamp from the data to extend the line, if available
+                    last_time = data.index[-1] if not data.empty else datetime.now()
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[data.index.min(), last_time + timedelta(minutes=5)], # Extends line slightly to the right
+                            y=[ltp, ltp], 
+                            mode='lines',
+                            line=dict(color="#FFD900", width=2, dash='dash'),
+                            name=f"Live ₹{ltp:.2f}",
+                            showlegend=True
+                        )
                     )
                     
                 fig.update_layout(template='plotly_dark', xaxis_rangeslider_visible=False)
