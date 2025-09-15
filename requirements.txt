@@ -1,10 +1,9 @@
 streamlit
+kiteconnect
 pandas
 numpy
 yfinance
 pandas_ta
 plotly
-kiteconnect
 streamlit-autorefresh
-feedparser
 alpha_vantage
