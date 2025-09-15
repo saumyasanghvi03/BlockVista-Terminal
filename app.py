@@ -184,7 +184,8 @@ def fetch_stock_data(symbol, period, interval):
     if data.empty:
         return None
         
-    data.columns = [c.replace(' ', '_').replace('.', '_').replace('-', '_') for c in data.columns]
+    # Corrected line 187: Check if the column is a string before calling replace()
+    data.columns = [c.replace(' ', '_').replace('.', '_').replace('-', '_') if isinstance(c, str) else c for c in data.columns]
     
     if not data.empty:
         data['RSI'] = ta.rsi(data['Close'], length=14)
@@ -360,7 +361,6 @@ if pnl_data:
     df_pnl = pd.DataFrame(pnl_data)
     st.sidebar.dataframe(df_pnl.set_index('Symbol'))
     
-    # Corrected code block below
     try:
         total_pnl = df_pnl['P&L ₹'].astype(float).sum()
         st.sidebar.markdown(f"<b>Total P&L ₹: {round(total_pnl, 2)}</b>", unsafe_allow_html=True)
