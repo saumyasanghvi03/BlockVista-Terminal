@@ -59,7 +59,7 @@ def fetch_alpha_vantage_intraday(symbol, interval='1min', outputsize='compact'):
         return None
 
 # ---------------------- THEME & SESSION ----------------------
-st.set_page_config(page_title="TradeVista Terminal", layout="wide")
+st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 if "dark_theme" not in st.session_state:
     st.session_state.dark_theme = True
 
@@ -621,7 +621,7 @@ st.markdown(
     <div style='background:linear-gradient(90deg,#0a0a0a,#1a1a1a 60%,#00cc00 100%);
      padding:10px 24px;border-radius:8px;margin-bottom:18px;box-shadow:0 4px 10px #0007;'>
         <span style='color:#00cc00;font-family:"Arial",sans-serif;font-size:2.1rem;font-weight:bold;letter-spacing:2px;'>
-        TradeVista Terminal</span>
+        BlockVista Terminal</span>
         <span style='float:right;color:#00cc00;font-size:1.25rem;font-family:monospace;padding-top:16px;'>
         INDIA • INTRADAY • LIVE</span>
     </div>
@@ -758,4 +758,4 @@ if len(stock_list):
     if st.sidebar.button("Notify LTP"):
         browser_notification(f"{display_symbol} Live Price", f"LTP: {price if not np.isnan(price) else '—'}")
 
-    st.caption("TradeVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage, Plotly & Streamlit")
+    st.caption("BlockVista Terminal | Powered by Zerodha KiteConnect, yFinance, Alpha Vantage, Plotly & Streamlit")
