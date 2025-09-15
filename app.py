@@ -99,8 +99,12 @@ SMALLCASE_BASKETS = {
 
 
 # ---- Zerodha Login ----
-api_key = st.secrets["ZERODHA_API_KEY"]
-api_secret = st.secrets["ZERODHA_API_SECRET"]
+# api_key = st.secrets["ZERODHA_API_KEY"]
+# api_secret = st.secrets["ZERODHA_API_SECRET"]
+# Replace the above with placeholders for demonstration
+api_key = "YOUR_ZERODHA_API_KEY"
+api_secret = "YOUR_ZERODHA_API_SECRET"
+
 if "access_token" not in st.session_state:
     kite_tmp = KiteConnect(api_key=api_key)
     login_url = kite_tmp.login_url()
@@ -502,143 +506,137 @@ if len(stock_list):
     tabs = st.tabs(["Chart", "TA", "Advanced", "Raw"])
 
     # Place this function at the top level, outside any with/if blocks:
-def plot_live_chart(symbol, data, ltp):
-    import plotly.graph_objs as go
-    import pandas as pd
+    def plot_live_chart(symbol, data, ltp):
+        import plotly.graph_objs as go
+        import pandas as pd
 
-    chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
-    bands_show = st.checkbox("Show Bollinger Bands (Fill)", value=True)
-    fig = go.Figure()
+        chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
+        bands_show = st.checkbox("Show Bollinger Bands (Fill)", value=True)
+        fig = go.Figure()
 
-    # Main candlestick/HA chart
-    if chart_style == "Heikin Ashi":
-        fig.add_trace(go.Candlestick(
-            x=data.index,
-            open=data['HA_open'], high=data['HA_high'],
-            low=data['HA_low'], close=data['HA_close'], name='Heikin Ashi'))
-        last_price = float(data['HA_close'].iloc[-1])
-    else:
-        fig.add_trace(go.Candlestick(
-            x=data.index, open=data['Open'], high=data['High'],
-            low=data['Low'], close=data['Close'], name='Candles'))
-        last_price = float(data['Close'].iloc[-1])
+        # Main candlestick/HA chart
+        if chart_style == "Heikin Ashi":
+            fig.add_trace(go.Candlestick(
+                x=data.index,
+                open=data['HA_open'], high=data['HA_high'],
+                low=data['HA_low'], close=data['HA_close'], name='Heikin Ashi'))
+            last_price = float(data['HA_close'].iloc[-1])
+        else:
+            fig.add_trace(go.Candlestick(
+                x=data.index, open=data['Open'], high=data['High'],
+                low=data['Low'], close=data['Close'], name='Candles'))
+            last_price = float(data['Close'].iloc[-1])
 
-    # Overlays
-    if bands_show and 'BOLL_U' in data and 'BOLL_L' in data:
-        fig.add_trace(go.Scatter(
-            x=data.index, y=data['BOLL_U'], line=dict(color='#2986cc', width=1), name='Boll U'))
-        fig.add_trace(go.Scatter(
-            x=data.index, y=data['BOLL_L'], line=dict(color='#cc2929', width=1), name='Boll L'))
-        fig.add_trace(go.Scatter(
-            x=list(data.index) + list(data.index[::-1]),
-            y=list(data['BOLL_U']) + list(data['BOLL_L'])[::-1],
-            fill="toself", fillcolor="rgba(41,134,204,0.12)",
-            line=dict(color="rgba(255,255,255,0)"),
-            showlegend=False, name="BB Channel"))
-    if 'EMA9' in data:
-        fig.add_trace(go.Scatter(
-            x=data.index, y=data['EMA9'], line=dict(color='#00FF99', width=1), name='EMA 9'))
-    if 'SMA21' in data:
-        fig.add_trace(go.Scatter(
-            x=data.index, y=data['SMA21'], line=dict(color='#FFA500', width=1), name='SMA 21'))
-    supertrend_col = [str(c) for c in list(data.columns) if str(c).startswith('SUPERT_') and not str(c).endswith('_dir')]
-    if supertrend_col:
-        fig.add_trace(go.Scatter(
-            x=data.index, y=data[supertrend_col[0]],
-            line=dict(color='#fae900', width=2), name='Supertrend'))
+        # Overlays
+        if bands_show and 'BOLL_U' in data and 'BOLL_L' in data:
+            fig.add_trace(go.Scatter(
+                x=data.index, y=data['BOLL_U'], line=dict(color='#2986cc', width=1), name='Boll U'))
+            fig.add_trace(go.Scatter(
+                x=data.index, y=data['BOLL_L'], line=dict(color='#cc2929', width=1), name='Boll L'))
+            fig.add_trace(go.Scatter(
+                x=list(data.index) + list(data.index[::-1]),
+                y=list(data['BOLL_U']) + list(data['BOLL_L'])[::-1],
+                fill="toself", fillcolor="rgba(41,134,204,0.12)",
+                line=dict(color="rgba(255,255,255,0)"),
+                showlegend=False, name="BB Channel"))
+        if 'EMA9' in data:
+            fig.add_trace(go.Scatter(
+                x=data.index, y=data['EMA9'], line=dict(color='#00FF99', width=1), name='EMA 9'))
+        if 'SMA21' in data:
+            fig.add_trace(go.Scatter(
+                x=data.index, y=data['SMA21'], line=dict(color='#FFA500', width=1), name='SMA 21'))
+        supertrend_col = [str(c) for c in list(data.columns) if str(c).startswith('SUPERT_') and not str(c).endswith('_dir')]
+        if supertrend_col:
+            fig.add_trace(go.Scatter(
+                x=data.index, y=data[supertrend_col[0]],
+                line=dict(color='#fae900', width=2), name='Supertrend'))
 
-    # LIVE PRICE LINE
-    if pd.notna(ltp):
-        fig.add_hline(
-            y=ltp, line_color="#FFD900", line_width=2,
-            annotation_text=f"Live ₹{ltp:.2f}", annotation_position="top right",
-            annotation=dict(font_size=12, font_color="#FFD900")
+        # LIVE PRICE LINE
+        if pd.notna(ltp):
+            fig.add_hline(
+                y=ltp, line_color="#FFD900", line_width=2,
+                annotation_text=f"Live ₹{ltp:.2f}", annotation_position="top right",
+                annotation=dict(font_size=12, font_color="#FFD900")
+            )
+        # LIVE PRICE CANDLE if missing from yfinance
+        last_time = pd.to_datetime(data.index[-1])
+        current_time = pd.Timestamp.now(tz=last_time.tz if hasattr(last_time, 'tz') else None).floor('min')
+        if current_time > last_time:
+            fig.add_trace(go.Candlestick(
+                x=[current_time],
+                open=[ltp], high=[ltp], low=[ltp], close=[ltp],
+                increasing_line_color='#FFD900', decreasing_line_color='#FFD900',
+                name='Live LTP'
+            ))
+
+        fig.update_layout(template='plotly_dark', xaxis_rangeslider_visible=False)
+        st.plotly_chart(fig, use_container_width=True)
+        return ltp if pd.notna(ltp) else last_price
+
+    # --- Now, inside your main UI code ---
+    with tabs[0]:
+        # 1. Define ltp_tab first
+        ltp_tab = get_live_price(stock_list[0])
+
+        # 2. Then use it in metrics and logic
+        st.metric(
+            "Live Price (LTP)",
+            f"₹{ltp_tab:.2f}" if ltp_tab is not None and not pd.isna(ltp_tab) else "N/A"
         )
-    # LIVE PRICE CANDLE if missing from yfinance
-    last_time = pd.to_datetime(data.index[-1])
-    current_time = pd.Timestamp.now(tz=last_time.tz if hasattr(last_time, 'tz') else None).floor('min')
-    if current_time > last_time:
-        fig.add_trace(go.Candlestick(
-            x=[current_time],
-            open=[ltp], high=[ltp], low=[ltp], close=[ltp],
-            increasing_line_color='#FFD900', decreasing_line_color='#FFD900',
-            name='Live LTP'
-        ))
 
-    fig.update_layout(template='plotly_dark', xaxis_rangeslider_visible=False)
-    st.plotly_chart(fig, use_container_width=True)
-    return ltp if pd.notna(ltp) else last_price
+        # 3. Extract latest indicators
+        latest = data.iloc[-1]
+        macd_val = latest.get('MACD_12_26_9', 'N/A')
+        rsi_val = latest.get('RSI', 'N/A')
 
-    # Show LIVE LTP
-ltp_tab = get_live_price(stock_list[0])
+        # Updated to handle potential pandas Series returned from get()
+        if isinstance(macd_val, pd.Series):
+            macd_val_scalar = macd_val.iloc[-1]
+        else:
+            macd_val_scalar = macd_val
 
-# Get latest row safely
-latest = data.iloc[-1]
+        if isinstance(rsi_val, pd.Series):
+            rsi_val_scalar = rsi_val.iloc[-1]
+        else:
+            rsi_val_scalar = rsi_val
 
-# Show MACD and RSI values
-macd_val = latest.get('MACD_12_26_9', 'N/A')
-rsi_val = latest.get('RSI', 'N/A')
+        # Nice formatting/rounding
+        macd_val_formatted = f"{macd_val_scalar:.2f}" if not pd.isna(macd_val_scalar) else "N/A"
+        rsi_val_formatted = f"{rsi_val_scalar:.2f}" if not pd.isna(rsi_val_scalar) else "N/A"
 
-# Nice formatting/rounding
-if not pd.isna(macd_val):
-    macd_val = f"{macd_val:.2f}"
-if not pd.isna(rsi_val):
-    rsi_val = f"{rsi_val:.2f}"
+        st.write(
+            f"**RSI:** {rsi_val_formatted} &nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp; **MACD:** {macd_val_formatted}"
+        )
 
-st.write(
-    f"**RSI:** {rsi_val} &nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp; **MACD:** {macd_val}"
-)
+        # 4. Pass the live price into your chart
+        last_price = plot_live_chart(stock_list[0], data, ltp_tab)
 
+        # 5. Continue with trade-from-chart / other logic...
+        st.markdown("#### Place Order Directly from Chart")
+        chosen_price = st.number_input(
+            "Trade Price (pick from chart, autofilled with last close)",
+            value=last_price if last_price else 0
+        )
+        side = st.radio("Side", ["BUY", "SELL"], horizontal=True)
+        qty = st.number_input("Quantity", min_value=1, value=1)
+        if st.button(f"{side} Now (Chart Tab)"):
+            try:
+                placed_order = kite.place_order(
+                    tradingsymbol=stock_list[0], exchange="NSE",
+                    transaction_type=side, quantity=int(qty),
+                    order_type="LIMIT", price=chosen_price,
+                    variety="regular", product="CNC", validity="DAY"
+                )
+                st.success(f"Order {side} placed for {qty} at ₹{chosen_price:.2f}. ID: {placed_order}")
+            except Exception as e:
+                st.error(f"Order failed: {e}")
+                browser_notification(
+                    "BlockVista Error",
+                    f"❌ Order failed: {e}",
+                    "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
+                )
 
-# --- Now, inside your main UI code ---
-with tabs[0]:
-    # 1. Define ltp_tab first
-    ltp_tab = get_live_price(stock_list[0])
-
-    # 2. Then use it in metrics and logic
-    st.metric(
-        "Live Price (LTP)",
-        f"₹{ltp_tab:.2f}" if ltp_tab is not None and not pd.isna(ltp_tab) else "N/A"
-    )
-
-    # 3. Extract latest indicators
-    latest = data.iloc[-1]
-    macd_val = latest.get('MACD_12_26_9', 'N/A')
-    rsi_val = latest.get('RSI', 'N/A')
-    macd_val = f"{macd_val:.2f}" if not pd.isna(macd_val) else "N/A"
-    rsi_val = f"{rsi_val:.2f}" if not pd.isna(rsi_val) else "N/A"
-
-    st.write(f"**RSI:** {rsi_val} | **MACD:** {macd_val}")
-
-    # 4. Pass the live price into your chart
-    last_price = plot_live_chart(stock_list[0], data, ltp_tab)
-
-    # 5. Continue with trade-from-chart / other logic...
-    st.markdown("#### Place Order Directly from Chart")
-    chosen_price = st.number_input(
-        "Trade Price (pick from chart, autofilled with last close)",
-        value=last_price if last_price else 0
-    )
-    side = st.radio("Side", ["BUY", "SELL"], horizontal=True)
-    qty = st.number_input("Quantity", min_value=1, value=1)
-    if st.button(f"{side} Now (Chart Tab)"):
-        try:
-            placed_order = kite.place_order(
-                tradingsymbol=stock_list[0], exchange="NSE",
-                transaction_type=side, quantity=int(qty),
-                order_type="LIMIT", price=chosen_price,
-                variety="regular", product="CNC", validity="DAY"
-            )
-            st.success(f"Order {side} placed for {qty} at ₹{chosen_price:.2f}. ID: {placed_order}")
-        except Exception as e:
-            st.error(f"Order failed: {e}")
-            browser_notification(
-                "BlockVista Error",
-                f"❌ Order failed: {e}",
-                "https://cdn-icons-png.flaticon.com/512/2583/2583346.png"
-            )
-
-    
+        
     with tabs[1]:
         ta_cols_all = ['RSI','ADX','STOCHRSI']
         ta_cols = [c for c in ta_cols_all if c in list(data.columns)]
