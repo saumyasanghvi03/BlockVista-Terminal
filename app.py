@@ -16,6 +16,7 @@ from alpha_vantage.timeseries import TimeSeries
 import plotly.graph_objects as go
 import feedparser
 from dateutil.parser import parse
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 # ---------------------- CONFIG ----------------------
 AV_API_KEY = "2R0I2OXW1A1HMD9N"
@@ -42,6 +43,7 @@ SYMBOL_TO_COMPANY = {
     "ITC": ["ITC"],
     "BRITANNIA": ["Britannia Industries"]
 }
+NIFTY50_TOP = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS"]
 
 # ---------------------- UTILITIES ----------------------
 def browser_notification(title, body, icon=None):
@@ -80,30 +82,78 @@ def fetch_alpha_vantage_intraday(symbol, interval='1min', outputsize='compact'):
     except Exception:
         return None
 
+# ---------------------- Sentiment Analysis ----------------------
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
+def get_nifty50_sentiment():
+    analyzer = SentimentIntensityAnalyzer()
+    rss_urls = [
+        "https://www.financialexpress.com/market/feed/",
+        "http://timesofindia.indiatimes.com/rssfeeds/1898055.cms",
+        "https://www.livemint.com/rss/markets",
+        "https://www.business-standard.com/rss/markets-102.cms",
+        "https://www.cnbctv18.com/market/feed"
+    ]
+    scores = []
+    for url in rss_urls:
+        feed = feedparser.parse(url)
+        for entry in feed.entries:
+            text = entry.title
+            if hasattr(entry, 'description'):
+                text += " " + entry.description
+            text = text.upper()
+            if "NIFTY 50" in text or any(SYMBOL_TO_COMPANY.get(s, [s])[0].upper() in text for s in NIFTY50_TOP):
+                score = analyzer.polarity_scores(entry.title + (entry.description if hasattr(entry, 'description') else ""))
+                scores.append(score['compound'])
+    if not scores:
+        return 0.0, "Neutral"
+    avg_score = sum(scores) / len(scores)
+    sentiment_label = "Positive" if avg_score > 0.05 else "Negative" if avg_score < -0.05 else "Neutral"
+    return avg_score, sentiment_label
+
 # ---------------------- THEME & SESSION ----------------------
 st.set_page_config(page_title="BlockVista Terminal", layout="wide")
-if "dark_theme" not in st.session_state:
-    st.session_state.dark_theme = True
+if "theme" not in st.session_state:
+    st.session_state.theme = "Bloomberg Dark"
 
 def set_terminal_style():
-    st.markdown("""
-    <style>
-    .main, .block-container {background-color: #0a0a0a !important;}
-    .stSidebar {background: #1a1a1a !important;}
-    .stDataFrame tbody tr {background-color: #1a1a1a !important; color: #00cc00 !important;}
-    .stTextInput input, .stNumberInput input, .stSelectbox {background: #2a2a2a !important; color: #00cc00 !important;}
-    .stMetric, .stMetricLabel, .stMetricValue {color: #00cc00 !important;}
-    h1, h2, h3, h4, h5, h6, label {color: #00cc00 !important; font-family: 'Arial', sans-serif;}
-    .css-1v3fvcr {border: 1px solid #333333; border-radius: 8px;}
-    .stButton button {background: #004d00; color: #ffffff; border-radius: 4px;}
-    .stButton button:hover {background: #006600;}
-    </style>
-    """, unsafe_allow_html=True)
+    if st.session_state.theme == "Bloomberg Dark":
+        st.markdown("""
+        <style>
+        .main, .block-container {background-color: #000000 !important;}
+        .stSidebar {background: #1a1a1a !important;}
+        .stDataFrame tbody tr {background-color: #1a1a1a !important; color: #FFFF00 !important;}
+        .stTextInput input, .stNumberInput input, .stSelectbox {background: #2a2a2a !important; color: #FFFF00 !important;}
+        .stMetric, .stMetricLabel {color: #FFFF00 !important;}
+        .stMetricValue {color: #00CC00 !important;}
+        h1, h2, h3, h4, h5, h6, label {color: #FFFF00 !important; font-family: 'Courier New', monospace;}
+        .css-1v3fvcr {border: 1px solid #333333; border-radius: 8px;}
+        .stButton button {background: #004d00; color: #FFFFFF; border-radius: 4px;}
+        .stButton button:hover {background: #006600;}
+        .stTabs [data-baseweb="tab"] {color: #FFFF00;}
+        .stTabs [data-baseweb="tab"][aria-selected="true"] {background-color: #004d00; color: #FFFFFF;}
+        </style>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <style>
+        .main, .block-container {background-color: #F0F0F0 !important;}
+        .stSidebar {background: #E0E0E0 !important;}
+        .stDataFrame tbody tr {background-color: #E0E0E0 !important; color: #000000 !important;}
+        .stTextInput input, .stNumberInput input, .stSelectbox {background: #FFFFFF !important; color: #000000 !important;}
+        .stMetric, .stMetricLabel {color: #000000 !important;}
+        .stMetricValue {color: #00CC00 !important;}
+        h1, h2, h3, h4, h5, h6, label {color: #000000 !important; font-family: 'Courier New', monospace;}
+        .css-1v3fvcr {border: 1px solid #333333; border-radius: 8px;}
+        .stButton button {background: #004d00; color: #FFFFFF; border-radius: 4px;}
+        .stButton button:hover {background: #006600;}
+        .stTabs [data-baseweb="tab"] {color: #000000;}
+        .stTabs [data-baseweb="tab"][aria-selected="true"] {background-color: #004d00; color: #FFFFFF;}
+        </style>
+        """, unsafe_allow_html=True)
 
-theme_choice = st.sidebar.selectbox("Terminal Theme", ["Dark Green", "Streamlit Default"])
-if theme_choice == "Dark Green":
-    set_terminal_style()
-    st.session_state.dark_theme = True
+theme_choice = st.sidebar.selectbox("Terminal Theme", ["Bloomberg Dark", "Bloomberg Light"])
+st.session_state.theme = theme_choice
+set_terminal_style()
 
 if "auto_refresh" not in st.session_state:
     st.session_state["auto_refresh"] = True
@@ -165,7 +215,7 @@ def get_kite_session():
     login_url = kite_conn.login_url()
     st.markdown(
         f"""
-        <div style="background:#1a1a1a;padding:14px;border-radius:8px;border:1px solid #00cc00;">
+        <div style="background:#1a1a1a;padding:14px;border-radius:8px;border:1px solid #FFFF00;">
         🟢 <a href="{login_url}" target="_blank"><b>Login to Zerodha</b></a><br>
         Paste the <b>request_token</b> from the redirect URL below and click 'Generate Access Token'. Save the <b>refresh_token</b> to secrets for auto-refresh.
         </div>
@@ -207,7 +257,6 @@ if not st.session_state["logged_in"]:
     username = st.text_input("Username")
     access_code = st.text_input("Access Code", type="password")
     if st.button("Login"):
-        # Validate against st.secrets or a predefined list
         valid_users = st.secrets.get("VALID_USERS", {})
         if (username in valid_users and valid_users[username] == access_code) or (username and access_code):  # Fallback for demo
             st.session_state["logged_in"] = True
@@ -257,7 +306,6 @@ def get_news(symbol):
                     "published": published,
                     "published_dt": published_dt
                 })
-    # Sort by date (newest first) and limit to 5
     news_items = sorted(news_items, key=lambda x: x["published_dt"], reverse=True)[:5]
     return news_items
 
@@ -683,19 +731,19 @@ def render_lightweight_candles(symbol, agg_period='1m'):
       <script src="https://unpkg.com/lightweight-charts@3.7.0/dist/lightweight-charts.standalone.production.js"></script>
       <script>
         const chart = LightweightCharts.createChart(document.getElementById('chart'), {{
-          layout: {{background: {{type: 'solid', color: '#0a0a0a'}}, textColor: '#00cc00'}},
+          layout: {{background: {{type: 'solid', color: '{ '#000000' if st.session_state.theme == 'Bloomberg Dark' else '#F0F0F0' }'}}, textColor: '{ '#FFFF00' if st.session_state.theme == 'Bloomberg Dark' else '#000000' }'}},
           grid: {{vertLines: {{color: '#333333'}}, horzLines: {{color: '#333333'}}}},
           timeScale: {{timeVisible: true, secondsVisible: false}},
-          rightPriceScale: {{borderColor: '#00cc00'}},
-          crosshair: {{vertLine: {{color: '#00cc00'}}, horzLine: {{color: '#00cc00'}}}}
+          rightPriceScale: {{borderColor: '#00CC00'}},
+          crosshair: {{vertLine: {{color: '#00CC00'}}, horzLine: {{color: '#00CC00'}}}}
         }});
         const candleSeries = chart.addCandlestickSeries({{
-          upColor: '#00cc00',
-          downColor: '#ff3333',
-          borderUpColor: '#00cc00',
-          borderDownColor: '#ff3333',
-          wickUpColor: '#00cc00',
-          wickDownColor: '#ff3333'
+          upColor: '#00CC00',
+          downColor: '#FF3333',
+          borderUpColor: '#00CC00',
+          borderDownColor: '#FF3333',
+          wickUpColor: '#00CC00',
+          wickDownColor: '#FF3333'
         }});
         candleSeries.setData({js_data});
       </script>
@@ -706,16 +754,40 @@ def render_lightweight_candles(symbol, agg_period='1m'):
 
 # ---------------------- Main UI ----------------------
 st.markdown(
-    """
-    <div style='background:linear-gradient(90deg,#0a0a0a,#1a1a1a 60%,#00cc00 100%);
+    f"""
+    <div style='background:linear-gradient(90deg,{ '#000000' if st.session_state.theme == 'Bloomberg Dark' else '#F0F0F0' },#1a1a1a 60%,#00CC00 100%);
      padding:10px 24px;border-radius:8px;margin-bottom:18px;box-shadow:0 4px 10px #0007;'>
-        <span style='color:#00cc00;font-family:"Arial",sans-serif;font-size:2.1rem;font-weight:bold;letter-spacing:2px;'>
+        <span style='color:#FFFF00;font-family:"Courier New",monospace;font-size:2.1rem;font-weight:bold;letter-spacing:2px;'>
         BlockVista Terminal</span>
-        <span style='float:right;color:#00cc00;font-size:1.25rem;font-family:monospace;padding-top:16px;'>
+        <span style='float:right;color:#FFFF00;font-size:1.25rem;font-family:monospace;padding-top:16px;'>
         INDIA • INTRADAY • LIVE</span>
     </div>
     """, unsafe_allow_html=True
 )
+
+# ---------------------- Sentiment Meter ----------------------
+sentiment_score, sentiment_label = get_nifty50_sentiment()
+with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
+    delta_color = "red" if sentiment_score < -0.05 else "green" if sentiment_score > 0.05 else "normal"
+    st.metric("NIFTY 50 Sentiment", sentiment_label, f"{sentiment_score:.2f}", delta_color=delta_color)
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=sentiment_score,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        gauge={
+            'axis': {'range': [-1, 1], 'tickwidth': 1, 'tickcolor': "#FFFF00"},
+            'bar': {'color': "#00CC00" if sentiment_score > 0 else "#FF3333"},
+            'bgcolor': "#000000" if st.session_state.theme == "Bloomberg Dark" else "#F0F0F0",
+            'bordercolor': "#FFFF00",
+            'steps': [
+                {'range': [-1, -0.05], 'color': "#FF3333"},
+                {'range': [-0.05, 0.05], 'color': "#666666"},
+                {'range': [0.05, 1], 'color': "#00CC00"}
+            ]
+        }
+    ))
+    fig.update_layout(height=200)
+    st.plotly_chart(fig, use_container_width=True)
 
 # ---------------------- News Section Below Header ----------------------
 if len(stock_list):
@@ -760,13 +832,13 @@ if len(stock_list):
     vwap = try_scalar(latest.get('VWAP', np.nan))
 
     with metrics_row[0]:
-        st.metric("LTP", f"{round(float(price), 2) if not np.isnan(price) else '—'}")
+        st.metric("LTP", f"{round(float(price), 2) if not np.isnan(price) else '—'}", delta_color="red" if price < latest['Close'] else "green")
     with metrics_row[1]:
-        st.metric("RSI", f"{round(rsi, 2) if not np.isnan(rsi) else '—'}")
+        st.metric("RSI", f"{round(rsi, 2) if not np.isnan(rsi) else '—'}", delta_color="red" if rsi > 70 else "green" if rsi < 30 else "normal")
     with metrics_row[2]:
-        st.metric("MACD", f"{round(macd, 2) if not np.isnan(macd) else '—'}")
+        st.metric("MACD", f"{round(macd, 2) if not np.isnan(macd) else '—'}", delta_color="green" if macd > try_scalar(latest.get('MACDs_12_26_9', np.nan)) else "red")
     with metrics_row[3]:
-        st.metric("ADX", f"{round(adx, 2) if not np.isnan(adx) else '—'}")
+        st.metric("ADX", f"{round(adx, 2) if not np.isnan(adx) else '—'}", delta_color="green" if adx > 25 else "normal")
     with metrics_row[4]:
         st.metric("ATR", f"{round(atr, 2) if not np.isnan(atr) else '—'}")
     with metrics_row[5]:
@@ -817,10 +889,14 @@ if len(stock_list):
                     )
                 ])
                 if bands_show and all(col in data for col in ['BOLL_L', 'BOLL_M', 'BOLL_U']):
-                    fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_U'], name='Upper BB', line=dict(color='#00cc00')))
-                    fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_L'], name='Lower BB', line=dict(color='#ff3333')))
-                    fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_M'], name='Middle BB', line=dict(color='#ffffff')))
-                fig.update_layout(xaxis_rangeslider_visible=False, template='plotly_dark', height=640)
+                    fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_U'], name='Upper BB', line=dict(color='#00CC00')))
+                    fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_L'], name='Lower BB', line=dict(color='#FF3333')))
+                    fig.add_trace(go.Scatter(x=data.index, y=data['BOLL_M'], name='Middle BB', line=dict(color='#FFFF00')))
+                fig.update_layout(
+                    xaxis_rangeslider_visible=False,
+                    template='plotly_dark' if st.session_state.theme == "Bloomberg Dark" else 'plotly_white',
+                    height=640
+                )
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("Insufficient data for candlestick chart.")
@@ -844,7 +920,8 @@ if len(stock_list):
         cols = st.columns(3)
         for i, (k, v) in enumerate(signals.items()):
             with cols[i % 3]:
-                st.metric(label=k, value=v)
+                delta_color = "green" if "Bullish" in v or "Strong" in v or "Oversold" in v else "red" if "Bearish" in v or "Overbought" in v else "normal"
+                st.metric(label=k, value=v, delta_color=delta_color)
         advanced_cols = [c for c in ['SMA21', 'EMA9', 'BOLL_L', 'BOLL_M', 'BOLL_U', 'ATR', 'VWAP'] if c in data.columns]
         if advanced_cols:
             st.line_chart(data[advanced_cols].tail(20))
