@@ -25,6 +25,44 @@ except ModuleNotFoundError:
     vader_available = False
     st.warning("vaderSentiment not installed. Sentiment meter disabled.")
 
+from kiteconnect import KiteTicker
+
+# ---- WebSocket Session State ----
+if "ws_ticks" not in st.session_state:
+    st.session_state["ws_ticks"] = {}
+
+def start_ws_ticker(symbols):
+    tokens = []
+    with st.spinner("Connecting WebSocket..."):
+        profile = kite.profile()
+        instruments = kite.instruments("NSE")
+        symbol_to_token = {inst["tradingsymbol"]: inst["instrument_token"] for inst in instruments}
+        for s in symbols:
+            if s in symbol_to_token:
+                tokens.append(symbol_to_token[s])
+        if not tokens:
+            st.warning("No valid tokens found for selected symbols.")
+            return
+        api_key = kite._api_key
+        access_token = kite._access_token
+        kws = KiteTicker(api_key, access_token)
+        def on_ticks(ws, ticks):
+            for t in ticks:
+                sym = next((k for k, v in symbol_to_token.items() if v == t["instrument_token"]), None)
+                if sym:
+                    st.session_state["ws_ticks"][sym] = t
+        def on_connect(ws, response):
+            ws.subscribe(tokens)
+        def on_close(ws, code, reason):
+            print("WebSocket closed", code, reason)
+        kws.on_ticks = on_ticks
+        kws.on_connect = on_connect
+        kws.on_close = on_close
+        if not st.session_state.get("ws_running"):
+            st.session_state["ws_running"] = True
+            kws.connect(threaded=True)
+
+
 # ---------------------- CONFIG ----------------------
 AV_API_KEY = "2R0I2OXW1A1HMD9N"  # Ensure this is your valid Alpha Vantage API key
 USERS_FILE = "users.json"
@@ -597,6 +635,16 @@ def get_news(symbol):
     news_items = sorted(news_items, key=lambda x: x["published_dt"], reverse=True)[:5]
     return news_items
 
+# ---- Live Ticker Display ----
+selected_symbols = stock_list  # Adjust this if your variable name is different
+if st.button("Start Live Ticker"):
+    start_ws_ticker(selected_symbols)
+
+if st.session_state.get("ws_ticks"):
+    st.subheader("Live Ticker:")
+    for sym, tick in st.session_state["ws_ticks"].items():
+        st.write(f"**{sym}**: {tick.get('last_price', '—'):,} ({tick.get('change', 0):+})")
+
 # ---------------------- Core Helpers ----------------------
 def get_live_price(symbol):
     try:
@@ -916,6 +964,20 @@ if st.sidebar.button("Submit Order"):
         save_trade_logs(trade_logs)
         st.sidebar.error(f"❌ Order failed: {e}")
         logging.error(f"Order failed by {username}: {e}")
+
+if st.session_state.get("auto_refresh", True):
+    st_autorefresh(interval=st.session_state.get("refresh_interval", 15) * 1000, key="chart_autorefresh")
+
+df = fetch_stock_data(symbol, screen_period, screen_interval)
+if df is None or df.empty:
+    st.info("No chart data available")
+else:
+    if symbol in st.session_state.get("ws_ticks", {}):
+        live_tick = st.session_state["ws_ticks"][symbol]
+        df.iloc[-1, df.columns.get_loc("Close")] = live_tick["last_price"]
+
+    render_lightweight_candles(df)
+
 
 # ---------------------- Lightweight Charts Renderer ----------------------
 def render_lightweight_candles(df, chart_style="Candlestick"):
