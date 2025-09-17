@@ -19,6 +19,27 @@ import pytz
 import logging
 import streamlit.components.v1 as components
 
+import os
+import requests
+import streamlit as st
+
+def ensure_instruments_csv():
+    fname = "instruments.csv"
+    url = "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/instruments.csv"
+    if not os.path.exists(fname):
+        try:
+            st.info("instruments.csv not found, attempting download from repo...")
+            r = requests.get(url, timeout=10)
+            r.raise_for_status()
+            with open(fname, "wb") as f:
+                f.write(r.content)
+            st.success("Successfully downloaded instruments.csv from repo.")
+        except Exception as ex:
+            st.error(f"Could not auto-download instruments.csv: {ex}")
+
+ensure_instruments_csv()
+fix: add auto-download for instruments.csv if not present
+
 try:
     from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
     vader_available = True
