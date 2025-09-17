@@ -872,11 +872,14 @@ st.sidebar.title('Multi-Screener Settings')
 screener_mode = st.sidebar.radio("Screener Mode", ["Single Stock", "Basket"])
 if screener_mode == "Single Stock":
     symbol = st.sidebar.text_input('NSE Symbol', value='RELIANCE')
-    stock_list = [symbol]
+    stock_list = [symbol.upper()]
 else:
     basket = st.sidebar.selectbox("Pick Basket", list(SMALLCASE_BASKETS.keys()))
     stock_list = SMALLCASE_BASKETS[basket]
 
+# Fallback: If nothing is chosen, make sure stock_list always exists!
+if not stock_list or not isinstance(stock_list, list):
+    stock_list = ["RELIANCE"]
 screen_period = st.sidebar.selectbox('Period', ['1d','5d'])
 screen_interval = st.sidebar.selectbox('Interval', ['1m','5m','15m'])
 screen_df = make_screener(stock_list, screen_period, screen_interval)
