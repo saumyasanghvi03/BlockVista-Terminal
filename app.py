@@ -27,7 +27,7 @@ except ModuleNotFoundError:
     st.warning("vaderSentiment not installed. Sentiment meter disabled.")
 
 # ---------------------- CONFIG ----------------------
-AV_API_KEY = "2R0I2OXW1A1HMD9N"
+AV_API_KEY = "C1QB4N93H0VTOFS8"  # Your new API key is now here
 USERS_FILE = "users.json"
 LOGIN_HISTORY_FILE = "login_history.json"
 TRADE_LOGS_FILE = "trade_logs.json"
