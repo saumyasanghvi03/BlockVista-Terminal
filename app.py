@@ -636,7 +636,7 @@ def get_news(symbol):
     return news_items
 
 # ---- Live Ticker Display ----
-selected_symbols = stock_list  # Adjust this if your variable name is different
+selected_symbols = stock_list  
 if st.button("Start Live Ticker"):
     start_ws_ticker(selected_symbols)
 
@@ -877,10 +877,12 @@ else:
     basket = st.sidebar.selectbox("Pick Basket", list(SMALLCASE_BASKETS.keys()))
     stock_list = SMALLCASE_BASKETS[basket]
 
-# Fallback: If nothing is chosen, make sure stock_list always exists!
-if not stock_list or not isinstance(stock_list, list):
+# ADD THIS SAFETY CHECK
+if "stock_list" not in locals():
     stock_list = ["RELIANCE"]
+
 selected_symbols = stock_list
+
 
     
 screen_period = st.sidebar.selectbox('Period', ['1d','5d'])
