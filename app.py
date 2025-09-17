@@ -38,7 +38,6 @@ def ensure_instruments_csv():
             st.error(f"Could not auto-download instruments.csv: {ex}")
 
 ensure_instruments_csv()
-fix: add auto-download for instruments.csv if not present
 
 try:
     from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
