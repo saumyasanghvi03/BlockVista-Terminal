@@ -880,6 +880,9 @@ else:
 # Fallback: If nothing is chosen, make sure stock_list always exists!
 if not stock_list or not isinstance(stock_list, list):
     stock_list = ["RELIANCE"]
+selected_symbols = stock_list
+
+    
 screen_period = st.sidebar.selectbox('Period', ['1d','5d'])
 screen_interval = st.sidebar.selectbox('Interval', ['1m','5m','15m'])
 screen_df = make_screener(stock_list, screen_period, screen_interval)
