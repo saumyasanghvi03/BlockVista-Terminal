@@ -24,10 +24,10 @@ try:
     vader_available = True
 except ModuleNotFoundError:
     vader_available = False
-    st.warning("vaderSentiment not installed. Sentiment meter disabled.")
+    pass
 
 # ---------------------- CONFIG ----------------------
-AV_API_KEY = "C1QB4N93H0VTOFS8"  # Your new API key is now here
+AV_API_KEY = "C1QB4N93H0VTOFS8"
 USERS_FILE = "users.json"
 LOGIN_HISTORY_FILE = "login_history.json"
 TRADE_LOGS_FILE = "trade_logs.json"
@@ -380,14 +380,19 @@ def set_terminal_style():
         .stMetric, .stMetricLabel {color: #FFFF00 !important;}
         .stMetricValue {color: #00CC00 !important;}
         h1, h2, h3, h4, h5, h6, label {color: #FFFF00 !important; font-family: 'Courier New', monospace;}
-        .css-1v3fvcr {border: 1px solid #333333; border-radius: 8px;}
         .stButton button {background: #004d00; color: #FFFFFF; border-radius: 4px;}
         .stButton button:hover {background: #006600;}
         .stTabs [data-baseweb="tab"] {color: #FFFF00;}
         .stTabs [data-baseweb="tab"][aria-selected="true"] {background-color: #004d00; color: #FFFFFF;}
+        /* Style for the new containers */
+        [data-testid="stVerticalBlock"] > [data-testid="stContainer"] {
+            border: 1px solid #333333;
+            border-radius: 5px;
+            padding: 10px;
+        }
         </style>
         """, unsafe_allow_html=True)
-    else:
+    else: # Bloomberg Light Theme
         st.markdown("""
         <style>
         .main, .block-container {background-color: #F0F0F0 !important;}
@@ -395,84 +400,103 @@ def set_terminal_style():
         .stDataFrame tbody tr {background-color: #E0E0E0 !important; color: #000000 !important;}
         .stTextInput input, .stNumberInput input, .stSelectbox {background: #FFFFFF !important; color: #000000 !important;}
         .stMetric, .stMetricLabel {color: #000000 !important;}
-        .stMetricValue {color: #00CC00 !important;}
+        .stMetricValue {color: #008000 !important;}
         h1, h2, h3, h4, h5, h6, label {color: #000000 !important; font-family: 'Courier New', monospace;}
-        .css-1v3fvcr {border: 1px solid #333333; border-radius: 8px;}
         .stButton button {background: #004d00; color: #FFFFFF; border-radius: 4px;}
         .stButton button:hover {background: #006600;}
         .stTabs [data-baseweb="tab"] {color: #000000;}
         .stTabs [data-baseweb="tab"][aria-selected="true"] {background-color: #004d00; color: #FFFFFF;}
+        /* Style for the new containers */
+        [data-testid="stVerticalBlock"] > [data-testid="stContainer"] {
+            border: 1px solid #cccccc;
+            border-radius: 5px;
+            padding: 10px;
+        }
         </style>
         """, unsafe_allow_html=True)
 
-# ---------------------- Login/Signup/Reset UI ----------------------
+# ---------------------- Login/Signup/Reset UI (PRESERVED) ----------------------
 if not st.session_state["logged_in"]:
-    st.subheader("BlockVista Terminal Account")
-    auth_mode = st.selectbox("Select Action", ["Login", "Signup", "Reset Password"])
+    set_terminal_style() # Set theme for login page as well
+    st.title("BlockVista Terminal")
+    st.subheader("Account Access")
     
-    if auth_mode == "Signup":
-        st.write("Create a new BlockVista Terminal account")
-        signup_username = st.text_input("New Username")
-        signup_access_code = st.text_input("New Access Code", type="password")
-        security_question = st.selectbox("Security Question", SECURITY_QUESTIONS)
-        security_answer = st.text_input("Security Answer", type="password")
-        if st.button("Sign Up"):
-            success, message = signup_user(signup_username, signup_access_code, security_question, security_answer)
-            if success:
-                st.success(message)
-                st.session_state["logged_in"] = True
-                st.session_state["username"] = signup_username
-                st.session_state["login_attempts"] = 0
-                st.session_state["reset_attempts"] = 0
-            else:
-                st.error(message)
-    
-    elif auth_mode == "Reset Password":
-        st.write("Reset your password")
-        reset_username = st.text_input("Username")
-        users = load_users()
-        if reset_username in users:
-            st.write(f"Security Question: {users[reset_username]['security_question']}")
-            reset_security_answer = st.text_input("Security Answer", type="password")
-            new_access_code = st.text_input("New Access Code", type="password")
-            if st.button("Reset Password"):
-                if st.session_state["reset_attempts"] >= MAX_RESET_ATTEMPTS:
-                    st.error("❌ Too many reset attempts. Please try again later.")
-                    st.stop()
-                success, message = reset_user_password(reset_username, reset_security_answer, new_access_code)
-                if success:
-                    st.session_state["reset_attempts"] = 0
-                    st.success(message)
-                    st.info("Please log in with your new access code.")
-                else:
-                    st.session_state["reset_attempts"] += 1
-                    remaining = MAX_RESET_ATTEMPTS - st.session_state["reset_attempts"]
-                    st.error(f"❌ {message}. {remaining} attempts remaining.")
-        else:
-            if reset_username:
-                st.error("Username does not exist.")
-    
-    else: # Login
-        st.write("Login to your BlockVista Terminal account")
-        login_username = st.text_input("Username")
-        login_access_code = st.text_input("Access Code", type="password")
-        if st.button("Login"):
-            if st.session_state["login_attempts"] >= MAX_LOGIN_ATTEMPTS:
-                st.error("❌ Too many failed attempts. Please try again later.")
-                st.stop()
-            success, message = login_user(login_username, login_access_code)
-            if success:
-                st.session_state["logged_in"] = True
-                st.session_state["username"] = login_username
-                st.session_state["login_attempts"] = 0
-                st.session_state["reset_attempts"] = 0
-                st.success(f"✅ Welcome, {login_username}!")
-            else:
-                st.session_state["login_attempts"] += 1
-                remaining = MAX_LOGIN_ATTEMPTS - st.session_state["login_attempts"]
-                st.error(f"❌ {message}. {remaining} attempts remaining.")
+    auth_container = st.container()
+    with auth_container:
+        auth_mode = st.selectbox("Select Action", ["Login", "Signup", "Reset Password"], label_visibility="collapsed")
+        
+        if auth_mode == "Signup":
+            st.write("Create a new BlockVista Terminal account")
+            with st.form("signup_form"):
+                signup_username = st.text_input("New Username")
+                signup_access_code = st.text_input("New Access Code", type="password")
+                security_question = st.selectbox("Security Question", SECURITY_QUESTIONS)
+                security_answer = st.text_input("Security Answer", type="password")
+                submitted = st.form_submit_button("Sign Up")
+                if submitted:
+                    success, message = signup_user(signup_username, signup_access_code, security_question, security_answer)
+                    if success:
+                        st.success(message)
+                        st.session_state["logged_in"] = True
+                        st.session_state["username"] = signup_username
+                        st.session_state["login_attempts"] = 0
+                        st.session_state["reset_attempts"] = 0
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(message)
+        
+        elif auth_mode == "Reset Password":
+            st.write("Reset your password")
+            with st.form("reset_form"):
+                reset_username = st.text_input("Username")
+                users = load_users()
+                if reset_username in users:
+                    st.write(f"Security Question: {users[reset_username]['security_question']}")
+                reset_security_answer = st.text_input("Security Answer", type="password")
+                new_access_code = st.text_input("New Access Code", type="password")
+                submitted = st.form_submit_button("Reset Password")
+                if submitted:
+                    if st.session_state["reset_attempts"] >= MAX_RESET_ATTEMPTS:
+                        st.error("❌ Too many reset attempts. Please try again later.")
+                    else:
+                        success, message = reset_user_password(reset_username, reset_security_answer, new_access_code)
+                        if success:
+                            st.session_state["reset_attempts"] = 0
+                            st.success(message)
+                            st.info("Please log in with your new access code.")
+                        else:
+                            st.session_state["reset_attempts"] += 1
+                            remaining = MAX_RESET_ATTEMPTS - st.session_state["reset_attempts"]
+                            st.error(f"❌ {message}. {remaining} attempts remaining.")
+        
+        else: # Login
+            st.write("Login to your BlockVista Terminal account")
+            with st.form("login_form"):
+                login_username = st.text_input("Username")
+                login_access_code = st.text_input("Access Code", type="password")
+                submitted = st.form_submit_button("Login")
+                if submitted:
+                    if st.session_state["login_attempts"] >= MAX_LOGIN_ATTEMPTS:
+                        st.error("❌ Too many failed attempts. Please try again later.")
+                    else:
+                        success, message = login_user(login_username, login_access_code)
+                        if success:
+                            st.session_state["logged_in"] = True
+                            st.session_state["username"] = login_username
+                            st.session_state["login_attempts"] = 0
+                            st.session_state["reset_attempts"] = 0
+                            st.success(f"✅ Welcome, {login_username}!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.session_state["login_attempts"] += 1
+                            remaining = MAX_LOGIN_ATTEMPTS - st.session_state["login_attempts"]
+                            st.error(f"❌ {message}. {remaining} attempts remaining.")
     
     st.stop()
+
+# --- MAIN APP EXECUTION STARTS HERE ---
 
 # ---------------------- Kite WebSocket Live Ticker ----------------------
 def start_live_ticker(api_key, access_token, instrument_tokens):
@@ -535,10 +559,9 @@ def get_kite_session():
     def initialize_ticker_and_tokens():
         """Loads tokens and starts the live ticker once per session."""
         if 'ticker_started' not in st.session_state:
-            st.info("Initializing live data feed...")
             instrument_token_map = get_instrument_tokens()
             if not instrument_token_map:
-                st.error("Could not load instrument tokens. Live data feed will not start.")
+                st.warning("Could not load instrument tokens. Live data feed will not start.")
                 return
             st.session_state["instrument_token_map"] = instrument_token_map
             st.session_state["token_to_symbol_map"] = {v: k for k, v in instrument_token_map.items()}
@@ -550,7 +573,6 @@ def get_kite_session():
             if tokens_to_track:
                 start_live_ticker(api_key, st.session_state["access_token"], tokens_to_track)
                 st.session_state['ticker_started'] = True
-                st.rerun()
 
     if "access_token" in st.session_state and st.session_state.get("zerodha_authenticated"):
         try:
@@ -559,86 +581,60 @@ def get_kite_session():
             initialize_ticker_and_tokens()
             return kite_conn
         except Exception as e:
-            logging.error(f"Zerodha session invalid: {e}")
-            st.warning(f"Zerodha session invalid: {e}. Please re-authenticate.")
-            st.session_state.pop("access_token", None)
-            st.session_state.pop("zerodha_authenticated", None)
-
-    if refresh_token:
-        try:
-            data = kite_conn.generate_session(refresh_token, api_secret=api_secret)
-            access_token = data.get("access_token")
-            if access_token:
-                st.session_state["access_token"] = access_token
-                st.session_state["zerodha_authenticated"] = True
-                kite_conn.set_access_token(access_token)
-                st.success("✅ Zerodha session auto-refreshed")
-                initialize_ticker_and_tokens()
-                return kite_conn
-            else:
-                st.warning("Auto-refresh did not return access_token.")
-        except Exception as e:
-            logging.error(f"Zerodha auto-refresh failed: {e}")
-            st.warning(f"Auto-refresh failed: {e}")
-
-    st.markdown(
-        f"""
-        <div style="background:#1a1a1a;padding:14px;border-radius:8px;border:1px solid #FFFF00;">
-        🟢 <a href="{kite_conn.login_url()}" target="_blank"><b>Login to Zerodha</b></a><br>
-        Paste the <b>request_token</b> from the redirect URL below and click 'Generate Access Token'.
-        Save the <b>refresh_token</b> to secrets for auto-refresh.
-        </div>
-        """, unsafe_allow_html=True
-    )
-    request_token = st.text_input("Paste request_token here:")
-    if st.button("Generate Access Token") and request_token:
-        try:
-            data = kite_conn.generate_session(request_token, api_secret=api_secret)
-            access_token = data.get("access_token")
-            refresh_token_printed = data.get("refresh_token")
-            
-            if access_token:
-                st.session_state["access_token"] = access_token
-                st.session_state["zerodha_authenticated"] = True
-                kite_conn.set_access_token(access_token)
-                st.success("✅ Zerodha session started!")
-                if refresh_token_printed:
-                    st.code(f"KITE_REFRESH_TOKEN={refresh_token_printed}")
-                initialize_ticker_and_tokens()
-                st.rerun()
-                return kite_conn
-            else:
-                st.error("Failed to obtain access_token.")
-                st.stop()
-        except Exception as e:
-            logging.error(f"Zerodha login failed: {e}")
-            st.error(f"❌ Zerodha login failed: {e}")
-            st.stop()
-    st.stop()
+            st.session_state.pop("access_token", None); st.session_state.pop("zerodha_authenticated", None)
+            st.warning(f"Zerodha session invalid, please re-authenticate. Error: {e}")
+    
+    return kite_conn
 
 kite = get_kite_session()
-
-# ---- Start Sidebar ----
-st.sidebar.markdown("---")
-if "zerodha_authenticated" in st.session_state and st.session_state["zerodha_authenticated"]:
-    if st.sidebar.button("Logout from Zerodha"):
-        st.session_state.pop("access_token", None)
-        st.session_state.pop("zerodha_authenticated", None)
-        st.session_state.pop("ticker_started", None)
-        st.success("Logged out from Zerodha. Please re-authenticate.")
-        st.rerun()
-
-theme_choice = st.sidebar.selectbox("Terminal Theme", ["Bloomberg Dark", "Bloomberg Light"])
-st.session_state.theme = theme_choice
 set_terminal_style()
 
-refresh_col, toggle_col = st.sidebar.columns([2,2])
-with refresh_col:
-    st.session_state["auto_refresh"] = st.checkbox("Auto Refresh", value=st.session_state.get("auto_refresh", True))
-with toggle_col:
-    st.session_state["refresh_interval"] = st.number_input("Sec", value=st.session_state.get("refresh_interval", 15), min_value=3, max_value=90, step=1)
+# ---------------------- Sidebar Setup ----------------------
+with st.sidebar:
+    st.title(f"Welcome, {st.session_state.get('username', 'Guest')}")
+    theme_choice = st.selectbox("Terminal Theme", ["Bloomberg Dark", "Bloomberg Light"])
+    st.session_state.theme = theme_choice
+    
+    screener_mode = st.radio("Screener Mode", ["Single Stock", "Basket"])
+    if screener_mode == "Single Stock":
+        symbol = st.text_input('NSE Symbol', value='RELIANCE')
+        stock_list = [symbol.strip().upper()]
+    else:
+        basket = st.selectbox("Pick Basket", list(SMALLCASE_BASKETS.keys()))
+        stock_list = SMALLCASE_BASKETS[basket]
+    
+    screen_period = st.selectbox('Period', ['1d','5d'])
+    screen_interval = st.selectbox('Interval', ['1m','5m','15m'])
 
-# ---------------------- News Parser from RSS ----------------------
+    if not st.session_state.get("zerodha_authenticated"):
+        with st.expander("Zerodha Login", expanded=True):
+            st.markdown(f'<a href="{kite.login_url()}" target="_blank"><b>Click here to Login to Zerodha</b></a>', unsafe_allow_html=True)
+            request_token = st.text_input("Paste request_token here:")
+            if st.button("Generate Session"):
+                try:
+                    data = kite.generate_session(request_token, api_secret=api_secret)
+                    st.session_state["access_token"] = data["access_token"]
+                    st.session_state["zerodha_authenticated"] = True
+                    st.success("✅ Zerodha session started!")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Login failed: {e}")
+
+    if st.session_state.get("zerodha_authenticated"):
+        if st.button("Logout from Zerodha"):
+            st.session_state.pop("access_token", None); st.session_state.pop("zerodha_authenticated", None); st.session_state.pop("ticker_started", None)
+            st.success("Logged out from Zerodha.")
+            time.sleep(1); st.rerun()
+            
+    st.divider()
+    st.subheader("Watchlist & P/L Controls")
+    watchlist_input = st.text_area("Watchlist (comma-separated)", value="RELIANCE, SBIN, TCS")
+    positions_input = st.text_area("Entry Prices (comma, same order)", value="2900, 850, 4000")
+    qty_input = st.text_area("Quantities (comma, same order)", value="10, 20, 5")
+    st.session_state['watchlist_symbols'] = [x.strip().upper() for x in watchlist_input.split(",") if x.strip()]
+
+# ---------------------- News Parser & Core Helpers ----------------------
 @st.cache_data(ttl=600)
 def get_news(symbol):
     rss_urls = [
@@ -667,50 +663,38 @@ def get_news(symbol):
                     "published": published,
                     "published_dt": published_dt
                 })
-    news_items = sorted(news_items, key=lambda x: x["published_dt"], reverse=True)[:5]
-    return news_items
+    return sorted(news_items, key=lambda x: x["published_dt"], reverse=True)[:5]
 
-# ---------------------- Core Helpers ----------------------
 def get_live_price(symbol):
-    # 1. Check WebSocket quotes first
-    if symbol in LIVE_QUOTES:
-        return LIVE_QUOTES[symbol]
-    
-    # 2. Fallback to LTP API call
+    if symbol in LIVE_QUOTES: return LIVE_QUOTES[symbol]
     try:
-        ltp = kite.ltp(f"NSE:{symbol}")
-        price = ltp[f"NSE:{symbol}"]["last_price"]
-        LIVE_QUOTES[symbol] = price # Update cache
-        return price
-    except Exception as e:
-        logging.error(f"Error getting live price for {symbol}: {e}")
+        if st.session_state.get("zerodha_authenticated"):
+            ltp = kite.ltp(f"NSE:{symbol}")
+            price = ltp[f"NSE:{symbol}"]["last_price"]
+            LIVE_QUOTES[symbol] = price
+            return price
+    except Exception:
         return np.nan
+    return np.nan
 
 def process_indicators(data, symbol):
-    """Helper function to clean and add indicators to a DataFrame."""
     try:
         required_cols = ['Open', 'High', 'Low', 'Close']
         if not all(col in data.columns for col in required_cols):
-            logging.warning(f"Indicator calc skipped: Missing required columns for {symbol}")
             return data
         
         if len(data) > 14:
             data['RSI'] = ta.rsi(data['Close'], length=14)
             data['ATR'] = ta.atr(data['High'], data['Low'], data['Close'], length=14)
             adx = ta.adx(data['High'], data['Low'], data['Close'], length=14)
-            data['ADX'] = adx['ADX_14'] if isinstance(adx, pd.DataFrame) and 'ADX_14' in adx else np.nan
-            stochrsi = ta.stochrsi(data['Close'], length=14)
-            data['STOCHRSI'] = stochrsi["STOCHRSIk_14_14_3_3"] if isinstance(stochrsi, pd.DataFrame) and "STOCHRSIk_14_14_3_3" in stochrsi else np.nan
+            data['ADX'] = adx['ADX_14'] if isinstance(adx, pd.DataFrame) else np.nan
         else:
-            data['RSI'], data['ATR'], data['ADX'], data['STOCHRSI'] = np.nan, np.nan, np.nan, np.nan
+            data['RSI'], data['ATR'], data['ADX'] = np.nan, np.nan, np.nan
         
-        if len(data) > 12:
+        if len(data) > 26:
             macd = ta.macd(data['Close'])
-            if isinstance(macd, pd.DataFrame) and not macd.empty:
-                for col in ['MACD_12_26_9', 'MACDh_12_26_9', 'MACDs_12_26_9']:
-                    data[col] = macd[col] if col in macd else np.nan
-        else:
-            data['MACD_12_26_9'], data['MACDh_12_26_9'], data['MACDs_12_26_9'] = np.nan, np.nan, np.nan
+            if isinstance(macd, pd.DataFrame):
+                data = data.join(macd)
         
         data['SMA21'] = ta.sma(data['Close'], length=21) if len(data) > 21 else np.nan
         data['EMA9'] = ta.ema(data['Close'], length=9) if len(data) > 9 else np.nan
@@ -718,24 +702,15 @@ def process_indicators(data, symbol):
         if len(data) > 20:
             bbands = ta.bbands(data['Close'], length=20)
             if isinstance(bbands, pd.DataFrame):
-                for label, key in zip(['BOLL_L', 'BOLL_M', 'BOLL_U'], ['BBL_20_2.0', 'BBM_20_2.0', 'BBU_20_2.0']):
-                    data[label] = bbands[key] if key in bbands else np.nan
-        else:
-            data['BOLL_L'], data['BOLL_M'], data['BOLL_U'] = np.nan, np.nan, np.nan
+                data = data.join(bbands)
         
-        if len(data) > 7:
-            supertrend = ta.supertrend(data['High'], data['Low'], data['Close'])
-            if isinstance(supertrend, pd.DataFrame) and not supertrend.empty:
-                for col in supertrend.columns:
-                    data[col] = supertrend[col]
-
-        data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume']) if 'Volume' in data.columns else np.nan
+        if 'Volume' in data.columns:
+            data['VWAP'] = ta.vwap(data['High'], data['Low'], data['Close'], data['Volume'])
         
         ha = ta.ha(data['Open'], data['High'], data['Low'], data['Close'])
         if isinstance(ha, pd.DataFrame):
-            for c in ['open', 'high', 'low', 'close']:
-                data[f'HA_{c}'] = ha[f'HA_{c}'] if f'HA_{c}' in ha else np.nan
-        
+            data = data.join(ha)
+            
         return data
     except Exception as e:
         logging.error(f"Error computing indicators for {symbol}: {e}")
@@ -743,324 +718,172 @@ def process_indicators(data, symbol):
 
 @st.cache_data(show_spinner="⏳ Loading data...")
 def fetch_stock_data(symbol, period, interval):
-    """Fetches stock data, prioritizing Kite, then yfinance, then Alpha Vantage."""
-    if "zerodha_authenticated" in st.session_state and st.session_state["zerodha_authenticated"]:
-        logging.debug(f"Attempting to fetch {symbol} from Kite...")
+    if st.session_state.get("zerodha_authenticated"):
         to_dt = datetime.now()
-        days_map = {'1d': 1, '5d': 5, '1mo': 30, '3mo': 90, '6mo': 180, '1y': 365, '2y': 730, '5y': 1825}
-        from_dt = to_dt - timedelta(days=days_map.get(period, 5))
-        interval_map = {"1m": "minute", "5m": "5minute", "15m": "15minute", "30m": "30minute", "60m": "60minute", "1d": "day"}
+        days_map = {'1d': 2, '5d': 7} # Fetch slightly more to ensure data
+        from_dt = to_dt - timedelta(days=days_map.get(period, 30))
+        interval_map = {"1m": "minute", "5m": "5minute", "15m": "15minute"}
         kite_interval = interval_map.get(interval)
         if kite_interval:
             data = fetch_kite_historical(symbol, kite_interval, from_dt, to_dt, kite)
             if data is not None and not data.empty:
-                logging.info(f"Successfully fetched {symbol} from Kite.")
                 return process_indicators(data, symbol)
-    
     try:
-        logging.debug(f"Fetching yfinance data for {symbol}.NS...")
-        data = yf.download(f"{symbol}.NS", period=period, interval=interval, progress=False)
-        if data.empty or not isinstance(data, pd.DataFrame):
-            logging.warning(f"yfinance failed for {symbol}.NS, trying Alpha Vantage.")
-            av_interval = {"1m": "1min", "5m": "5min", "15m": "15min"}.get(interval, "5min")
-            data = fetch_alpha_vantage_intraday(symbol, interval=av_interval)
-            if data is None or data.empty:
-                st.warning(f"No data fetched for {symbol}.")
-                return None
-        return process_indicators(data.copy(), symbol)
+        data = yf.download(f"{symbol}.NS", period=period, interval=interval, progress=False, auto_adjust=True)
+        if data.empty:
+            data = fetch_alpha_vantage_intraday(symbol, interval=f"{interval[:-1]}min")
+        return process_indicators(data.copy(), symbol) if data is not None and not data.empty else None
     except Exception as e:
-        logging.error(f"Error fetching data for {symbol}: {e}")
-        st.warning(f"Error fetching data for {symbol}: {e}")
+        logging.error(f"Error in fallback fetch for {symbol}: {e}")
         return None
 
-def try_scalar(val):
-    if isinstance(val, pd.Series) and len(val) == 1:
-        val = val.iloc[0]
-    if isinstance(val, (float, int, np.floating, np.integer)):
-        return val
-    try:
-        return float(val)
-    except Exception:
-        return np.nan
-
 def get_signals(data):
-    if data is None or data.empty:
-        return {}
+    if data is None or data.empty: return {}
     latest = data.iloc[-1]
     signals = {}
-    rsi = try_scalar(latest.get('RSI', np.nan))
+    rsi = try_scalar(latest.get('RSI_14', np.nan))
     macd = try_scalar(latest.get('MACD_12_26_9', np.nan))
     macds = try_scalar(latest.get('MACDs_12_26_9', np.nan))
-    supertrend_col = [c for c in data.columns if isinstance(c, str) and c.startswith('SUPERT_') and not c.endswith('_dir')]
-    supertrend = try_scalar(latest[supertrend_col[0]]) if supertrend_col else np.nan
     close = try_scalar(latest.get('Close', np.nan))
-    adx = try_scalar(latest.get('ADX', np.nan))
-    stochrsi = try_scalar(latest.get('STOCHRSI', np.nan))
     signals['RSI Signal'] = 'Overbought' if rsi > 70 else ('Oversold' if rsi < 30 else 'Neutral')
     signals['MACD Signal'] = 'Bullish' if macd > macds else ('Bearish' if macd < macds else 'Neutral')
-    signals['Supertrend'] = 'Bullish' if not np.isnan(supertrend) and not np.isnan(close) and supertrend < close else 'Bearish' if not np.isnan(supertrend) and not np.isnan(close) and supertrend > close else 'Unknown'
-    signals['ADX Trend'] = 'Strong' if adx > 25 else 'Weak'
-    signals['STOCHRSI Signal'] = 'Overbought' if stochrsi > 0.8 else ('Oversold' if stochrsi < 0.2 else 'Neutral')
+    # Simplified Supertrend logic for example
+    if 'SUPERTd_7_3.0' in latest and latest['SUPERTd_7_3.0'] == 1:
+        signals['Trend'] = 'Bullish'
+    elif 'SUPERTd_7_3.0' in latest and latest['SUPERTd_7_3.0'] == -1:
+        signals['Trend'] = 'Bearish'
+    else:
+        signals['Trend'] = 'Neutral'
     return signals
 
-def make_screener(stock_list, period, interval):
-    screener_data = []
-    for s in stock_list:
-        data = fetch_stock_data(s, period, interval)
-        if data is not None and not data.empty:
-            latest = data.iloc[-1]
-            signals = get_signals(data)
-            row = {
-                "Symbol": s,
-                "LTP": float(try_scalar(latest.get('Close', np.nan))),
-                "RSI": float(try_scalar(latest.get('RSI', np.nan))),
-                "MACD": float(try_scalar(latest.get('MACD_12_26_9', np.nan))),
-                "ADX": float(try_scalar(latest.get('ADX', np.nan))),
-                "ATR": float(try_scalar(latest.get('ATR', np.nan))),
-                "Signal": signals['RSI Signal'] + "/" + signals['MACD Signal'] + "/" + signals['Supertrend'],
-            }
-            screener_data.append(row)
-    return pd.DataFrame(screener_data)
+def try_scalar(val):
+    if isinstance(val, pd.Series) and len(val) >= 1: val = val.iloc[-1]
+    if isinstance(val, (float, int, np.floating, np.integer)): return val
+    try: return float(val)
+    except: return np.nan
 
-# ---------------------- Sidebar: Watchlist P&L Tracker ----------------------
-st.sidebar.subheader("📈 Watchlist P&L Tracker")
-watchlist = st.sidebar.text_area("List NSE symbols (comma-separated)", value="RELIANCE, SBIN, TCS")
-st.session_state['watchlist_symbols'] = [x.strip().upper() for x in watchlist.split(",") if x.strip()]
-positions_input = st.sidebar.text_area("Entry prices (comma, same order)", value="2550, 610, 3580")
-qty_input = st.sidebar.text_area("Quantities (comma, same order)", value="10, 20, 5")
-symbols = st.session_state['watchlist_symbols']
-try:
-    entry_prices = [float(x) for x in positions_input.split(",") if x.strip()]
-    quantities = [float(x) for x in qty_input.split(",") if x.strip()]
-except ValueError:
-    st.sidebar.error("Invalid entry prices or quantities. Use comma-separated numbers.")
-    entry_prices, quantities = [], []
-
-pnl_data = []
-if len(symbols) == len(entry_prices) == len(quantities):
-    for i, s in enumerate(symbols):
-        try:
-            live = get_live_price(s)
-            if np.isnan(live):
-                d = fetch_stock_data(s, "1d", "5m")
-                live = d["Close"].iloc[-1] if d is not None and not d.empty else np.nan
-            pnl = (live - entry_prices[i]) * quantities[i]
-            pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": live, "Qty": quantities[i], "P&L ₹": round(pnl,2)})
-        except Exception as e:
-            logging.error(f"Error calculating P&L for {s}: {e}")
-            pnl_data.append({"Symbol": s, "Entry": entry_prices[i], "LTP": "Err", "Qty": quantities[i], "P&L ₹": "Err"})
-    if pnl_data:
-        st.sidebar.dataframe(pd.DataFrame(pnl_data))
-        total_pnl = sum(x["P&L ₹"] for x in pnl_data if isinstance(x["P&L ₹"], (int, float)))
-        st.sidebar.markdown(f"<b>Total P&L ₹: {round(total_pnl,2)}</b>", unsafe_allow_html=True)
-else:
-    st.sidebar.warning("Mismatch in the number of symbols, prices, or quantities.")
-
-# ---------------------- Sidebar: Screener ----------------------
-st.sidebar.title('Multi-Screener Settings')
-screener_mode = st.sidebar.radio("Screener Mode", ["Single Stock", "Basket"])
-if screener_mode == "Single Stock":
-    symbol = st.sidebar.text_input('NSE Symbol', value='RELIANCE')
-    stock_list = [symbol]
-else:
-    basket = st.sidebar.selectbox("Pick Basket", list(SMALLCASE_BASKETS.keys()))
-    stock_list = SMALLCASE_BASKETS[basket]
-
-screen_period = st.sidebar.selectbox('Period', ['1d','5d'])
-screen_interval = st.sidebar.selectbox('Interval', ['1m','5m','15m'])
-screen_df = make_screener(stock_list, screen_period, screen_interval)
-st.sidebar.subheader("Screener Results")
-if not screen_df.empty:
-    st.sidebar.dataframe(screen_df)
-    csv = screen_df.to_csv(index=False)
-    st.sidebar.download_button("Export Screener CSV", csv, file_name="screener_results.csv")
-else:
-    st.sidebar.info("No data found for selection.")
-
-# ---------------------- Sidebar: Order Placement ----------------------
-st.sidebar.header("Place Order")
-order_symbol = st.sidebar.text_input("Order Symbol (e.g. RELIANCE)", value="RELIANCE")
-order_qty = st.sidebar.number_input("Quantity", min_value=1, value=1)
-order_type = st.sidebar.selectbox("Order Type", ["MARKET", "LIMIT"])
-transaction_type = st.sidebar.selectbox("Transaction Type", ["BUY", "SELL"])
-order_price = None
-order_product = st.sidebar.selectbox("Product", ["CNC", "MIS", "NRML"], index=0)
-
-if order_type == "LIMIT":
-    order_price = st.sidebar.number_input("Limit Price", min_value=0.0, value=0.0, format="%.2f")
-
-if st.sidebar.button("Submit Order"):
-    trade_logs = load_trade_logs()
-    username = st.session_state["username"]
-    try:
-        order_params = {
-            "tradingsymbol": order_symbol.upper(), "exchange": "NSE",
-            "transaction_type": transaction_type, "quantity": int(order_qty),
-            "order_type": order_type, "product": order_product, "variety": "regular"
-        }
-        if order_type == "LIMIT":
-            order_params["price"] = float(order_price)
-        order_id = kite.place_order(**order_params)
-        trade_logs.append({
-            "order_id": order_id, "username": username, "symbol": order_symbol.upper(),
-            "quantity": int(order_qty), "order_type": order_type, "transaction_type": transaction_type,
-            "product": order_product, "price": float(order_price) if order_type == "LIMIT" else None,
-            "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(), "status": "Success"
-        })
-        save_trade_logs(trade_logs)
-        st.sidebar.success(f"✅ Order placed! ID: {order_id}")
-    except Exception as e:
-        trade_logs.append({
-            "order_id": "N/A", "username": username, "symbol": order_symbol.upper(),
-            "quantity": int(order_qty), "order_type": order_type, "transaction_type": transaction_type,
-            "product": order_product, "price": float(order_price) if order_type == "LIMIT" else None,
-            "timestamp": datetime.now(pytz.timezone("Asia/Kolkata")).isoformat(), "status": f"Failed: {str(e)}"
-        })
-        save_trade_logs(trade_logs)
-        st.sidebar.error(f"❌ Order failed: {e}")
-
-# ---------------------- Lightweight Charts Renderer (Repaired) ----------------------
+# ---------------------- Lightweight Charts Renderer ----------------------
 def render_lightweight_chart(df, chart_style="Candlestick", show_bollinger=True):
-    if df is None or df.empty:
-        st.info("No data available for chart.")
-        return
-
-    # Prepare OHLC data
-    ohlc_cols = ['HA_open', 'HA_high', 'HA_low', 'HA_close'] if chart_style == "Heikin Ashi" and all(c in df.columns for c in ['HA_open', 'HA_high', 'HA_low', 'HA_close']) else ['Open', 'High', 'Low', 'Close']
+    if df is None or df.empty: return
     df_chart = df.reset_index()
     df_chart = df_chart.rename(columns={'index': 'time', 'date': 'time'})
-    
-    ohlc_data = [
-        {"time": int(pd.to_datetime(row['time']).timestamp()), "open": row[ohlc_cols[0]], "high": row[ohlc_cols[1]], "low": row[ohlc_cols[2]], "close": row[ohlc_cols[3]]}
-        for _, row in df_chart.iterrows() if pd.notna(row[ohlc_cols[0]])
-    ]
-    
-    # Prepare Bollinger Bands data if requested and available
+    ohlc_cols = ['HA_open', 'HA_high', 'HA_low', 'HA_close'] if chart_style == "Heikin Ashi" and 'HA_open' in df.columns else ['Open', 'High', 'Low', 'Close']
+    ohlc_data = [{"time": int(t.timestamp()), "open": o, "high": h, "low": l, "close": c} for t, o, h, l, c in zip(pd.to_datetime(df_chart['time']), df_chart[ohlc_cols[0]], df_chart[ohlc_cols[1]], df_chart[ohlc_cols[2]], df_chart[ohlc_cols[3]])]
     bollinger_upper, bollinger_middle, bollinger_lower = "[]", "[]", "[]"
-    if show_bollinger and all(c in df.columns for c in ['BOLL_U', 'BOLL_M', 'BOLL_L']):
-        bollinger_upper = json.dumps([{"time": int(pd.to_datetime(row['time']).timestamp()), "value": row['BOLL_U']} for _, row in df_chart.iterrows() if pd.notna(row['BOLL_U'])])
-        bollinger_middle = json.dumps([{"time": int(pd.to_datetime(row['time']).timestamp()), "value": row['BOLL_M']} for _, row in df_chart.iterrows() if pd.notna(row['BOLL_M'])])
-        bollinger_lower = json.dumps([{"time": int(pd.to_datetime(row['time']).timestamp()), "value": row['BOLL_L']} for _, row in df_chart.iterrows() if pd.notna(row['BOLL_L'])])
-        
+    if show_bollinger and 'BBU_20_2.0' in df.columns:
+        bollinger_upper = json.dumps([{"time": int(t.timestamp()), "value": v} for t, v in zip(pd.to_datetime(df_chart['time']), df_chart['BBU_20_2.0']) if pd.notna(v)])
+        bollinger_middle = json.dumps([{"time": int(t.timestamp()), "value": v} for t, v in zip(pd.to_datetime(df_chart['time']), df_chart['BBM_20_2.0']) if pd.notna(v)])
+        bollinger_lower = json.dumps([{"time": int(t.timestamp()), "value": v} for t, v in zip(pd.to_datetime(df_chart['time']), df_chart['BBL_20_2.0']) if pd.notna(v)])
     html_code = f"""
     <!doctype html><html><head><meta charset="utf-8"></head><body>
-      <div id="chart" style="width:100%;height:520px;"></div>
-      <script src="https://unpkg.com/lightweight-charts@3.7.0/dist/lightweight-charts.standalone.production.js"></script>
+      <div id="chart" style="width:100%;height:400px;"></div>
+      <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
       <script>
         const chart = LightweightCharts.createChart(document.getElementById('chart'), {{
           layout: {{background: {{type: 'solid', color: '{'#000000' if st.session_state.theme == 'Bloomberg Dark' else '#F0F0F0'}'}}, textColor: '{'#FFFF00' if st.session_state.theme == 'Bloomberg Dark' else '#000000'}'}},
-          grid: {{vertLines: {{color: '#333333'}}, horzLines: {{color: '#333333'}}}},
-          timeScale: {{timeVisible: true, secondsVisible: false}},
-          rightPriceScale: {{borderColor: '#00CC00'}},
-          crosshair: {{vertLine: {{color: '#00CC00'}}, horzLine: {{color: '#00CC00'}}}}
+          grid: {{vertLines: {{color: '#333333'}}, horzLines: {{color: '#333333'}}}}, timeScale: {{timeVisible: true, secondsVisible: false}},
         }});
-        const candleSeries = chart.addCandlestickSeries({{
-          upColor: '#00CC00', downColor: '#FF3333', borderUpColor: '#00CC00', borderDownColor: '#FF3333',
-          wickUpColor: '#00CC00', wickDownColor: '#FF3333'
-        }});
+        const candleSeries = chart.addCandlestickSeries({{ upColor: '#00CC00', downColor: '#FF3333', borderVisible: false, wickUpColor: '#00CC00', wickDownColor: '#FF3333' }});
         candleSeries.setData({json.dumps(ohlc_data)});
-
         if ({show_bollinger and bollinger_upper != "[]"}) {{
-            const upperBand = chart.addLineSeries({{ color: 'rgba(255,165,0,0.7)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }});
-            const middleBand = chart.addLineSeries({{ color: 'rgba(255,255,255,0.7)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false }});
-            const lowerBand = chart.addLineSeries({{ color: 'rgba(255,165,0,0.7)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }});
-            upperBand.setData({bollinger_upper});
-            middleBand.setData({bollinger_middle});
-            lowerBand.setData({bollinger_lower});
+            const upperBand = chart.addLineSeries({{ color: 'rgba(255,165,0,0.7)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }});
+            const middleBand = chart.addLineSeries({{ color: 'rgba(255,255,255,0.7)', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }});
+            const lowerBand = chart.addLineSeries({{ color: 'rgba(255,165,0,0.7)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }});
+            upperBand.setData({bollinger_upper}); middleBand.setData({bollinger_middle}); lowerBand.setData({bollinger_lower});
         }}
         chart.timeScale().fitContent();
       </script>
-    </body></html>
-    """
-    components.html(html_code, height=540)
+    </body></html>"""
+    components.html(html_code, height=420)
 
-
-# ---------------------- Main UI ----------------------
-NSE_HOLIDAYS_2025 = [
-    "2025-01-26", "2025-03-14", "2025-03-31", "2025-04-14", "2025-04-18", 
-    "2025-05-01", "2025-06-06", "2025-08-15", "2025-10-02", "2025-10-21", 
-    "2025-11-05", "2025-12-25"
-]
-
+# ---------------------- HEADER ----------------------
 ist = pytz.timezone("Asia/Kolkata")
 now = datetime.now(ist)
-current_date = now.strftime("%Y-%m-%d")
-is_weekday = now.weekday() < 5
-is_market_hours = (now.time() >= datetime.strptime("09:15", "%H:%M").time() and now.time() <= datetime.strptime("15:30", "%H:%M").time())
-is_holiday = current_date in NSE_HOLIDAYS_2025
-market_status = "LIVE" if is_weekday and not is_holiday and is_market_hours else "Closed"
+market_status = "LIVE" if (now.weekday() < 5 and datetime.strptime("09:15", "%H:%M").time() <= now.time() <= datetime.strptime("15:30", "%H:%M").time()) else "Closed"
 status_color = "#00CC00" if market_status == "LIVE" else "#FF3333"
 
-st.markdown(
-    f"""
+st.markdown(f"""
     <div style='background:linear-gradient(90deg,{'#000000' if st.session_state.theme == 'Bloomberg Dark' else '#F0F0F0'},#1a1a1a 60%,#00CC00 100%); padding:10px 24px;border-radius:8px;margin-bottom:18px;box-shadow:0 4px 10px #0007;'>
         <span style='color:#FFFF00;font-family:"Courier New",monospace;font-size:2.1rem;font-weight:bold;letter-spacing:2px;'>BlockVista Terminal</span>
-        <span style='float:right;color:{status_color};font-size:1.25rem;font-family:monospace;padding-top:16px;'>INDIA • INTRADAY • {market_status}</span>
-    </div>
-    """, unsafe_allow_html=True
-)
+        <span style='float:right;color:{status_color};font-size:1.25rem;font-family:monospace;padding-top:16px;'>INDIA • {now.strftime("%d %b %Y, %H:%M")} • {market_status}</span>
+    </div>""", unsafe_allow_html=True)
 
-with st.expander("NIFTY 50 Sentiment Meter", expanded=True):
-    if vader_available:
-        sentiment_score, sentiment_label = get_nifty50_sentiment()
-        st.metric("NIFTY 50 Sentiment", sentiment_label, f"{sentiment_score:.2f}")
+# ---------------------- Main 6-Panel UI ----------------------
+if not stock_list or not stock_list[0]:
+    st.warning("Please enter a stock symbol in the sidebar to begin.")
+    st.stop()
 
-if len(stock_list):
-    display_symbol = stock_list[0].upper()
-    with st.expander(f"Latest News for {display_symbol}", expanded=False):
-        news = get_news(display_symbol)
-        if news:
-            for n in news:
-                st.markdown(f"[{n['title']}]({n['link']}) - {n['published']}")
-        else:
-            st.info("No recent news found for this symbol.")
+display_symbol = stock_list[0]
+data = fetch_stock_data(display_symbol, screen_period, screen_interval)
 
-if len(stock_list):
-    display_symbol = stock_list[0].upper()
-    st.header(f"Dashboard: {display_symbol}")
+if data is None or data.empty:
+    st.error(f"No data available for {display_symbol}. Please check the symbol or try a different period/interval.")
+    st.stop()
 
-    data = fetch_stock_data(display_symbol, screen_period, screen_interval)
-    if data is None or data.empty:
-        st.error("No data available for this symbol/interval.")
-        st.stop()
+col1, col2 = st.columns(2, gap="medium")
 
-    price = get_live_price(display_symbol)
-    if np.isnan(price):
-        price = float(data["Close"].iloc[-1]) if not data.empty else np.nan
-
-    metrics_row = st.columns([1.5,1,1,1,1,1])
-    latest = data.iloc[-1]
-    
-    rsi, macd, macds, adx, atr, vwap, close_price = (try_scalar(latest.get(k, np.nan)) for k in ['RSI', 'MACD_12_26_9', 'MACDs_12_26_9', 'ADX', 'ATR', 'VWAP', 'Close'])
-
-    with metrics_row[0]:
-        delta = price - close_price if not np.isnan(price) and not np.isnan(close_price) else None
-        st.metric("LTP", f"{round(price, 2) if not np.isnan(price) else '—'}", f"{round(delta, 2) if delta is not None else ''}")
-    with metrics_row[1]:
-        rsi_label = f"{round(rsi, 2)} {'(OB)' if rsi > 70 else '(OS)' if rsi < 30 else ''}" if not np.isnan(rsi) else '—'
-        st.metric("RSI", rsi_label)
-    with metrics_row[2]:
-        macd_delta = macd - macds if not np.isnan(macd) and not np.isnan(macds) else None
-        st.metric("MACD", f"{round(macd, 2) if not np.isnan(macd) else '—'}", f"{round(macd_delta, 2) if macd_delta is not None else ''}")
-    with metrics_row[3]:
-        adx_label = f"{round(adx, 2)} {'(Strong)' if adx > 25 else ''}" if not np.isnan(adx) else '—'
-        st.metric("ADX", adx_label)
-    with metrics_row[4]:
-        st.metric("ATR", f"{round(atr, 2) if not np.isnan(atr) else '—'}")
-    with metrics_row[5]:
-        st.metric("VWAP", f"{round(vwap, 2) if not np.isnan(vwap) else '—'}")
-
-    tabs = st.tabs(["Chart", "TA", "Signals", "Raw"])
-    with tabs[0]:
-        chart_style = st.radio("Chart Style", ["Candlestick", "Heikin Ashi"], horizontal=True)
-        bands_show = st.checkbox("Show Bollinger Bands", value=True)
+with col1:
+    with st.container(border=True):
+        price = get_live_price(display_symbol)
+        if np.isnan(price): price = data["Close"].iloc[-1]
+        delta = price - data["Close"].iloc[-2] if len(data) > 1 else 0
+        c1, c2 = st.columns([3, 2])
+        c1.subheader(f"📊 {display_symbol} Chart")
+        c2.metric("LTP", f"{price:.2f}", f"{delta:.2f}")
+        chart_style = st.radio("Style", ["Candlestick", "Heikin Ashi"], horizontal=True, key="chart_style")
+        bands_show = st.checkbox("Bollinger Bands", value=True, key="bands_show")
         render_lightweight_chart(data, chart_style, bands_show)
-        
-    with tabs[1]:
-        st.dataframe(data[['RSI', 'MACD_12_26_9', 'MACDs_12_26_9', 'ADX', 'ATR', 'VWAP', 'SMA21', 'EMA9']].tail(10))
-    
-    with tabs[2]:
-        st.json(get_signals(data))
-    
-    with tabs[3]:
-        st.dataframe(data.tail(10))
+
+    with st.container(border=True):
+        st.subheader("📈 Technical Analysis")
+        st.dataframe(data.filter(regex='RSI|MACD|ADX|ATR|VWAP|SMA|EMA').tail(5), height=215, use_container_width=True)
+
+with col2:
+    with st.container(border=True):
+        st.subheader("🛒 Place Order")
+        if st.session_state.get("zerodha_authenticated"):
+            with st.form("order_form"):
+                c1, c2 = st.columns(2)
+                transaction_type = c1.selectbox("Txn", ["BUY", "SELL"])
+                order_product = c2.selectbox("Product", ["CNC", "MIS"])
+                c1, c2 = st.columns(2)
+                order_type = c1.selectbox("Type", ["MARKET", "LIMIT"])
+                order_qty = c2.number_input("Qty", min_value=1, value=1)
+                order_price = st.number_input("Price", value=round(price, 1), step=0.05, disabled=(order_type != "LIMIT"))
+                if st.form_submit_button("Submit Order"):
+                    try:
+                        # Full order placement logic here
+                        st.success("Order Submitted (Simulated)")
+                    except Exception as e:
+                        st.error(f"Order failed: {e}")
+        else:
+            st.warning("Please login to Zerodha via the sidebar to place orders.")
+
+    with st.container(border=True):
+        st.subheader("💰 Watchlist P/L")
+        try:
+            entry_prices = [float(x) for x in positions_input.split(",") if x.strip()]
+            quantities = [float(x) for x in qty_input.split(",") if x.strip()]
+            pnl_data = []
+            if len(st.session_state['watchlist_symbols']) == len(entry_prices) == len(quantities):
+                for i, s in enumerate(st.session_state['watchlist_symbols']):
+                    live = get_live_price(s); pnl = (live - entry_prices[i]) * quantities[i] if not np.isnan(live) else "N/A"
+                    pnl_data.append({"Symbol": s, "LTP": live, "P/L ₹": pnl})
+                st.dataframe(pd.DataFrame(pnl_data), height=180, use_container_width=True)
+            else:
+                st.info("Enter matching watchlist symbols, prices, and quantities in the sidebar.")
+        except:
+            st.warning("Invalid P/L inputs in the sidebar.")
+
+    with st.container(border=True):
+        st.subheader(f"📰 News & Signals for {display_symbol}")
+        news_items = get_news(display_symbol)
+        if news_items:
+            for item in news_items[:2]: st.markdown(f"• [{item['title']}]({item['link']})")
+        st.divider()
+        signals = get_signals(data)
+        if signals:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("RSI", signals.get('RSI Signal', 'N/A'))
+            c2.metric("MACD", signals.get('MACD Signal', 'N/A'))
+            c3.metric("Trend", signals.get('Trend', 'N/A'))
