@@ -23,6 +23,7 @@ import os
 import requests
 import streamlit as st
 
+# --- Automatic instruments.csv downloader ---
 def ensure_instruments_csv():
     fname = "instruments.csv"
     url = "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/instruments.csv"
@@ -38,6 +39,49 @@ def ensure_instruments_csv():
             st.error(f"Could not auto-download instruments.csv: {ex}")
 
 ensure_instruments_csv()
+
+# --- Zerodha WebSocket Live Data Setup ---
+api_key = st.secrets.get("KITE_API_KEY") or st.secrets.get("ZERODHA_API_KEY")
+access_token = st.secrets.get("KITE_ACCESS_TOKEN") or st.secrets.get("ZERODHA_ACCESS_TOKEN")
+if not api_key or not access_token:
+    st.error("Please set your Kite API Key and Access Token in Streamlit secrets!")
+    st.stop()
+
+kite = KiteConnect(api_key=api_key)
+kws = KiteTicker(api_key, access_token)
+
+tokens = []
+if os.path.exists("instruments.csv"):
+    df = pd.read_csv("instruments.csv")
+    # Subscribe to all your watchlist tokens
+    watchlist = ["RELIANCE", "SBIN", "TCS", "INFY"]  # Example - replace as needed
+    for symbol in watchlist:
+        row = df.query(f"tradingsymbol == '{symbol}' & exchange == 'NSE' & instrument_type == 'EQ'")
+        if not row.empty:
+            tokens.append(int(row["instrument_token"].iloc[0]))
+else:
+    tokens = [408065]  # Fallback: INFY
+
+def on_ticks(ws, ticks):
+    if "live_ticks" not in st.session_state:
+        st.session_state["live_ticks"] = []
+    st.session_state["live_ticks"].extend(ticks)
+
+def on_connect(ws, response):
+    ws.subscribe(tokens)
+    ws.set_mode(ws.MODE_FULL, tokens)
+
+def on_close(ws, code, reason):
+    print("WebSocket closed", code, reason)
+
+kws.on_ticks = on_ticks
+kws.on_connect = on_connect
+kws.on_close = on_close
+
+if "kws_connected" not in st.session_state:
+    kws.connect(threaded=True)
+    st.session_state["kws_connected"] = True
+
 
 try:
     from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
