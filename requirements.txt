@@ -12,3 +12,4 @@ vaderSentiment>=3.3.2
 pytz>=2024.2
 python-dateutil
 websocket-client
+requests
