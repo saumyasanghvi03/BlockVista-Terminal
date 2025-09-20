@@ -124,14 +124,17 @@ def get_options_chain(underlying, instrument_df):
 @st.cache_data(ttl=10) # Cache positions for 10 seconds
 def get_positions():
     kite = st.session_state.get('kite')
-    if not kite: return pd.DataFrame()
+    if not kite: return pd.DataFrame(), 0.0
     try:
         positions = kite.positions()['net']
-        if positions: return pd.DataFrame(positions)[['tradingsymbol', 'quantity', 'average_price', 'pnl']]
-        return pd.DataFrame()
+        if positions:
+            df = pd.DataFrame(positions)
+            total_pnl = df['pnl'].sum()
+            return df[['tradingsymbol', 'quantity', 'average_price', 'last_price', 'pnl']], total_pnl
+        return pd.DataFrame(), 0.0
     except Exception as e:
         st.error(f"Kite API Error (Positions): {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), 0.0
 
 # ==============================================================================
 # 3. PAGE DEFINITIONS (Functions for each screen)
@@ -140,18 +143,26 @@ def get_positions():
 def page_dashboard():
     st.title("Main Dashboard")
     instrument_df = get_instrument_df(st.session_state.kite)
+    
+    # --- Live Data Fetching ---
     watchlist_symbols = ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']
     watchlist_tokens = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols]
     watchlist_data = get_watchlist_data(watchlist_tokens)
+    
     nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NFO')
     nifty_data = get_historical_data(nifty_token, "5minute", "1d")
+    
+    _, total_pnl = get_positions()
 
+    # --- UI Layout ---
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("Live Watchlist")
         st.dataframe(watchlist_data, use_container_width=True, hide_index=True)
-        st.subheader("Portfolio Overview (Mock)")
-        st.metric("Current Value", "₹13,10,500", "+₹15,200 (+1.16%)")
+        
+        st.subheader("Portfolio Overview")
+        st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}")
+        
     with col2:
         st.subheader("NIFTY 50 Live Chart (5-min)")
         if not nifty_data.empty:
@@ -206,16 +217,13 @@ def page_alpha_engine():
 
 def page_risk_and_journal():
     st.title("Risk & Trading Journal")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Live Positions")
-        positions_df = get_positions()
-        if not positions_df.empty:
-            st.dataframe(positions_df, use_container_width=True, hide_index=True)
-        else: st.info("No open positions.")
-    with col2:
-        st.subheader("Portfolio Risk (Mock Greeks)")
-        st.metric("Net Delta", "+150"); st.metric("Net Theta", "-₹3,500/day")
+    st.subheader("Live Positions")
+    positions_df, total_pnl = get_positions()
+    if not positions_df.empty:
+        st.dataframe(positions_df, use_container_width=True, hide_index=True)
+        st.metric("Total Profit & Loss", f"₹{total_pnl:,.2f}")
+    else:
+        st.info("No open positions.")
 
     st.subheader("Trading Journal")
     if 'journal' not in st.session_state: st.session_state.journal = []
@@ -237,8 +245,8 @@ def page_ai_assistant():
         with st.chat_message("user"): st.markdown(prompt)
         with st.chat_message("assistant"):
             response = "I am a prototype. My capabilities are currently limited."
-            if "risk" in prompt.lower(): response = "Based on mock data, your portfolio has a high negative Theta, indicating time decay risk."
-            elif "nifty" in prompt.lower(): response = "NIFTY 50 is consolidating. Key support is at 24,000."
+            if "risk" in prompt.lower(): response = "To see your live risk, please check the 'Risk & Journal' page for your current P&L."
+            elif "nifty" in prompt.lower(): response = "NIFTY 50 is consolidating. You can view the live chart on the 'Dashboard' or 'Advanced Charting' pages."
             st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})
 
@@ -285,7 +293,6 @@ def main():
         # --- LOGIN STATE ---
         st.subheader("Zerodha Kite Authentication")
         try:
-            # CORRECTED: Using the secret names you provided
             api_key = st.secrets["ZERODHA_API_KEY"]
             api_secret = st.secrets["ZERODHA_API_SECRET"]
         except (FileNotFoundError, KeyError):
