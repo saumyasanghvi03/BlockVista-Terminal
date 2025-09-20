@@ -11,6 +11,7 @@ import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
+from sklearn.preprocessing import MinMaxScaler
 import xgboost as xgb
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
@@ -281,36 +282,106 @@ def fetch_social_media_sentiment(query):
     return pd.DataFrame(results)
 
 def create_features(df):
-    df['dayofweek'], df['quarter'], df['month'], df['year'], df['dayofyear'] = df.index.dayofweek, df.index.quarter, df.index.month, df.index.year, df.index.dayofyear
-    for lag in range(1, 6): df[f'lag_{lag}'] = df['close'].shift(lag)
-    df['rolling_mean_5'] = df['close'].rolling(window=5).mean(); df.dropna(inplace=True)
+    """Create time series features and technical indicators from price data."""
+    df = df.copy()
+    # Time-based features
+    df['dayofweek'] = df.index.dayofweek
+    df['quarter'] = df.index.quarter
+    df['month'] = df.index.month
+    df['year'] = df.index.year
+    df['dayofyear'] = df.index.dayofyear
+    
+    # Lag features
+    for lag in range(1, 6):
+        df[f'lag_{lag}'] = df['close'].shift(lag)
+        
+    # Rolling window features
+    df['rolling_mean_7'] = df['close'].rolling(window=7).mean()
+    df['rolling_std_7'] = df['close'].rolling(window=7).std()
+    df['rolling_mean_30'] = df['close'].rolling(window=30).mean()
+    df['rolling_std_30'] = df['close'].rolling(window=30).std()
+
+    # Technical Indicators using pandas-ta
+    df.ta.rsi(length=14, append=True)
+    df.ta.macd(append=True)
+    df.ta.bbands(length=20, append=True)
+    df.ta.atr(length=14, append=True)
+    df.ta.stoch(append=True)
+    
+    # Clean up column names from pandas-ta (remove special characters)
+    df.columns = df.columns.str.replace('[^A-Za-z0-9_]+', '', regex=True)
+    
+    df.dropna(inplace=True)
     return df
 
 @st.cache_data(show_spinner=False)
 def train_xgboost_model(_data):
+    """Trains an XGBoost model with enhanced features and optimized parameters."""
     df = create_features(_data.copy())
-    features, target = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']], 'close'
-    if len(df) < 50: return None, None, None, None, None
-    X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
     
-    model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100, learning_rate=0.1, max_depth=5, random_state=42, n_jobs=-1)
-    model.fit(X_train, y_train)
+    # Define features and target
+    features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume']]
+    target = 'close'
+
+    if len(df) < 100:  # Increased minimum length due to more features/NaNs
+        st.warning("Not enough data to train the model after feature creation.")
+        return None, None, None, None, None
+
+    # Ensure all feature columns are numeric
+    for col in features:
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    df.dropna(inplace=True)
+
+    X = df[features]
+    y = df[target]
+
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+
+    # Scale features
+    scaler = MinMaxScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    # Optimized XGBoost parameters
+    model = xgb.XGBRegressor(
+        objective='reg:squarederror',
+        n_estimators=500,          # More trees
+        learning_rate=0.05,        # Smaller learning rate
+        max_depth=4,               # Shallower trees to prevent overfitting
+        subsample=0.8,             # Fraction of samples used for fitting
+        colsample_bytree=0.8,      # Fraction of features used
+        random_state=42,
+        n_jobs=-1,
+        early_stopping_rounds=20   # Stop if validation score doesn't improve
+    )
     
-    preds = model.predict(X_test)
+    # Train the model with early stopping
+    model.fit(X_train_scaled, y_train, 
+              eval_set=[(X_test_scaled, y_test)], 
+              verbose=False)
+    
+    # Make predictions
+    preds = model.predict(X_test_scaled)
+    
+    # Calculate metrics
     accuracy = 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
     rmse = np.sqrt(mean_squared_error(y_test, preds))
     backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds}, index=y_test.index)
     
+    # Calculate drawdown
     cumulative_returns = (1 + (y_test.pct_change().fillna(0))).cumprod()
     peak = cumulative_returns.cummax()
     drawdown = (cumulative_returns - peak) / peak
     max_drawdown = drawdown.min()
 
-    last_features = df[features].iloc[-1].values.reshape(1, -1)
-    last_features_df = pd.DataFrame(last_features, columns=features)
-    future_pred = model.predict(last_features_df)[0]
+    # Forecast the next step
+    last_features = X.iloc[-1].values.reshape(1, -1)
+    last_features_scaled = scaler.transform(last_features)
+    future_pred = model.predict(last_features_scaled)[0]
     
-    return future_pred, accuracy, rmse, max_drawdown, backtest_df
+    return float(future_pred), accuracy, rmse, max_drawdown, backtest_df
 
 @st.cache_data(show_spinner=False)
 def train_arima_model(_data):
@@ -582,7 +653,7 @@ def page_portfolio_and_risk():
 def page_forecasting_ml():
     display_header()
     st.title("📈 Advanced ML Forecasting")
-    st.info("Train advanced models on historical data to forecast the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
+    st.info("Train advanced models with enhanced features and optimized parameters to forecast the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
 
     col1, col2 = st.columns([1, 2])
     with col1:
