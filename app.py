@@ -204,17 +204,17 @@ def fetch_and_analyze_news(query=None):
                 all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": analyzer.polarity_scores(entry.title)['compound']})
     return pd.DataFrame(all_news)
 
-# FIX: Removed caching from this function as it deals with non-serializable client objects
-def fetch_social_media_sentiment(query):
+@st.cache_data(ttl=900)
+def fetch_social_media_sentiment(_query):
     analyzer, results = SentimentIntensityAnalyzer(), []
     try:
         reddit = praw.Reddit(client_id=st.secrets["REDDIT_CLIENT_ID"], client_secret=st.secrets["REDDIT_CLIENT_SECRET"], user_agent=st.secrets["REDDIT_USER_AGENT"])
-        for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(query, limit=25):
+        for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(_query, limit=25):
             results.append({"source": "Reddit", "text": submission.title, "sentiment": analyzer.polarity_scores(submission.title)['compound']})
     except Exception as e: st.toast(f"Could not connect to Reddit: {e}", icon="⚠️")
     try:
         client = tweepy.Client(bearer_token=st.secrets["TWITTER_BEARER_TOKEN"])
-        response = client.search_recent_tweets(f'"{query}" lang:en -is:retweet', max_results=25)
+        response = client.search_recent_tweets(f'"{_query}" lang:en -is:retweet', max_results=25)
         if response.data:
             for tweet in response.data:
                 results.append({"source": "Twitter", "text": tweet.text, "sentiment": analyzer.polarity_scores(tweet.text)['compound']})
@@ -231,7 +231,7 @@ def create_features(df):
 def train_xgboost_model(_data):
     df = create_features(_data.copy())
     features, target = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']], 'close'
-    if len(df) < 50: return None, None, None, None, None # Not enough data to split
+    if len(df) < 50: return None, None, None, None, None
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
     reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse', learning_rate=0.01, max_depth=3, subsample=0.8, colsample_bytree=0.8)
     reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
