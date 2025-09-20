@@ -129,13 +129,17 @@ def get_instrument_token(symbol, instrument_df, exchange='NSE'):
     return None
 
 @st.cache_data(ttl=60)
-def get_historical_data(instrument_token, interval, period):
+def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
     client = get_broker_client()
     if not client or not instrument_token: return pd.DataFrame()
-    
+
     if st.session_state.broker == "Zerodha":
-        to_date, days_to_subtract = datetime.now().date(), {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
-        from_date = to_date - timedelta(days=days_to_subtract.get(period, 365))
+        if not to_date:
+            to_date = datetime.now().date()
+        if not from_date:
+            days_to_subtract = {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
+            from_date = to_date - timedelta(days=days_to_subtract.get(period, 1825)) # Default to 5 years
+
         try:
             records = client.historical_data(instrument_token, from_date, to_date, interval)
             df = pd.DataFrame(records)
@@ -468,7 +472,7 @@ def page_dashboard():
     nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NFO')
 
     watchlist_data = get_watchlist_data(watchlist_tokens)
-    nifty_data = get_historical_data(nifty_token, "minute", "1d")
+    nifty_data = get_historical_data(nifty_token, "minute", period="1d")
     _, _, total_pnl, total_investment = get_portfolio()
 
     col1, col2 = st.columns([1, 2])
@@ -493,7 +497,7 @@ def page_advanced_charting():
     ticker, period, interval, chart_type = st.sidebar.text_input("Select Ticker", "RELIANCE"), st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4), st.sidebar.selectbox("Interval", ["5minute", "day", "week"], index=1), st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
     token = get_instrument_token(ticker, instrument_df)
     if token:
-        data = get_historical_data(token, interval, period)
+        data = get_historical_data(token, interval, period=period)
         if not data.empty:
             st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True)
             st.subheader("Technical Indicator Analysis"); st.dataframe(pd.DataFrame([interpret_indicators(data)], index=["Interpretation"]).T, use_container_width=True)
@@ -622,7 +626,7 @@ def page_alpha_engine():
                 avg_sentiment = news_df['sentiment'].mean()
                 sentiment_label = "Positive" if avg_sentiment > 0.05 else "Negative" if avg_sentiment < -0.05 else "Neutral"
                 st.metric(f"News Sentiment for '{query}'", sentiment_label, f"{avg_sentiment:.3f}")
-                st.dataframe(news_df, use_container_width=True, hide_index=True, column_config={"link": st.column_config.LinkColumn("Link")})
+                st.dataframe(news_df.drop(columns=['date']), use_container_width=True, hide_index=True, column_config={"link": st.column_config.LinkColumn("Link")})
             else: st.info(f"No recent news found for '{query}'.")
 
     with col2:
@@ -671,10 +675,17 @@ def page_forecasting_ml():
         
         token = get_instrument_token(ticker, instrument_df)
         if token:
-            data_period = "5y" if model_choice == "XGBoost" else "1y"
-            data = get_historical_data(token, "day", data_period)
-            
-            if not data.empty:
+            data = None
+            if model_choice == "XGBoost":
+                from_date_xgb = datetime(2020, 1, 1).date()
+                to_date_xgb = datetime.now().date()
+                with st.spinner(f"Fetching data for {ticker} from {from_date_xgb} to {to_date_xgb}..."):
+                    data = get_historical_data(token, "day", from_date=from_date_xgb, to_date=to_date_xgb)
+            else: # ARIMA
+                with st.spinner("Fetching data for ARIMA model..."):
+                    data = get_historical_data(token, "day", period="1y")
+
+            if data is not None and not data.empty:
                 if st.button(f"Train {model_choice} Model & Forecast {ticker}"):
                     with st.spinner(f"Training {model_choice} model... This may take a moment."):
                         if model_choice == "XGBoost":
@@ -707,7 +718,7 @@ def page_forecasting_ml():
             else:
                 st.warning("Could not fetch sufficient data for training.")
         else:
-            st.error("Ticker not found.")
+            st.error(f"Ticker '{ticker}' not found.")
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
