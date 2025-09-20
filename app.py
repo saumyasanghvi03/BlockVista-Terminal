@@ -21,6 +21,8 @@ import os
 import praw
 from time import mktime
 from urllib.parse import quote
+import requests
+import io
 
 # ==============================================================================
 # 1. STYLING AND CONFIGURATION
@@ -550,8 +552,15 @@ def load_and_combine_data(instrument_name):
 
     # 1. Load historical data from GitHub
     try:
-        hist_df = pd.read_csv(source_info['github_url'])
-        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed') # FIX: Use mixed format parsing
+        # UPDATED: Use requests for more robust fetching
+        url = source_info['github_url']
+        response = requests.get(url)
+        response.raise_for_status() # Raises an HTTPError for bad responses (4xx or 5xx)
+
+        # Read the content into a pandas DataFrame
+        hist_df = pd.read_csv(io.StringIO(response.text))
+
+        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed')
         hist_df.set_index('Date', inplace=True)
         # Standardize column names and convert to numeric, coercing errors
         hist_df.columns = [col.lower().replace(' ', '_').replace('%', 'pct') for col in hist_df.columns]
@@ -560,8 +569,11 @@ def load_and_combine_data(instrument_name):
                  hist_df[col] = pd.to_numeric(hist_df[col].astype(str).str.replace(',', ''), errors='coerce')
         hist_df.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
 
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"Failed to load historical data from GitHub. Please check the URL and your connection. Error: {http_err}")
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Failed to load historical data from GitHub. Please check the URL and your connection. Error: {e}")
+        st.error(f"An unexpected error occurred while processing the data: {e}")
         return pd.DataFrame()
 
     # 2. Fetch recent live data if broker is connected and symbol exists
@@ -1014,4 +1026,89 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
+I am getting an error as follows:
+**AttributeError: module 'pandas' has no attribute 'read_csv'.**
+**Traceback:**
+```
+File "/lib/python3.12/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 589, in _run_script
+    exec(code, module.__dict__)
+File "/app/app.py", line 1184, in <module>
+    main()
+File "/app/app.py", line 1099, in main
+    pages[selection]()
+File "/app/app.py", line 986, in page_forecasting_ml
+    data = load_and_combine_data(instrument_name)
+File "/lib/python3.12/site-packages/streamlit/runtime/caching/cached_func_api.py", line 231, in __call__
+    return self._get_or_create_cached_value(args, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/lib/python3.12/site-packages/streamlit/runtime/caching/cached_func_api.py", line 261, in _get_or_create_cached_value
+    return self._run_func_and_cache_it(args, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/lib/python3.12/site-packages/streamlit/runtime/caching/cached_func_api.py", line 313, in _run_func_and_cache_it
+    return_value = self._func(*args, **kwargs)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/app/app.py", line 872, in load_and_combine_data
+    hist_df = pd.read_csv(io.StringIO(response.text))
+              ^^^^^^^^^^^
+```
+I am getting the error in the following function
+```
+@st.cache_data
+def load_and_combine_data(instrument_name):
+    """Loads historical data from GitHub and combines it with recent live data."""
+    source_info = ML_DATA_SOURCES.get(instrument_name)
+    if not source_info:
+        st.error(f"No data source configured for {instrument_name}")
+        return pd.DataFrame()
+
+    # 1. Load historical data from GitHub
+    try:
+        # UPDATED: Use requests for more robust fetching
+        url = source_info['github_url']
+        response = requests.get(url)
+        response.raise_for_status() # Raises an HTTPError for bad responses (4xx or 5xx)
+
+        # Read the content into a pandas DataFrame
+        hist_df = pd.read_csv(io.StringIO(response.text))
+
+        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed')
+        hist_df.set_index('Date', inplace=True)
+        # Standardize column names and convert to numeric, coercing errors
+        hist_df.columns = [col.lower().replace(' ', '_').replace('%', 'pct') for col in hist_df.columns]
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col in hist_df.columns:
+                 hist_df[col] = pd.to_numeric(hist_df[col].astype(str).str.replace(',', ''), errors='coerce')
+        hist_df.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
+
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"Failed to load historical data from GitHub. Please check the URL and your connection. Error: {http_err}")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"An unexpected error occurred while processing the data: {e}")
+        return pd.DataFrame()
+
+    # 2. Fetch recent live data if broker is connected and symbol exists
+    live_df = pd.DataFrame()
+    if get_broker_client() and source_info.get('tradingsymbol'):
+        instrument_df = get_instrument_df()
+        token = get_instrument_token(source_info['tradingsymbol'], instrument_df, source_info['exchange'])
+        if token:
+            # Fetch last year of data to ensure overlap
+            from_date = datetime.now().date() - timedelta(days=365)
+            live_df = get_historical_data(token, 'day', from_date=from_date)
+            if not live_df.empty:
+                live_df.columns = [col.lower() for col in live_df.columns]
+
+
+    # 3. Combine and de-duplicate
+    if not live_df.empty:
+        combined_df = pd.concat([hist_df, live_df])
+        # Remove duplicates, keeping the entry from the live data (last one)
+        combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
+        combined_df.sort_index(inplace=True)
+        return combined_df
+    else:
+        hist_df.sort_index(inplace=True)
+        return hist_df
 
