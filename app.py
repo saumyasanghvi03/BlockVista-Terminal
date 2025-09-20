@@ -33,7 +33,7 @@ def set_blockvista_style():
 set_blockvista_style()
 
 # ==============================================================================
-# 2. HELPER FUNCTIONS (CHARTS & KITE API)
+# 2. HELPER FUNCTIONS (CHARTS & KITE API) - OPTIMIZED WITH CACHING
 # ==============================================================================
 
 # --- Charting Functions ---
@@ -46,7 +46,7 @@ def create_candlestick_chart(df, ticker):
     return fig
 
 # --- Kite Connect API Functions ---
-@st.cache_resource(ttl=3600)
+@st.cache_resource(ttl=3600)  # Cache this resource for 1 hour
 def get_instrument_df(_kite):
     kite = st.session_state.get('kite')
     if not kite: return pd.DataFrame()
@@ -58,7 +58,7 @@ def get_instrument_token(symbol, instrument_df, exchange='NSE'):
     if not match.empty: return match.iloc[0]['instrument_token']
     return None
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60)  # Cache historical data for 60 seconds
 def get_historical_data(instrument_token, interval, period):
     kite = st.session_state.get('kite')
     if not kite or not instrument_token: return pd.DataFrame()
@@ -79,7 +79,7 @@ def get_historical_data(instrument_token, interval, period):
         st.error(f"Kite API Error (Historical): {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=5)  # Cache watchlist data for just 5 seconds for freshness
 def get_watchlist_data(symbols_with_tokens):
     kite = st.session_state.get('kite')
     if not kite or not symbols_with_tokens: return pd.DataFrame()
@@ -121,7 +121,7 @@ def get_options_chain(underlying, instrument_df):
     final_chain = pd.merge(ce_df[['strike', 'LTP']], pe_df[['strike', 'LTP']], on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE'})
     return final_chain[['CALL LTP', 'STRIKE', 'PUT LTP']], nearest_expiry
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=10) # Cache positions for 10 seconds
 def get_positions():
     kite = st.session_state.get('kite')
     if not kite: return pd.DataFrame()
@@ -276,9 +276,10 @@ def main():
         page_function()
 
         if st.sidebar.button("Logout"):
-            del st.session_state.access_token
-            del st.session_state.kite
-            del st.session_state.profile
+            # Clear all session state keys related to login
+            for key in ['access_token', 'kite', 'profile']:
+                if key in st.session_state:
+                    del st.session_state[key]
             st.rerun()
     else:
         # --- LOGIN STATE ---
