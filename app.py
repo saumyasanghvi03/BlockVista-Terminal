@@ -5,7 +5,7 @@ import pandas_ta as ta
 import plotly.graph_objects as go
 from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time # Corrected import
 import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -50,12 +50,12 @@ def get_market_holidays(year):
     """Returns a list of NSE market holidays for the given year."""
     if year == 2025:
         # Source: NSE Website (Illustrative list)
-        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', 
-                '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', 
+        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18',
+                '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05',
                 '2025-12-25']
     if year == 2026:
         # Placeholder for 2026 holidays
-        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', 
+        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01',
                 '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
     return []
 
@@ -65,9 +65,9 @@ def get_market_status():
     now = datetime.now(ist)
     market_open_time = time(9, 15)
     market_close_time = time(15, 30)
-    
+
     holidays = get_market_holidays(now.year)
-    
+
     if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays:
         return {"status": "Closed", "color": "red"}
     if market_open_time <= now.time() <= market_close_time:
@@ -81,7 +81,7 @@ def display_header():
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h2 style="margin: 0;">BlockVista Terminal</h2>
             <div style="text-align: right;">
-                <span style="margin: 0;">India | Market Status: 
+                <span style="margin: 0;">India | Market Status:
                     <span style="color:{status_info['color']}; font-weight: bold;">{status_info['status']}</span>
                 </span>
             </div>
@@ -286,7 +286,10 @@ def page_dashboard():
 
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting")
-    instrument_df, st.sidebar.header("Chart Controls") = get_instrument_df(st.session_state.kite), None
+    # CORRECTED SECTION
+    instrument_df = get_instrument_df(st.session_state.kite)
+    st.sidebar.header("Chart Controls")
+
     ticker, period, interval, chart_type = st.sidebar.text_input("Select Ticker", "RELIANCE"), st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4), st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2), st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
     token = get_instrument_token(ticker, instrument_df)
     if token:
