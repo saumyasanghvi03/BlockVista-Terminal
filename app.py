@@ -1026,11 +1026,11 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
-I am getting an error as follows:
+    
+#I am getting an error as follows:
 **AttributeError: module 'pandas' has no attribute 'read_csv'.**
 **Traceback:**
-```
+
 File "/lib/python3.12/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 589, in _run_script
     exec(code, module.__dict__)
 File "/app/app.py", line 1184, in <module>
@@ -1051,9 +1051,9 @@ File "/lib/python3.12/site-packages/streamlit/runtime/caching/cached_func_api.py
 File "/app/app.py", line 872, in load_and_combine_data
     hist_df = pd.read_csv(io.StringIO(response.text))
               ^^^^^^^^^^^
-```
-I am getting the error in the following function
-```
+
+#I am getting the error in the following function
+
 @st.cache_data
 def load_and_combine_data(instrument_name):
     """Loads historical data from GitHub and combines it with recent live data."""
