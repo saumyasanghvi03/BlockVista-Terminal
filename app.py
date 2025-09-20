@@ -89,7 +89,7 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBL_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), name='Lower Band'))
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBU_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), fill='tonexty', fillcolor='rgba(135, 206, 250, 0.1)', name='Upper Band'))
     if forecast_df is not None: fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
-    fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_ranges_slider_visible=False, template='plotly_dark', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template='plotly_dark', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
 
 # --- Kite Connect API Functions ---
@@ -132,7 +132,7 @@ def get_watchlist_data(symbols_with_tokens, exchange="NSE"):
             if instrument in ltp_data and instrument in quotes:
                 last_price, prev_close = ltp_data[instrument]['last_price'], quotes[instrument]['ohlc']['close']
                 change, pct_change = last_price - prev_close, (last_price - prev_close) / prev_close * 100 if prev_close != 0 else 0
-                watchlist.append({'Ticker': item['symbol'], 'Price': f"₹{last_price:,.2f}", 'Change': f"{change:,.2f}", '% Change': f"{pct_change:.2f}%"})
+                watchlist.append({'Ticker': item['symbol'], 'Price': f"₹{last_price:,.2f}", 'Change': f"{change:,.2f}", '% Change': f"{pct_change:.2f}"})
         return pd.DataFrame(watchlist)
     except Exception as e:
         st.toast(f"Error fetching LTP: {e}", icon="⚠️"); return pd.DataFrame()
@@ -191,29 +191,24 @@ def fetch_and_analyze_news(query=None):
     for source, url in news_sources.items():
         feed = feedparser.parse(url)
         for entry in feed.entries:
-            if query is None or query.lower() in entry.title.lower() or query.lower() in entry.summary.lower():
+            if query is None or query.lower() in entry.title.lower() or (hasattr(entry, 'summary') and query.lower() in entry.summary.lower()):
                 all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": analyzer.polarity_scores(entry.title)['compound']})
     return pd.DataFrame(all_news)
 
 @st.cache_data(ttl=900)
 def fetch_social_media_sentiment(query):
-    analyzer = SentimentIntensityAnalyzer()
-    results = []
-    # Reddit
+    analyzer, results = SentimentIntensityAnalyzer(), []
     try:
         reddit = praw.Reddit(client_id=st.secrets["REDDIT_CLIENT_ID"], client_secret=st.secrets["REDDIT_CLIENT_SECRET"], user_agent=st.secrets["REDDIT_USER_AGENT"])
         for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(query, limit=25):
-            sentiment = analyzer.polarity_scores(submission.title)['compound']
-            results.append({"source": "Reddit", "text": submission.title, "sentiment": sentiment})
+            results.append({"source": "Reddit", "text": submission.title, "sentiment": analyzer.polarity_scores(submission.title)['compound']})
     except Exception as e: st.toast(f"Could not connect to Reddit: {e}", icon="⚠️")
-    # Twitter
     try:
         client = tweepy.Client(bearer_token=st.secrets["TWITTER_BEARER_TOKEN"])
         response = client.search_recent_tweets(f'"{query}" lang:en -is:retweet', max_results=25)
         if response.data:
             for tweet in response.data:
-                sentiment = analyzer.polarity_scores(tweet.text)['compound']
-                results.append({"source": "Twitter", "text": tweet.text, "sentiment": sentiment})
+                results.append({"source": "Twitter", "text": tweet.text, "sentiment": analyzer.polarity_scores(tweet.text)['compound']})
     except Exception as e: st.toast(f"Could not connect to Twitter: {e}", icon="⚠️")
     return pd.DataFrame(results)
 
@@ -230,9 +225,9 @@ def train_xgboost_model(_data):
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
     reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse')
     reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
-    preds, mape = reg.predict(X_test), mean_absolute_percentage_error(y_test, preds) * 100
+    preds, accuracy = reg.predict(X_test), 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
     last_features, future_pred = df[features].iloc[-1], reg.predict(pd.DataFrame([last_features]))[0]
-    return future_pred, mape
+    return future_pred, accuracy
 
 @st.cache_data
 def train_arima_model(_data):
@@ -241,9 +236,9 @@ def train_arima_model(_data):
     model, model_fit = ARIMA(train_data, order=(5,1,0)), None
     try: model_fit = model.fit()
     except Exception as e: st.warning(f"ARIMA model failed to converge: {e}"); return None, None
-    preds, mape = model_fit.forecast(steps=30), mean_absolute_percentage_error(test_data, preds) * 100
+    preds, accuracy = model_fit.forecast(steps=30), 100 - (mean_absolute_percentage_error(test_data, preds) * 100)
     future_pred = model_fit.forecast(steps=1).iloc[0]
-    return future_pred, mape
+    return future_pred, accuracy
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T)) if sigma > 0 and T > 0 else 0
@@ -290,7 +285,7 @@ def page_advanced_charting():
     display_header(); st.title("Advanced Charting")
     instrument_df = get_instrument_df(st.session_state.kite)
     st.sidebar.header("Chart Controls")
-    ticker, period, interval, chart_type = st.sidebar.text_input("Select Ticker", "RELIANCE"), st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4), st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2), st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
+    ticker, period, interval, chart_type = st.sidebar.text_input("Select Ticker", "RELIANCE"), st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4), st.sidebar.selectbox("Interval", ["5minute", "day", "week"], index=1), st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
     token = get_instrument_token(ticker, instrument_df)
     if token:
         data = get_historical_data(token, interval, period)
@@ -390,7 +385,8 @@ def page_forecasting_ml():
                         st.success(f"Model trained successfully!")
                         col1, col2 = st.columns(2)
                         col1.metric(f"Forecasted Next Day's Close for {ticker}", f"₹{prediction:,.2f}")
-                        col2.metric("Model Accuracy (MAPE on Test Set)", f"{accuracy:.2f}%")
+                        col2.metric("Model Accuracy", f"{accuracy:.2f}%")
+                        if accuracy < 85: st.warning("Note: Model accuracy is below 85%. Financial markets are highly unpredictable, and high accuracy is not guaranteed.")
             
             st.subheader("Historical Data Used for Training"); st.plotly_chart(create_chart(data.tail(252), ticker), use_container_width=True)
         else: st.warning("Could not fetch sufficient data for training.")
@@ -406,7 +402,7 @@ def page_ai_assistant():
         with st.chat_message("user"): st.markdown(prompt)
         with st.chat_message("assistant"):
             with st.spinner("Accessing data..."):
-                prompt_lower, response = prompt.lower(), "Sorry, I can't answer that. I can provide info on holdings, positions, and stock prices."
+                prompt_lower, response = prompt.lower(), "I can provide information on your holdings, positions, and current stock prices. Please ask a specific question."
                 if "holdings" in prompt_lower:
                     _, holdings_df, _, _ = get_portfolio()
                     response = "Here are your current holdings:\n" + holdings_df.to_markdown() if not holdings_df.empty else "You have no holdings."
