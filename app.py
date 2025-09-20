@@ -161,7 +161,7 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
     expiries = sorted(options['expiry'].unique())
     expiries = [pd.to_datetime(e) for e in expiries]
     three_months_later = datetime.now() + timedelta(days=90)
-    available_expiries = [e for e in expiries if e.date() <= three_months_later.date()]
+    available_expiries = [e for e in expiries if e.date() >= datetime.now().date() and e.date() <= three_months_later.date()]
     
     if not expiry_date:
         expiry_date = available_expiries[0] if available_expiries else None
@@ -213,6 +213,7 @@ def fetch_and_analyze_news(query=None):
                 all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": analyzer.polarity_scores(entry.title)['compound']})
     return pd.DataFrame(all_news)
 
+# FIX: Removed caching from this function as it deals with non-serializable client objects
 def fetch_social_media_sentiment(query):
     analyzer, results = SentimentIntensityAnalyzer(), []
     try:
@@ -239,7 +240,7 @@ def create_features(df):
 def train_xgboost_model(_data):
     df = create_features(_data.copy())
     features, target = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']], 'close'
-    if len(df) < 50: return None, None, None, None, None
+    if len(df) < 50: return None, None, None, None, None # Not enough data to split
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
     reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse', learning_rate=0.01, max_depth=3, subsample=0.8, colsample_bytree=0.8)
     reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
@@ -348,7 +349,8 @@ def page_options_hub():
         
         if available_expiries:
             selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
-            chain_df, expiry, underlying_ltp, _ = get_options_chain(underlying, instrument_df, selected_expiry)
+            if selected_expiry != expiry:
+                chain_df, expiry, underlying_ltp, _ = get_options_chain(underlying, instrument_df, selected_expiry)
         else:
             st.warning("No expiries found for this instrument.")
 
@@ -371,7 +373,7 @@ def page_options_hub():
                 st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
                 c1, c2 = st.columns(2)
                 c3, c4 = st.columns(2)
-                c5, c6 = st.columns(2)
+                c5, _ = st.columns(2)
                 c1.metric("Delta", f"{greeks['delta']:.4f}"); c2.metric("Gamma", f"{greeks['gamma']:.4f}")
                 c3.metric("Vega", f"{greeks['vega']:.4f}"); c4.metric("Theta", f"{greeks['theta']:.4f}")
                 c5.metric("Rho", f"{greeks['rho']:.4f}")
