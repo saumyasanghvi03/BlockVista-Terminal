@@ -11,7 +11,6 @@ import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
-from sklearn.ensemble import RandomForestRegressor
 import xgboost as xgb
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
@@ -237,14 +236,17 @@ def create_features(df):
     return df
 
 @st.cache_data(show_spinner=False)
-def train_random_forest_model(_data):
+def train_xgboost_model(_data):
     df = create_features(_data.copy())
     features, target = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']], 'close'
     if len(df) < 50: return None, None, None, None, None
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
-    model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1, min_samples_leaf=5)
+    
+    model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100, learning_rate=0.1, max_depth=5, random_state=42, n_jobs=-1)
     model.fit(X_train, y_train)
-    preds, accuracy = model.predict(X_test), 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
+    
+    preds = model.predict(X_test)
+    accuracy = 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
     rmse = np.sqrt(mean_squared_error(y_test, preds))
     backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds}, index=y_test.index)
     
@@ -253,7 +255,11 @@ def train_random_forest_model(_data):
     drawdown = (cumulative_returns - peak) / peak
     max_drawdown = drawdown.min()
 
-    last_features, future_pred = df[features].iloc[-1], model.predict(pd.DataFrame([last_features]))[0]
+    last_features = df[features].iloc[-1].values.reshape(1, -1)
+    # Create a DataFrame for prediction with correct feature names
+    last_features_df = pd.DataFrame(last_features, columns=features)
+    future_pred = model.predict(last_features_df)[0]
+    
     return future_pred, accuracy, rmse, max_drawdown, backtest_df
 
 @st.cache_data(show_spinner=False)
@@ -359,26 +365,30 @@ def page_options_hub():
         st.subheader("Greeks Calculator")
         if not chain_df.empty and underlying_ltp > 0 and expiry:
             option_selection = st.selectbox("Select an option to analyze", chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist())
-            option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
-            strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
-            ltp = 0
-            if option_type == 'ce' and not chain_df[chain_df['CALL'] == option_selection].empty: ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
-            elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
-            
-            expiry_date = pd.to_datetime(expiry).date()
-            days_to_expiry, T, r = (expiry_date - datetime.now().date()).days, (expiry_date - datetime.now().date()).days / 365, 0.07
-            
-            iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
-            if not np.isnan(iv):
-                greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
-                st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
-                c1, c2 = st.columns(2)
-                c3, c4 = st.columns(2)
-                c5, _ = st.columns(2)
-                c1.metric("Delta", f"{greeks['delta']:.4f}"); c2.metric("Gamma", f"{greeks['gamma']:.4f}")
-                c3.metric("Vega", f"{greeks['vega']:.4f}"); c4.metric("Theta", f"{greeks['theta']:.4f}")
-                c5.metric("Rho", f"{greeks['rho']:.4f}")
-            else: st.warning("Could not calculate Implied Volatility for this option.")
+            if option_selection:
+                option_details_df = instrument_df[instrument_df['tradingsymbol'] == option_selection]
+                if not option_details_df.empty:
+                    option_details = option_details_df.iloc[0]
+                    strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
+                    ltp = 0
+                    if option_type == 'ce' and not chain_df[chain_df['CALL'] == option_selection].empty: ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
+                    elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
+                    
+                    expiry_date = pd.to_datetime(expiry).date()
+                    T = ((expiry_date - datetime.now().date()).days / 365)
+                    r = 0.07
+                    
+                    iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
+                    if not np.isnan(iv):
+                        greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
+                        st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
+                        c1, c2 = st.columns(2)
+                        c3, c4 = st.columns(2)
+                        c5, _ = st.columns(2)
+                        c1.metric("Delta", f"{greeks['delta']:.4f}"); c2.metric("Gamma", f"{greeks['gamma']:.4f}")
+                        c3.metric("Vega", f"{greeks['vega']:.4f}"); c4.metric("Theta", f"{greeks['theta']:.4f}")
+                        c5.metric("Rho", f"{greeks['rho']:.4f}")
+                    else: st.warning("Could not calculate Implied Volatility for this option.")
     
     st.subheader(f"{underlying} Options Chain")
     if not chain_df.empty and expiry: st.caption(f"Displaying expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
@@ -433,23 +443,29 @@ def page_portfolio_and_risk():
             st.info(text); st.caption(f"Logged: {ts.strftime('%d %b %H:%M')}")
 
 def page_forecasting_ml():
-    display_header(); st.title("📈 Advanced ML Forecasting")
+    display_header()
+    st.title("📈 Advanced ML Forecasting")
     st.info("Train advanced models on historical data to forecast the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
-    
-    col1, col2 = st.columns([1,2])
+
+    col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("Model Configuration")
         instrument_df = get_instrument_df(st.session_state.kite)
         ticker = st.selectbox("Select a Stock for Forecasting", ['TCS', 'RELIANCE', 'INFY', 'HDFCBANK', 'ICICIBANK'])
-        model_choice = st.selectbox("Select a Forecasting Model", ["Random Forest", "ARIMA"])
+        model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
         
         token = get_instrument_token(ticker, instrument_df)
         if token:
-            data = get_historical_data(token, "day", "5y" if model_choice == "Random Forest" else "1y")
+            data_period = "5y" if model_choice == "XGBoost" else "1y"
+            data = get_historical_data(token, "day", data_period)
+            
             if not data.empty:
                 if st.button(f"Train {model_choice} Model & Forecast {ticker}"):
-                    with st.spinner(f"Training {model_choice} model..."):
-                        prediction, accuracy, rmse, max_drawdown, backtest_df = train_random_forest_model(data) if model_choice == "Random Forest" else train_arima_model(data)
+                    with st.spinner(f"Training {model_choice} model... This may take a moment."):
+                        if model_choice == "XGBoost":
+                            prediction, accuracy, rmse, max_drawdown, backtest_df = train_xgboost_model(data)
+                        else: # ARIMA
+                            prediction, accuracy, rmse, max_drawdown, backtest_df = train_arima_model(data)
                     
                     with col2:
                         st.subheader("Model Performance")
@@ -460,21 +476,24 @@ def page_forecasting_ml():
                             c3.metric("RMSE", f"{rmse:.2f}")
                             c4.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
                             if accuracy < 85: st.warning("Note: Model accuracy is below 85%. Financial markets are highly unpredictable.")
+
+                            st.subheader("Backtest: Predicted vs. Actual Prices")
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
+                            fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
+                            template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+                            fig.update_layout(title=f'{ticker} Backtest Results', yaxis_title='Price (INR)', template=template)
+                            st.plotly_chart(fig, use_container_width=True)
                         else:
                             st.error("Model training failed. Could not generate performance metrics.")
-
-                    st.subheader("Backtest: Predicted vs. Actual Prices")
-                    if backtest_df is not None:
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
-                        fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                        template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
-                        fig.update_layout(title=f'{ticker} Backtest Results', yaxis_title='Price (INR)', template=template)
-                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    with col2:
+                        st.subheader("Historical Data for Training")
+                        st.plotly_chart(create_chart(data.tail(252), ticker), use_container_width=True)
             else:
-                st.subheader("Historical Data for Training"); st.plotly_chart(create_chart(data.tail(252), ticker), use_container_width=True)
-        else: st.warning("Could not fetch sufficient data for training.")
-    else: st.error("Ticker not found.")
+                st.warning("Could not fetch sufficient data for training.")
+        else:
+            st.error("Ticker not found.")
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
@@ -502,8 +521,18 @@ def page_ai_assistant():
                 elif "price of" in prompt_lower or "ltp of" in prompt_lower:
                     try:
                         ticker = prompt.split(" of ")[-1].strip().upper()
-                        ltp_df = get_watchlist_data([{'symbol': ticker}])
-                        response = f"The current price of {ticker} is {ltp_df.iloc[0]['Price']}." if not ltp_df.empty else f"Could not fetch price for {ticker}."
+                        # Use get_instrument_token to check if symbol exists before fetching data
+                        instrument_df = get_instrument_df(st.session_state.kite)
+                        token = get_instrument_token(ticker, instrument_df)
+                        if token:
+                            ltp_data = get_watchlist_data([{'symbol': ticker, 'token': token}])
+                            if not ltp_data.empty:
+                                price = ltp_data.iloc[0]['Price']
+                                response = f"The current price of {ticker} is {price}."
+                            else:
+                                response = f"Could not fetch the live price for {ticker}."
+                        else:
+                            response = f"I could not find the ticker symbol '{ticker}'. Please check the symbol and try again."
                     except (ValueError, IndexError): response = "Please specify a stock ticker, for example: 'price of RELIANCE'."
                 st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})
@@ -540,11 +569,8 @@ def main():
         st.sidebar.header("Navigation")
         selection = st.sidebar.radio("Go to", list(pages.keys()))
         
-        # FIX: Call the dashboard page with the correct argument
-        if selection == "Dashboard":
-            pages[selection](st.session_state.terminal_mode)
-        else:
-            pages[selection]()
+        # FIX: Call the selected page function without any arguments
+        pages[selection]()
         
         if st.sidebar.button("Logout"):
             for key in ['access_token', 'kite', 'profile']:
