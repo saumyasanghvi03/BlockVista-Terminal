@@ -506,7 +506,7 @@ def load_and_combine_data(instrument_name):
     # 1. Load historical data from GitHub
     try:
         hist_df = pd.read_csv(source_info['github_url'])
-        hist_df['Date'] = pd.to_datetime(hist_df['Date'])
+        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed') # FIX: Use mixed format parsing
         hist_df.set_index('Date', inplace=True)
         # Standardize column names
         hist_df.columns = [col.lower().replace(' ', '_').replace('%', 'pct') for col in hist_df.columns]
@@ -919,5 +919,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
