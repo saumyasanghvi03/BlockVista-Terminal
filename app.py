@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 import xgboost as xgb
 from statsmodels.tsa.arima.model import ARIMA
-import pmdarima as pm  # NEW: For auto_arima
+import pmdarima as pm
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -184,7 +184,6 @@ def get_options_chain(underlying, instrument_df, expiry_date=None, exchange=None
     final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP']], pe_df[['tradingsymbol', 'strike', 'LTP']], on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'})
     return final_chain[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']], expiry_date, underlying_ltp, available_expiries
 
-
 @st.cache_data(ttl=10)
 def get_portfolio():
     kite = st.session_state.get('kite')
@@ -274,7 +273,6 @@ def train_arima_model(_data):
     if len(df) < 50: return None, None, None, None, None
     train_data, test_data = df[:-30], df[-30:]
     try:
-        # FIX: Use auto_arima to find the best model order
         model = pm.auto_arima(train_data, seasonal=False, stepwise=True, suppress_warnings=True, error_action='ignore')
         model_fit = model.fit(train_data)
     except Exception as e:
@@ -325,7 +323,6 @@ def interpret_indicators(df):
     if (supertrend_dir := latest.get('SUPERTd_7_3.0')) is not None: interpretation['Supertrend (7,3)'] = "Bullish" if supertrend_dir == 1 else "Bearish"
     return interpretation
 
-# NEW: Function to provide interpretations for Option Greeks
 def get_greek_interpretations(greeks):
     interpretations = {
         "Delta (Δ)": f"This option's price is expected to change by ₹{greeks['delta']:.2f} for every ₹1 change in the underlying stock price. It also represents the approximate probability of the option expiring in-the-money.",
@@ -348,7 +345,6 @@ def page_dashboard():
     nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NFO')
 
     watchlist_data = get_watchlist_data(watchlist_tokens)
-    # FIX: Set interval to "minute" for 1-min chart
     nifty_data = get_historical_data(nifty_token, "minute", "1d")
     _, _, total_pnl, total_investment = get_portfolio()
 
@@ -365,7 +361,6 @@ def page_dashboard():
         if not nifty_data.empty:
             st.plotly_chart(create_chart(nifty_data.tail(75), "NIFTY 50"), use_container_width=True)
         else:
-            # FIX: Add a helpful message when market is closed
             st.warning("Could not load NIFTY 50 chart. The market is currently closed or live data is unavailable.")
 
 def page_advanced_charting():
@@ -380,7 +375,6 @@ def page_advanced_charting():
             st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True)
             st.subheader("Technical Indicator Analysis"); st.dataframe(pd.DataFrame([interpret_indicators(data)], index=["Interpretation"]).T, use_container_width=True)
 
-            # NEW: Add Greeks Analysis expander
             with st.expander("🔬 Options Greeks Analysis"):
                 chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(ticker, instrument_df, exchange='NFO')
                 
@@ -393,50 +387,51 @@ def page_advanced_charting():
                         
                         if not chain_df.empty:
                             option_list = chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist()
-                            option_selection = st.selectbox("Select an option contract to analyze", option_list)
-                            
-                            if option_selection:
-                                option_details_df = instrument_df[instrument_df['tradingsymbol'] == option_selection]
-                                if not option_details_df.empty:
-                                    option_details = option_details_df.iloc[0]
-                                    strike_price = option_details['strike']
-                                    option_type = option_details['instrument_type'].lower()
-                                    
-                                    ltp = 0
-                                    if option_type == 'ce': ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
-                                    else: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
-
-                                    # FIX: Robust time to expiry calculation
-                                    days_to_expiry = (pd.to_datetime(expiry).date() - datetime.now().date()).days
-                                    T = max(days_to_expiry, 0) / 365.0
-                                    r = 0.07 # Assume risk-free rate of 7%
-                                    S = data['close'].iloc[-1] # Current stock price
-
-                                    iv = implied_volatility(S, strike_price, T, r, ltp, option_type)
-                                    
-                                    if not np.isnan(iv):
-                                        greeks = black_scholes(S, strike_price, T, r, iv, option_type)
-                                        st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
+                            if not option_list:
+                                st.warning(f"No options available for {ticker} on {selected_expiry.strftime('%d %b %Y')}.")
+                            else:
+                                option_selection = st.selectbox("Select an option contract to analyze", option_list)
+                                
+                                if option_selection:
+                                    option_details_df = instrument_df[instrument_df['tradingsymbol'] == option_selection]
+                                    if not option_details_df.empty:
+                                        option_details = option_details_df.iloc[0]
+                                        strike_price = option_details['strike']
+                                        option_type = option_details['instrument_type'].lower()
                                         
-                                        c1, c2, c3 = st.columns(3)
-                                        c1.metric("Delta (Δ)", f"{greeks['delta']:.4f}")
-                                        c2.metric("Gamma (Γ)", f"{greeks['gamma']:.4f}")
-                                        c3.metric("Vega (ν)", f"{greeks['vega']:.4f}")
-                                        c4, c5, _ = st.columns(3)
-                                        c4.metric("Theta (Θ)", f"{greeks['theta']:.4f}")
-                                        c5.metric("Rho (ρ)", f"{greeks['rho']:.4f}")
+                                        ltp = 0
+                                        if option_type == 'ce': ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
+                                        else: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
 
-                                        st.subheader("Greek Interpretations")
-                                        interpretations = get_greek_interpretations(greeks)
-                                        for greek, interp in interpretations.items():
-                                            st.markdown(f"**{greek}:** {interp}")
-                                    else:
-                                        st.warning("Could not calculate Implied Volatility and Greeks for this option (LTP might be zero or expiry too close).")
+                                        days_to_expiry = (pd.to_datetime(expiry).date() - datetime.now().date()).days
+                                        T = max(days_to_expiry, 0) / 365.0
+                                        r = 0.07 
+                                        S = data['close'].iloc[-1]
+
+                                        iv = implied_volatility(S, strike_price, T, r, ltp, option_type)
+                                        
+                                        if not np.isnan(iv):
+                                            greeks = black_scholes(S, strike_price, T, r, iv, option_type)
+                                            st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
+                                            
+                                            c1, c2, c3 = st.columns(3)
+                                            c1.metric("Delta (Δ)", f"{greeks['delta']:.4f}")
+                                            c2.metric("Gamma (Γ)", f"{greeks['gamma']:.4f}")
+                                            c3.metric("Vega (ν)", f"{greeks['vega']:.4f}")
+                                            c4, c5, _ = st.columns(3)
+                                            c4.metric("Theta (Θ)", f"{greeks['theta']:.4f}")
+                                            c5.metric("Rho (ρ)", f"{greeks['rho']:.4f}")
+
+                                            st.subheader("Greek Interpretations")
+                                            interpretations = get_greek_interpretations(greeks)
+                                            for greek, interp in interpretations.items():
+                                                st.markdown(f"**{greek}:** {interp}")
+                                        else:
+                                            st.warning("Could not calculate Implied Volatility and Greeks for this option (LTP might be zero or expiry too close).")
                         else:
                             st.warning(f"No options chain data available for {ticker} on {selected_expiry.strftime('%d %b %Y')}.")
         else: st.warning(f"No chart data for {ticker}.")
     else: st.error(f"Ticker '{ticker}' not found.")
-
 
 def page_options_hub():
     display_header(); st.title("Options Hub")
@@ -458,31 +453,34 @@ def page_options_hub():
     with col2:
         st.subheader("Greeks Calculator")
         if not chain_df.empty and underlying_ltp > 0 and expiry:
-            option_selection = st.selectbox("Select an option to analyze", chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist())
-            if option_selection:
-                option_details_df = instrument_df[instrument_df['tradingsymbol'] == option_selection]
-                if not option_details_df.empty:
-                    option_details = option_details_df.iloc[0]
-                    strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
-                    ltp = 0
-                    if option_type == 'ce' and not chain_df[chain_df['CALL'] == option_selection].empty: ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
-                    elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
-                    
-                    # FIX: Robust time to expiry calculation
-                    expiry_date = pd.to_datetime(expiry).date()
-                    days_to_expiry = (expiry_date - datetime.now().date()).days
-                    T = max(days_to_expiry, 0) / 365.0
-                    r = 0.07
-                    
-                    iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
-                    if not np.isnan(iv):
-                        greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
-                        st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric("Delta", f"{greeks['delta']:.4f}"); c2.metric("Gamma", f"{greeks['gamma']:.4f}"); c3.metric("Vega", f"{greeks['vega']:.4f}")
-                        c4, c5, _ = st.columns(3)
-                        c4.metric("Theta", f"{greeks['theta']:.4f}"); c5.metric("Rho", f"{greeks['rho']:.4f}")
-                    else: st.warning("Could not calculate Implied Volatility for this option.")
+            option_list = chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist()
+            if not option_list:
+                st.warning(f"No options available for {underlying} on {expiry.strftime('%d %b %Y')}.")
+            else:
+                option_selection = st.selectbox("Select an option to analyze", option_list)
+                if option_selection:
+                    option_details_df = instrument_df[instrument_df['tradingsymbol'] == option_selection]
+                    if not option_details_df.empty:
+                        option_details = option_details_df.iloc[0]
+                        strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
+                        ltp = 0
+                        if option_type == 'ce' and not chain_df[chain_df['CALL'] == option_selection].empty: ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
+                        elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
+                        
+                        expiry_date = pd.to_datetime(expiry).date()
+                        days_to_expiry = (expiry_date - datetime.now().date()).days
+                        T = max(days_to_expiry, 0) / 365.0
+                        r = 0.07
+                        
+                        iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
+                        if not np.isnan(iv):
+                            greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
+                            st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("Delta", f"{greeks['delta']:.4f}"); c2.metric("Gamma", f"{greeks['gamma']:.4f}"); c3.metric("Vega", f"{greeks['vega']:.4f}")
+                            c4, c5, _ = st.columns(3)
+                            c4.metric("Theta", f"{greeks['theta']:.4f}"); c5.metric("Rho", f"{greeks['rho']:.4f}")
+                        else: st.warning("Could not calculate Implied Volatility for this option.")
     
     st.subheader(f"{underlying} Options Chain")
     if not chain_df.empty and expiry: st.caption(f"Displaying expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
@@ -692,3 +690,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
