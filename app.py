@@ -5,7 +5,7 @@ import pandas_ta as ta
 import plotly.graph_objects as go
 from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
-from datetime import datetime, timedelta, time # Corrected import
+from datetime import datetime, timedelta, time
 import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -17,6 +17,8 @@ import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
 import os
+import praw
+import tweepy
 
 # ==============================================================================
 # 1. STYLING AND CONFIGURATION
@@ -47,48 +49,30 @@ set_blockvista_style()
 # --- Market Status and Header ---
 @st.cache_data(ttl=3600) # Cache holidays for 1 hour
 def get_market_holidays(year):
-    """Returns a list of NSE market holidays for the given year."""
     if year == 2025:
-        # Source: NSE Website (Illustrative list)
-        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18',
-                '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05',
-                '2025-12-25']
+        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25']
     if year == 2026:
-        # Placeholder for 2026 holidays
-        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01',
-                '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
+        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
     return []
 
 def get_market_status():
-    """Checks if the Indian stock market is open."""
     ist = pytz.timezone('Asia/Kolkata')
-    now = datetime.now(ist)
-    market_open_time = time(9, 15)
-    market_close_time = time(15, 30)
-
+    now, market_open_time, market_close_time = datetime.now(ist), time(9, 15), time(15, 30)
     holidays = get_market_holidays(now.year)
-
-    if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays:
-        return {"status": "Closed", "color": "red"}
-    if market_open_time <= now.time() <= market_close_time:
-        return {"status": "Open", "color": "lightgreen"}
+    if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays: return {"status": "Closed", "color": "red"}
+    if market_open_time <= now.time() <= market_close_time: return {"status": "Open", "color": "lightgreen"}
     return {"status": "Closed", "color": "red"}
 
 def display_header():
-    """Displays the header on every page."""
     status_info = get_market_status()
     st.markdown(f"""
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h2 style="margin: 0;">BlockVista Terminal</h2>
             <div style="text-align: right;">
-                <span style="margin: 0;">India | Market Status:
-                    <span style="color:{status_info['color']}; font-weight: bold;">{status_info['status']}</span>
-                </span>
+                <span style="margin: 0;">India | Market Status: <span style="color:{status_info['color']}; font-weight: bold;">{status_info['status']}</span></span>
             </div>
-        </div>
-        <hr>
+        </div><hr>
     """, unsafe_allow_html=True)
-
 
 # --- Charting Functions ---
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
@@ -102,12 +86,10 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
         fig.add_trace(go.Ohlc(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Bar'))
     else: # Candlestick
         fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Candlestick'))
-
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBL_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), name='Lower Band'))
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBU_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), fill='tonexty', fillcolor='rgba(135, 206, 250, 0.1)', name='Upper Band'))
-    if forecast_df is not None:
-        fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
-    fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template='plotly_dark', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    if forecast_df is not None: fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
+    fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_ranges_slider_visible=False, template='plotly_dark', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
 
 # --- Kite Connect API Functions ---
@@ -204,13 +186,36 @@ def place_zerodha_order(symbol, quantity, order_type, transaction_type, product,
 
 # --- Analytics, ML, News & Greeks Functions ---
 @st.cache_data(ttl=900)
-def fetch_and_analyze_news():
-    analyzer, news_sources, all_news = SentimentIntensityAnalyzer(), {"Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml", "Business Standard": "https://www.business-standard.com/rss/markets-102.cms"}, []
+def fetch_and_analyze_news(query=None):
+    analyzer, news_sources, all_news = SentimentIntensityAnalyzer(), {"Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml", "Business Standard": "https://www.business-standard.com/rss/markets-102.cms", "Reuters": "http://feeds.reuters.com/reuters/businessNews", "WSJ": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", "Bloomberg": "https://feeds.bloomberg.com/wealth/news.rss"}, []
     for source, url in news_sources.items():
         feed = feedparser.parse(url)
         for entry in feed.entries:
-            all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": analyzer.polarity_scores(entry.title)['compound']})
+            if query is None or query.lower() in entry.title.lower() or query.lower() in entry.summary.lower():
+                all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": analyzer.polarity_scores(entry.title)['compound']})
     return pd.DataFrame(all_news)
+
+@st.cache_data(ttl=900)
+def fetch_social_media_sentiment(query):
+    analyzer = SentimentIntensityAnalyzer()
+    results = []
+    # Reddit
+    try:
+        reddit = praw.Reddit(client_id=st.secrets["REDDIT_CLIENT_ID"], client_secret=st.secrets["REDDIT_CLIENT_SECRET"], user_agent=st.secrets["REDDIT_USER_AGENT"])
+        for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(query, limit=25):
+            sentiment = analyzer.polarity_scores(submission.title)['compound']
+            results.append({"source": "Reddit", "text": submission.title, "sentiment": sentiment})
+    except Exception as e: st.toast(f"Could not connect to Reddit: {e}", icon="⚠️")
+    # Twitter
+    try:
+        client = tweepy.Client(bearer_token=st.secrets["TWITTER_BEARER_TOKEN"])
+        response = client.search_recent_tweets(f'"{query}" lang:en -is:retweet', max_results=25)
+        if response.data:
+            for tweet in response.data:
+                sentiment = analyzer.polarity_scores(tweet.text)['compound']
+                results.append({"source": "Twitter", "text": tweet.text, "sentiment": sentiment})
+    except Exception as e: st.toast(f"Could not connect to Twitter: {e}", icon="⚠️")
+    return pd.DataFrame(results)
 
 def create_features(df):
     df['dayofweek'], df['quarter'], df['month'], df['year'], df['dayofyear'] = df.index.dayofweek, df.index.quarter, df.index.month, df.index.year, df.index.dayofyear
@@ -225,20 +230,18 @@ def train_xgboost_model(_data):
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
     reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse')
     reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
-    preds = reg.predict(X_test)
-    mape = mean_absolute_percentage_error(y_test, preds) * 100
-    last_features = df[features].iloc[-1]
-    future_pred = reg.predict(pd.DataFrame([last_features]))[0]
+    preds, mape = reg.predict(X_test), mean_absolute_percentage_error(y_test, preds) * 100
+    last_features, future_pred = df[features].iloc[-1], reg.predict(pd.DataFrame([last_features]))[0]
     return future_pred, mape
 
 @st.cache_data
 def train_arima_model(_data):
     df = _data['close']
     train_data, test_data = df[:-30], df[-30:]
-    model = ARIMA(train_data, order=(5,1,0))
-    model_fit = model.fit()
-    preds = model_fit.forecast(steps=30)
-    mape = mean_absolute_percentage_error(test_data, preds) * 100
+    model, model_fit = ARIMA(train_data, order=(5,1,0)), None
+    try: model_fit = model.fit()
+    except Exception as e: st.warning(f"ARIMA model failed to converge: {e}"); return None, None
+    preds, mape = model_fit.forecast(steps=30), mean_absolute_percentage_error(test_data, preds) * 100
     future_pred = model_fit.forecast(steps=1).iloc[0]
     return future_pred, mape
 
@@ -251,8 +254,7 @@ def black_scholes(S, K, T, r, sigma, option_type="call"):
     else: # put
         price, delta = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1), norm.cdf(d1) - 1
         theta = (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * norm.cdf(-d2)) if T > 0 else 0
-    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T)) if sigma > 0 and T > 0 else 0
-    vega = S * norm.pdf(d1) * np.sqrt(T) if T > 0 else 0
+    gamma, vega = norm.pdf(d1) / (S * sigma * np.sqrt(T)) if sigma > 0 and T > 0 else 0, S * norm.pdf(d1) * np.sqrt(T) if T > 0 else 0
     return {"price": price, "delta": delta, "gamma": gamma, "vega": vega / 100, "theta": theta / 365}
 
 def implied_volatility(S, K, T, r, market_price, option_type):
@@ -286,10 +288,8 @@ def page_dashboard():
 
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting")
-    # CORRECTED SECTION
     instrument_df = get_instrument_df(st.session_state.kite)
     st.sidebar.header("Chart Controls")
-
     ticker, period, interval, chart_type = st.sidebar.text_input("Select Ticker", "RELIANCE"), st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4), st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2), st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
     token = get_instrument_token(ticker, instrument_df)
     if token:
@@ -315,7 +315,7 @@ def page_options_hub():
         if not chain_df.empty:
             option_selection = st.selectbox("Select an option to analyze", chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist())
             option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
-            strike_price, option_type, ltp = option_details['strike'], option_details['instrument_type'].lower(), chain_df[chain_df['CALL']==option_selection]['CALL LTP'].iloc[0] if option_type=='ce' else chain_df[chain_df['PUT']==option_selection]['PUT LTP'].iloc[0]
+            strike_price, option_type, ltp = option_details['strike'], option_details['instrument_type'].lower(), chain_df[chain_df['CALL']==option_selection]['CALL LTP'].iloc[0] if option_type=='ce' and not chain_df[chain_df['CALL']==option_selection].empty else chain_df[chain_df['PUT']==option_selection]['PUT LTP'].iloc[0]
             days_to_expiry, T, r = (expiry.date() - datetime.now().date()).days, (expiry.date() - datetime.now().date()).days / 365, 0.07
             iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
             if not np.isnan(iv):
@@ -326,14 +326,31 @@ def page_options_hub():
             else: st.warning("Could not calculate Implied Volatility for this option.")
 
 def page_alpha_engine():
-    display_header(); st.title("Alpha Engine: News & Sentiment")
-    news_df = fetch_and_analyze_news()
-    avg_sentiment, sentiment_label = news_df['sentiment'].mean(), "Positive" if news_df['sentiment'].mean() > 0.05 else "Negative" if news_df['sentiment'].mean() < -0.05 else "Neutral"
-    st.metric("Aggregate News Sentiment", sentiment_label, f"{avg_sentiment:.3f}")
-    st.subheader("Latest Headlines")
-    for _, row in news_df.head(20).iterrows():
-        color = "green" if row['sentiment'] > 0.2 else "red" if row['sentiment'] < -0.2 else "gray"
-        st.markdown(f"<span style='color:{color};'>●</span> <a href='{row['link']}' target='_blank'>{row['title']}</a> ({row['source']})", unsafe_allow_html=True)
+    display_header(); st.title("Alpha Engine: News & Social Sentiment")
+    query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("News Sentiment")
+        with st.spinner("Fetching and analyzing news..."):
+            news_df = fetch_and_analyze_news(query)
+            if not news_df.empty:
+                avg_sentiment = news_df['sentiment'].mean()
+                sentiment_label = "Positive" if avg_sentiment > 0.05 else "Negative" if avg_sentiment < -0.05 else "Neutral"
+                st.metric(f"News Sentiment for '{query}'", sentiment_label, f"{avg_sentiment:.3f}")
+                st.dataframe(news_df, use_container_width=True, hide_index=True)
+            else: st.info(f"No recent news found for '{query}'.")
+
+    with col2:
+        st.subheader("Social Media Sentiment")
+        with st.spinner("Fetching and analyzing social media..."):
+            social_df = fetch_social_media_sentiment(query)
+            if not social_df.empty:
+                avg_sentiment = social_df['sentiment'].mean()
+                sentiment_label = "Positive" if avg_sentiment > 0.1 else "Negative" if avg_sentiment < -0.1 else "Neutral"
+                st.metric(f"Social Media Sentiment for '{query}'", sentiment_label, f"{avg_sentiment:.3f}")
+                st.dataframe(social_df, use_container_width=True, hide_index=True)
+            else: st.info(f"No recent social media posts found for '{query}'.")
 
 def page_portfolio_and_risk():
     display_header(); st.title("Portfolio & Risk Journal")
@@ -368,15 +385,12 @@ def page_forecasting_ml():
         if not data.empty:
             if st.button(f"Train {model_choice} Model & Forecast {ticker}"):
                 with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                    if model_choice == "XGBoost":
-                        prediction, accuracy = train_xgboost_model(data)
-                    else: # ARIMA
-                        prediction, accuracy = train_arima_model(data)
-                    
-                    st.success(f"Model trained successfully!")
-                    col1, col2 = st.columns(2)
-                    col1.metric(f"Forecasted Next Day's Close for {ticker}", f"₹{prediction:,.2f}")
-                    col2.metric("Model Accuracy (MAPE on Test Set)", f"{accuracy:.2f}%")
+                    prediction, accuracy = train_xgboost_model(data) if model_choice == "XGBoost" else train_arima_model(data)
+                    if prediction is not None:
+                        st.success(f"Model trained successfully!")
+                        col1, col2 = st.columns(2)
+                        col1.metric(f"Forecasted Next Day's Close for {ticker}", f"₹{prediction:,.2f}")
+                        col2.metric("Model Accuracy (MAPE on Test Set)", f"{accuracy:.2f}%")
             
             st.subheader("Historical Data Used for Training"); st.plotly_chart(create_chart(data.tail(252), ticker), use_container_width=True)
         else: st.warning("Could not fetch sufficient data for training.")
