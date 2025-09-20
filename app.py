@@ -191,16 +191,10 @@ def train_and_forecast_model(data):
     return forecast_df, mse
 
 def get_gemini_response(prompt):
-    """
-    Calls the Gemini API to get a response for the AI assistant.
-    """
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         model = genai.GenerativeModel('gemini-pro')
-        
-        # Add context to the prompt for better responses
         contextual_prompt = f"You are a helpful financial assistant for the 'BlockVista Terminal'. Provide concise and accurate information about financial markets, stocks, and trading concepts. User's question: {prompt}"
-        
         response = model.generate_content(contextual_prompt)
         return response.text
     except Exception as e:
@@ -214,9 +208,11 @@ def get_gemini_response(prompt):
 def page_dashboard():
     st.title("Main Dashboard")
     instrument_df = get_instrument_df(st.session_state.kite)
-    watchlist_symbols, watchlist_tokens = ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK'], [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']]
+    watchlist_symbols = ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']
+    watchlist_tokens = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols]
     watchlist_data = get_watchlist_data(watchlist_tokens)
-    nifty_token, nifty_data = get_instrument_token('NIFTY 50', instrument_df, 'NFO'), get_historical_data(get_instrument_token('NIFTY 50', instrument_df, 'NFO'), "5minute", "1d")
+    nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NFO')
+    nifty_data = get_historical_data(nifty_token, "5minute", "1d")
     _, _, total_pnl, total_investment = get_portfolio()
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -228,8 +224,13 @@ def page_dashboard():
 
 def page_advanced_charting():
     st.title("Advanced Charting")
-    instrument_df, st.sidebar.header("Chart Controls") = get_instrument_df(st.session_state.kite), None
-    ticker, period, interval = st.sidebar.text_input("Select Ticker", "RELIANCE"), st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4), st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2)
+    # CORRECTED LINE:
+    instrument_df = get_instrument_df(st.session_state.kite)
+    st.sidebar.header("Chart Controls")
+    
+    ticker = st.sidebar.text_input("Select Ticker", "RELIANCE")
+    period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4)
+    interval = st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2)
     token = get_instrument_token(ticker, instrument_df)
     if token:
         data = get_historical_data(token, interval, period)
@@ -283,7 +284,8 @@ def page_portfolio_and_risk():
 def page_forecasting_ml():
     st.title("📈 ML Price Forecasting")
     st.info("This is a simplified educational tool, not financial advice.", icon="ℹ️")
-    instrument_df, ticker = get_instrument_df(st.session_state.kite), st.text_input("Enter a stock symbol to analyze", "TCS")
+    instrument_df = get_instrument_df(st.session_state.kite)
+    ticker = st.text_input("Enter a stock symbol to analyze", "TCS")
     token = get_instrument_token(ticker, instrument_df)
     if token:
         data = get_historical_data(token, "day", "1y")
