@@ -33,11 +33,11 @@ st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 # --- ML Data Configuration ---
 # Maps user-friendly names to correct GitHub URLs and broker-specific details
 ML_DATA_SOURCES = {
-    "NIFTY 50": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY50.csv",
-        "tradingsymbol": "NIFTY 50",
-        "exchange": "NFO"
-    },
+    "NIFTY 50": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY50.csv",
+        "tradingsymbol": "NIFTY 50",
+        "exchange": "NFO"
+    },
     "BANK NIFTY": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/BANKNIFTY.csv",
         "tradingsymbol": "BANKNIFTY",
@@ -68,7 +68,7 @@ ML_DATA_SOURCES = {
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     }
-
+}
 
 def set_blockvista_style(theme='Dark'):
     """ Sets the dark or light theme for the BlockVista Terminal """
