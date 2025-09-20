@@ -393,82 +393,107 @@ def create_features(df, ticker):
 
 @st.cache_data(show_spinner=False)
 def train_xgboost_model(_data, ticker):
-    """Trains an XGBoost model with enhanced features and optimized parameters."""
-    df = create_features(_data.copy(), ticker)
+    """Trains an XGBoost model for multiple forecast horizons."""
+    df_features = create_features(_data.copy(), ticker)
     
-    features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume']]
-    target = 'close'
-
-    if len(df) < 100:
-        st.warning("Not enough data to train the model after feature creation.")
-        return None, None, None, None, None
-
-    for col in features:
-        if not pd.api.types.is_numeric_dtype(df[col]):
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-    df.dropna(inplace=True)
-
-    X = df[features]
-    y = df[target]
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-
-    scaler = MinMaxScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-
-    model = xgb.XGBRegressor(
-        objective='reg:squarederror', n_estimators=500, learning_rate=0.05,
-        max_depth=4, subsample=0.8, colsample_bytree=0.8,
-        random_state=42, n_jobs=-1, early_stopping_rounds=20
-    )
+    horizons = {
+        "1-Day Open": ("open", 1), "1-Day Close": ("close", 1),
+        "5-Day Close": ("close", 5), "15-Day Close": ("close", 15),
+        "30-Day Close": ("close", 30), "45-Day Close": ("close", 45),
+        "60-Day Close": ("close", 60)
+    }
     
-    model.fit(X_train_scaled, y_train, eval_set=[(X_test_scaled, y_test)], verbose=False)
-    
-    preds = model.predict(X_test_scaled)
-    
-    accuracy = 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
-    rmse = np.sqrt(mean_squared_error(y_test, preds))
-    backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds}, index=y_test.index)
-    
-    cumulative_returns = (1 + (y_test.pct_change().fillna(0))).cumprod()
-    peak = cumulative_returns.cummax()
-    drawdown = (cumulative_returns - peak) / peak
-    max_drawdown = drawdown.min()
+    predictions = {}
+    backtest_results = {}
 
-    last_features = X.iloc[-1].values.reshape(1, -1)
-    last_features_scaled = scaler.transform(last_features)
-    future_pred = model.predict(last_features_scaled)[0]
-    
-    return float(future_pred), accuracy, rmse, max_drawdown, backtest_df
+    for name, (target_col, shift_val) in horizons.items():
+        df = df_features.copy()
+        target_name = f"target_{name.replace(' ', '_').lower()}"
+        df[target_name] = df[target_col].shift(-shift_val)
+        df.dropna(subset=[target_name], inplace=True)
+
+        features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
+        
+        if len(df) < 100: continue
+
+        X = df[features]
+        y = df[target_name]
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+
+        scaler = MinMaxScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        
+        model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05,
+                                 max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
+        
+        model.fit(X_train_scaled, y_train, eval_set=[(scaler.transform(X_test), y_test)], verbose=False)
+
+        last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
+        predictions[name] = float(model.predict(last_features_scaled)[0])
+
+        if name == "1-Day Close":
+            preds_test = model.predict(scaler.transform(X_test))
+            accuracy = 100 - (mean_absolute_percentage_error(y_test, preds_test) * 100)
+            rmse = np.sqrt(mean_squared_error(y_test, preds_test))
+            backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds_test}, index=y_test.index)
+            
+            cumulative_returns = (1 + (y_test.pct_change().fillna(0))).cumprod()
+            peak = cumulative_returns.cummax()
+            drawdown = (cumulative_returns - peak) / peak
+            max_drawdown = drawdown.min()
+            
+            backtest_results = {
+                "accuracy": accuracy, "rmse": rmse, 
+                "max_drawdown": max_drawdown, "backtest_df": backtest_df
+            }
+
+    return predictions, backtest_results.get("accuracy"), backtest_results.get("rmse"), backtest_results.get("max_drawdown"), backtest_results.get("backtest_df")
 
 @st.cache_data(show_spinner=False)
 def train_arima_model(_data):
     df = _data.copy()
     df.columns = [col.lower() for col in df.columns]
+    
+    predictions = {}
+    
+    # Forecast Closing Prices
     df_close = df['close']
+    if len(df_close) > 50:
+        train_data_close, test_data_close = df_close[:-30], df_close[-30:]
+        try:
+            model_close = ARIMA(train_data_close, order=(5,1,0)).fit()
+            forecasts_close = model_close.forecast(steps=60)
+            
+            predictions["1-Day Close"] = forecasts_close.iloc[0]
+            predictions["5-Day Close"] = forecasts_close.iloc[4]
+            predictions["15-Day Close"] = forecasts_close.iloc[14]
+            predictions["30-Day Close"] = forecasts_close.iloc[29]
+            predictions["45-Day Close"] = forecasts_close.iloc[44]
+            predictions["60-Day Close"] = forecasts_close.iloc[59]
 
-    if len(df_close) < 50: return None, None, None, None, None
-    train_data, test_data = df_close[:-30], df_close[-30:]
-    try:
-        model = ARIMA(train_data, order=(5,1,0))
-        model_fit = model.fit()
-    except Exception as e:
-        st.warning(f"ARIMA model failed to converge: {e}")
-        return None, None, None, None, None
-    
-    preds = model_fit.forecast(steps=len(test_data))
-    accuracy = 100 - (mean_absolute_percentage_error(test_data, preds) * 100)
-    rmse = np.sqrt(mean_squared_error(test_data, preds))
-    backtest_df = pd.DataFrame({'Actual': test_data, 'Predicted': preds}, index=test_data.index)
-    
-    cumulative_returns = (1 + (test_data.pct_change().fillna(0))).cumprod()
-    peak = cumulative_returns.cummax()
-    drawdown = (cumulative_returns - peak) / peak
-    max_drawdown = drawdown.min()
-    
-    future_pred = model_fit.forecast(steps=1).iloc[0]
-    return future_pred, accuracy, rmse, max_drawdown, backtest_df
+            # Backtest for 1-day close
+            preds_test = model_close.forecast(steps=len(test_data_close))
+            accuracy = 100 - (mean_absolute_percentage_error(test_data_close, preds_test) * 100)
+            rmse = np.sqrt(mean_squared_error(test_data_close, preds_test))
+            backtest_df = pd.DataFrame({'Actual': test_data_close, 'Predicted': preds_test}, index=test_data_close.index)
+            max_drawdown = (1 + (test_data_close.pct_change().fillna(0))).cumprod()
+            max_drawdown = (max_drawdown / max_drawdown.cummax() - 1).min()
+
+        except Exception:
+            accuracy, rmse, backtest_df, max_drawdown = None, None, None, None
+
+    # Forecast Opening Price
+    df_open = df['open']
+    if len(df_open) > 50:
+        try:
+            model_open = ARIMA(df_open, order=(5,1,0)).fit()
+            predictions["1-Day Open"] = model_open.forecast(steps=1).iloc[0]
+        except Exception:
+            pass
+
+    return predictions, accuracy, rmse, max_drawdown, backtest_df
+
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
@@ -498,7 +523,8 @@ def load_and_combine_data(instrument_name):
             # Fetch last year of data to ensure overlap
             from_date = datetime.now().date() - timedelta(days=365)
             live_df = get_historical_data(token, 'day', from_date=from_date)
-            live_df.columns = [col.lower() for col in live_df.columns]
+            if not live_df.empty:
+                live_df.columns = [col.lower() for col in live_df.columns]
 
 
     # 3. Combine and de-duplicate
@@ -602,62 +628,6 @@ def page_advanced_charting():
         if not data.empty:
             st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True)
             st.subheader("Technical Indicator Analysis"); st.dataframe(pd.DataFrame([interpret_indicators(data)], index=["Interpretation"]).T, use_container_width=True)
-
-            with st.expander("🔬 Options Greeks Analysis"):
-                chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(ticker, instrument_df, exchange='NFO')
-                
-                if not available_expiries:
-                    st.warning(f"No options contracts found for {ticker}.")
-                else:
-                    selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'), key=f"{ticker}_expiry")
-                    if selected_expiry:
-                        chain_df, expiry, underlying_ltp, _ = get_options_chain(ticker, instrument_df, selected_expiry, exchange='NFO')
-                        
-                        if not chain_df.empty:
-                            option_list = chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist()
-                            if not option_list:
-                                st.warning(f"No options available for {ticker} on {selected_expiry.strftime('%d %b %Y')}.")
-                            else:
-                                option_selection = st.selectbox("Select an option contract to analyze", option_list)
-                                
-                                if option_selection:
-                                    option_details_df = instrument_df[instrument_df['tradingsymbol'] == option_selection]
-                                    if not option_details_df.empty:
-                                        option_details = option_details_df.iloc[0]
-                                        strike_price = option_details['strike']
-                                        option_type = option_details['instrument_type'].lower()
-                                        
-                                        ltp = 0
-                                        if option_type == 'ce': ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
-                                        else: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
-
-                                        days_to_expiry = (pd.to_datetime(expiry).date() - datetime.now().date()).days
-                                        T = max(days_to_expiry, 0) / 365.0
-                                        r = 0.07 
-                                        S = data['close'].iloc[-1]
-
-                                        iv = implied_volatility(S, strike_price, T, r, ltp, option_type)
-                                        
-                                        if not np.isnan(iv):
-                                            greeks = black_scholes(S, strike_price, T, r, iv, option_type)
-                                            st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
-                                            
-                                            c1, c2, c3 = st.columns(3)
-                                            c1.metric("Delta (Δ)", f"{greeks['delta']:.4f}")
-                                            c2.metric("Gamma (Γ)", f"{greeks['gamma']:.4f}")
-                                            c3.metric("Vega (ν)", f"{greeks['vega']:.4f}")
-                                            c4, c5, _ = st.columns(3)
-                                            c4.metric("Theta (Θ)", f"{greeks['theta']:.4f}")
-                                            c5.metric("Rho (ρ)", f"{greeks['rho']:.4f}")
-
-                                            st.subheader("Greek Interpretations")
-                                            interpretations = get_greek_interpretations(greeks)
-                                            for greek, interp in interpretations.items():
-                                                st.markdown(f"**{greek}:** {interp}")
-                                        else:
-                                            st.warning("Could not calculate Implied Volatility and Greeks for this option (LTP might be zero or expiry too close).")
-                        else:
-                            st.warning(f"No options chain data available for {ticker} on {selected_expiry.strftime('%d %b %Y')}.")
         else: st.warning(f"No chart data for {ticker}.")
     else: st.error(f"Ticker '{ticker}' not found.")
 
@@ -771,40 +741,45 @@ def page_forecasting_ml():
     with col1:
         st.subheader("Model Configuration")
         
-        # Dropdown to select the instrument for ML
         instrument_name = st.selectbox("Select an Instrument for Forecasting", list(ML_DATA_SOURCES.keys()))
         model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
         
-        # Load the combined data
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
 
         if data is not None and not data.empty:
             if st.button(f"Train {model_choice} Model & Forecast {instrument_name}"):
                 with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                    if model_choice == "XGBoost":
-                        prediction, accuracy, rmse, max_drawdown, backtest_df = train_xgboost_model(data, instrument_name)
-                    else: # ARIMA
-                        prediction, accuracy, rmse, max_drawdown, backtest_df = train_arima_model(data)
+                    predictions, accuracy, rmse, max_drawdown, backtest_df = (
+                        train_xgboost_model(data, instrument_name) if model_choice == "XGBoost" 
+                        else train_arima_model(data)
+                    )
                 
                 with col2:
-                    st.subheader("Model Performance")
-                    if prediction is not None:
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric(f"Forecasted Next Close", f"₹{prediction:,.2f}")
-                        c2.metric("Model Accuracy", f"{accuracy:.2f}%")
-                        c3.metric("RMSE", f"{rmse:.2f}")
-                        c4.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
+                    st.subheader("Multi-Horizon Forecast")
+                    if predictions:
+                        forecast_df = pd.DataFrame.from_dict(predictions, orient='index', columns=['Predicted Price'])
+                        forecast_df.index.name = "Forecast Horizon"
+                        st.dataframe(forecast_df.style.format("₹{:.2f}"))
+                    else:
+                        st.error("Model training failed to produce forecasts.")
+                    
+                    st.subheader("Model Performance (Based on 1-Day Close)")
+                    if accuracy is not None:
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Model Accuracy", f"{accuracy:.2f}%")
+                        c2.metric("RMSE", f"{rmse:.2f}")
+                        c3.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
                         
                         st.subheader("Backtest: Predicted vs. Actual Prices")
                         fig = go.Figure()
                         fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
                         fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
                         template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
-                        fig.update_layout(title=f'{instrument_name} Backtest Results', yaxis_title='Price (INR)', template=template)
+                        fig.update_layout(title=f'{instrument_name} 1-Day Backtest Results', yaxis_title='Price (INR)', template=template)
                         st.plotly_chart(fig, use_container_width=True)
                     else:
-                        st.error("Model training failed. Could not generate performance metrics.")
+                        st.error("Could not generate performance metrics.")
             else:
                 with col2:
                     st.subheader(f"Historical Data for {instrument_name}")
@@ -944,6 +919,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-"
 
