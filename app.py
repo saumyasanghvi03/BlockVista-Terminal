@@ -5,7 +5,7 @@ import pandas_ta as ta
 import plotly.graph_objects as go
 from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -50,12 +50,12 @@ def get_market_holidays(year):
     """Returns a list of NSE market holidays for the given year."""
     if year == 2025:
         # Source: NSE Website (Illustrative list)
-        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', 
-                '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', 
+        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18',
+                '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05',
                 '2025-12-25']
     if year == 2026:
         # Placeholder for 2026 holidays
-        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', 
+        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01',
                 '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
     return []
 
@@ -65,9 +65,9 @@ def get_market_status():
     now = datetime.now(ist)
     market_open_time = time(9, 15)
     market_close_time = time(15, 30)
-    
+
     holidays = get_market_holidays(now.year)
-    
+
     if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays:
         return {"status": "Closed", "color": "red"}
     if market_open_time <= now.time() <= market_close_time:
@@ -81,7 +81,7 @@ def display_header():
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h2 style="margin: 0;">BlockVista Terminal</h2>
             <div style="text-align: right;">
-                <span style="margin: 0;">India | Market Status: 
+                <span style="margin: 0;">India | Market Status:
                     <span style="color:{status_info['color']}; font-weight: bold;">{status_info['status']}</span>
                 </span>
             </div>
@@ -272,8 +272,14 @@ def page_dashboard():
 
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting")
-    instrument_df, st.sidebar.header("Chart Controls") = get_instrument_df(st.session_state.kite), None
-    ticker, period, interval, chart_type = st.sidebar.text_input("Select Ticker", "RELIANCE"), st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4), st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2), st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
+    # CORRECTED SECTION
+    instrument_df = get_instrument_df(st.session_state.kite)
+    st.sidebar.header("Chart Controls")
+    
+    ticker = st.sidebar.text_input("Select Ticker", "RELIANCE")
+    period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4)
+    interval = st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2)
+    chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
     token = get_instrument_token(ticker, instrument_df)
     if token:
         data = get_historical_data(token, interval, period)
@@ -298,7 +304,7 @@ def page_options_hub():
         if not chain_df.empty:
             option_selection = st.selectbox("Select an option to analyze", chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist())
             option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
-            strike_price, option_type, ltp = option_details['strike'], option_details['instrument_type'].lower(), option_details['LTP'] if 'LTP' in option_details else chain_df[chain_df['CALL']==option_selection]['CALL LTP'].iloc[0] if option_type=='ce' else chain_df[chain_df['PUT']==option_selection]['PUT LTP'].iloc[0]
+            strike_price, option_type, ltp = option_details['strike'], option_details['instrument_type'].lower(), chain_df[chain_df['CALL']==option_selection]['CALL LTP'].iloc[0] if option_type=='ce' else chain_df[chain_df['PUT']==option_selection]['PUT LTP'].iloc[0]
             days_to_expiry, T, r = (expiry - datetime.now().date()).days, (expiry - datetime.now().date()).days / 365, 0.07
             iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
             if not np.isnan(iv):
@@ -361,7 +367,7 @@ def page_forecasting_ml():
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
-    if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "Ask about your portfolio or stock prices (e.g., 'what are my holdings?' or 'current price of RELIANCE')."}]
+    if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "Ask me about your portfolio or stock prices (e.g., 'what are my holdings?' or 'current price of RELIANCE')."}]
     for message in st.session_state.messages:
         with st.chat_message(message["role"]): st.markdown(message["content"])
     if prompt := st.chat_input("Ask a question..."):
