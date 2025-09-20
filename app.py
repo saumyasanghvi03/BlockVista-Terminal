@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import pandas_ta as ta
@@ -22,6 +21,8 @@ import os
 import praw
 from time import mktime
 from urllib.parse import quote
+import requests
+import io
 
 # ==============================================================================
 # 1. STYLING AND CONFIGURATION
@@ -30,40 +31,40 @@ from urllib.parse import quote
 st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 
 # --- ML Data Configuration ---
-# Maps user-friendly names to GitHub URLs and broker-specific details
+# Maps user-friendly names to correct GitHub URLs and broker-specific details
 ML_DATA_SOURCES = {
     "NIFTY 50": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY_50.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%2050.csv",
         "tradingsymbol": "NIFTY 50",
         "exchange": "NFO"
     },
     "BANK NIFTY": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANK_NIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/BANK%20NIFTY.csv",
         "tradingsymbol": "BANKNIFTY",
         "exchange": "NFO"
     },
     "NIFTY Financial Services": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%20Financial%20Services.csv",
         "tradingsymbol": "FINNIFTY",
         "exchange": "NFO"
     },
     "GOLD": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/GOLD.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/GOLD.csv",
         "tradingsymbol": "GOLDM",
         "exchange": "MCX"
     },
     "USDINR": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/USDINR.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/USDINR.csv",
         "tradingsymbol": "USDINR",
         "exchange": "CDS"
     },
     "SENSEX": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/SENSEX.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     },
     "S&P 500": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/S%26P%20500.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     }
@@ -117,9 +118,28 @@ def get_broker_client():
 # --- Market Status and Header ---
 @st.cache_data(ttl=3600)
 def get_market_holidays(year):
-    if year == 2025: return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25']
-    if year == 2026: return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
-    return []
+    """
+    Returns a list of NSE market holidays for a given year.
+    NOTE: This list should be updated annually for future years.
+    """
+    holidays_by_year = {
+        2024: [
+            '2024-01-22', '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29',
+            '2024-04-11', '2024-04-17', '2024-05-01', '2024-05-20', '2024-06-17',
+            '2024-07-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15',
+            '2024-12-25'
+        ],
+        2025: [
+            '2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18',
+            '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05',
+            '2025-12-25'
+        ],
+        2026: [
+            '2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01',
+            '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25'
+        ]
+    }
+    return holidays_by_year.get(year, []) # Return list for the year, or empty list if not found
 
 def get_market_status():
     ist = pytz.timezone('Asia/Kolkata')
@@ -214,7 +234,6 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         st.warning(f"Historical data for {st.session_state.broker} not implemented.")
         return pd.DataFrame()
 
-# ... (Other broker functions like get_watchlist_data, get_options_chain, etc. remain the same)
 def get_watchlist_data(symbols_with_tokens, exchange="NSE"):
     client = get_broker_client()
     if not client or not symbols_with_tokens: return pd.DataFrame()
@@ -246,11 +265,16 @@ def get_options_chain(underlying, instrument_df, expiry_date=None, exchange=None
         if not exchange:
             exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'CDS' if underlying == 'USDINR' else 'NFO'
         
-        underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else f"{exchange}:{underlying}"
+        index_map = {"NIFTY": "NIFTY 50", "BANKNIFTY": "BANK NIFTY", "FINNIFTY": "FINNIFTY"}
+        ltp_symbol = index_map.get(underlying, underlying)
+        ltp_exchange = "NSE" if exchange == "NFO" else exchange
+
+        underlying_instrument_name = f"{ltp_exchange}:{ltp_symbol}"
         try:
             ltp_data = client.ltp(underlying_instrument_name)
             underlying_ltp = ltp_data[underlying_instrument_name]['last_price']
-        except Exception: underlying_ltp = 0.0
+        except Exception: 
+            underlying_ltp = 0.0
 
         options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
         if options.empty: return pd.DataFrame(), None, underlying_ltp, []
@@ -362,31 +386,26 @@ def create_features(df, ticker):
     df = df.copy()
     df.columns = [col.lower() for col in df.columns]
 
-    # Time-based features
     df['dayofweek'] = df.index.dayofweek
     df['quarter'] = df.index.quarter
     df['month'] = df.index.month
     df['year'] = df.index.year
     df['dayofyear'] = df.index.dayofyear
     
-    # Lag features
     for lag in range(1, 6):
         df[f'lag_{lag}'] = df['close'].shift(lag)
         
-    # Rolling window features
     df['rolling_mean_7'] = df['close'].rolling(window=7).mean()
     df['rolling_std_7'] = df['close'].rolling(window=7).std()
     df['rolling_mean_30'] = df['close'].rolling(window=30).mean()
     df['rolling_std_30'] = df['close'].rolling(window=30).std()
 
-    # Technical Indicators using pandas-ta
     df.ta.rsi(length=14, append=True)
     df.ta.macd(append=True)
     df.ta.bbands(length=20, append=True)
     df.ta.atr(length=14, append=True)
     df.ta.stoch(append=True)
     
-    # --- NEW: Add News Sentiment ---
     news_df = fetch_and_analyze_news(ticker)
     if not news_df.empty:
         news_df['date'] = pd.to_datetime(news_df['date'])
@@ -434,6 +453,11 @@ def train_xgboost_model(_data, ticker):
         X = df[features]
         y = df[target_name]
 
+        for col in X.columns:
+            X[col] = pd.to_numeric(X[col], errors='coerce')
+        X.dropna(inplace=True)
+        y = y[X.index] 
+
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 
         scaler = MinMaxScaler()
@@ -472,7 +496,6 @@ def train_arima_model(_data):
     
     predictions = {}
     
-    # Forecast Closing Prices
     df_close = df['close']
     if len(df_close) > 50:
         train_data_close, test_data_close = df_close[:-30], df_close[-30:]
@@ -487,7 +510,6 @@ def train_arima_model(_data):
             predictions["45-Day Close"] = forecasts_close.iloc[44]
             predictions["60-Day Close"] = forecasts_close.iloc[59]
 
-            # Backtest for 1-day close
             preds_test = model_close.forecast(steps=len(test_data_close))
             accuracy = 100 - (mean_absolute_percentage_error(test_data_close, preds_test) * 100)
             rmse = np.sqrt(mean_squared_error(test_data_close, preds_test))
@@ -498,7 +520,6 @@ def train_arima_model(_data):
         except Exception:
             accuracy, rmse, backtest_df, max_drawdown = None, None, None, None
 
-    # Forecast Opening Price
     df_open = df['open']
     if len(df_open) > 50:
         try:
@@ -518,34 +539,42 @@ def load_and_combine_data(instrument_name):
         st.error(f"No data source configured for {instrument_name}")
         return pd.DataFrame()
 
-    # 1. Load historical data from GitHub
     try:
-        hist_df = pd.read_csv(source_info['github_url'])
-        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed') # FIX: Use mixed format parsing
+        url = source_info['github_url']
+        response = requests.get(url)
+        response.raise_for_status() 
+
+        # Corrected line: Use pandas directly to read the CSV from the response content
+        hist_df = pd.read_csv(io.StringIO(response.text))
+
+        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed')
         hist_df.set_index('Date', inplace=True)
-        # Standardize column names
+        
         hist_df.columns = [col.lower().replace(' ', '_').replace('%', 'pct') for col in hist_df.columns]
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col in hist_df.columns:
+                 hist_df[col] = pd.to_numeric(hist_df[col].astype(str).str.replace(',', ''), errors='coerce')
+        hist_df.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
+
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"Failed to load historical data from GitHub. Please check the URL and your connection. Error: {http_err}")
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Failed to load historical data from GitHub. Please check the URL and your connection. Error: {e}")
+        st.error(f"An unexpected error occurred while processing the data: {e}")
         return pd.DataFrame()
 
-    # 2. Fetch recent live data if broker is connected and symbol exists
     live_df = pd.DataFrame()
     if get_broker_client() and source_info.get('tradingsymbol'):
         instrument_df = get_instrument_df()
         token = get_instrument_token(source_info['tradingsymbol'], instrument_df, source_info['exchange'])
         if token:
-            # Fetch last year of data to ensure overlap
             from_date = datetime.now().date() - timedelta(days=365)
             live_df = get_historical_data(token, 'day', from_date=from_date)
             if not live_df.empty:
                 live_df.columns = [col.lower() for col in live_df.columns]
 
-
-    # 3. Combine and de-duplicate
     if not live_df.empty:
         combined_df = pd.concat([hist_df, live_df])
-        # Remove duplicates, keeping the entry from the live data (last one)
         combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
         combined_df.sort_index(inplace=True)
         return combined_df
@@ -875,7 +904,7 @@ def page_ai_assistant():
 # ==============================================================================
 
 def main():
-    if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
+    if 'theme' not in st.session_state: st.session_state.theme = 'Light'
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
     set_blockvista_style(st.session_state.theme)
 
@@ -979,4 +1008,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
