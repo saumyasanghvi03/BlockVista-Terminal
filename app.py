@@ -204,16 +204,16 @@ def fetch_and_analyze_news(query=None):
     return pd.DataFrame(all_news)
 
 @st.cache_data(ttl=900)
-def fetch_social_media_sentiment(query):
+def fetch_social_media_sentiment(_query): # Changed to _query to avoid hashing issues with client objects
     analyzer, results = SentimentIntensityAnalyzer(), []
     try:
         reddit = praw.Reddit(client_id=st.secrets["REDDIT_CLIENT_ID"], client_secret=st.secrets["REDDIT_CLIENT_SECRET"], user_agent=st.secrets["REDDIT_USER_AGENT"])
-        for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(query, limit=25):
+        for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(_query, limit=25):
             results.append({"source": "Reddit", "text": submission.title, "sentiment": analyzer.polarity_scores(submission.title)['compound']})
     except Exception as e: st.toast(f"Could not connect to Reddit: {e}", icon="⚠️")
     try:
         client = tweepy.Client(bearer_token=st.secrets["TWITTER_BEARER_TOKEN"])
-        response = client.search_recent_tweets(f'"{query}" lang:en -is:retweet', max_results=25)
+        response = client.search_recent_tweets(f'"{_query}" lang:en -is:retweet', max_results=25)
         if response.data:
             for tweet in response.data:
                 results.append({"source": "Twitter", "text": tweet.text, "sentiment": analyzer.polarity_scores(tweet.text)['compound']})
@@ -230,8 +230,9 @@ def create_features(df):
 def train_xgboost_model(_data):
     df = create_features(_data.copy())
     features, target = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']], 'close'
+    if len(df) < 20: return None, None, None, None, None # Not enough data to split
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
-    reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse')
+    reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse', learning_rate=0.01, max_depth=3, subsample=0.8, colsample_bytree=0.8)
     reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
     preds, accuracy = reg.predict(X_test), 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
     rmse = np.sqrt(mean_squared_error(y_test, preds))
@@ -248,6 +249,7 @@ def train_xgboost_model(_data):
 @st.cache_data
 def train_arima_model(_data):
     df = _data['close']
+    if len(df) < 50: return None, None, None, None, None # Not enough data for ARIMA
     train_data, test_data = df[:-30], df[-30:]
     model, model_fit = ARIMA(train_data, order=(5,1,0)), None
     try: model_fit = model.fit()
