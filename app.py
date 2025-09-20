@@ -799,7 +799,8 @@ def page_forecasting_ml():
             if st.button(f"Train {model_choice} Model & Forecast {instrument_name}"):
                 with st.spinner(f"Training {model_choice} model... This may take a moment."):
                     predictions, accuracy, rmse, max_drawdown, backtest_df = (
-                        train_xgboost_model(data, instrument_name) if model_choice == "XGBoost" 
+                        train_xgboost_model(data, instrument_name) 
+                        if model_choice == "XGBoost" 
                         else train_arima_model(data)
                     )
                 
