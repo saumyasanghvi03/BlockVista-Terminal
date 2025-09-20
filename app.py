@@ -5,7 +5,7 @@ import pandas_ta as ta
 import plotly.graph_objects as go
 from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
-from datetime import datetime, timedelta, time # Corrected import
+from datetime import datetime, timedelta, time
 import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -49,54 +49,35 @@ set_blockvista_style()
 # --- Market Status and Header ---
 @st.cache_data(ttl=3600) # Cache holidays for 1 hour
 def get_market_holidays(year):
-    """Returns a list of NSE market holidays for the given year."""
     if year == 2025:
-        # Source: NSE Website (Illustrative list)
-        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18',
-                '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05',
-                '2025-12-25']
+        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25']
     if year == 2026:
-        # Placeholder for 2026 holidays
-        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01',
-                '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
+        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
     return []
 
 def get_market_status():
-    """Checks if the Indian stock market is open."""
     ist = pytz.timezone('Asia/Kolkata')
-    now = datetime.now(ist)
-    market_open_time = time(9, 15)
-    market_close_time = time(15, 30)
-
+    now, market_open_time, market_close_time = datetime.now(ist), time(9, 15), time(15, 30)
     holidays = get_market_holidays(now.year)
-
-    if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays:
-        return {"status": "Closed", "color": "red"}
-    if market_open_time <= now.time() <= market_close_time:
-        return {"status": "Open", "color": "lightgreen"}
+    if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays: return {"status": "Closed", "color": "red"}
+    if market_open_time <= now.time() <= market_close_time: return {"status": "Open", "color": "lightgreen"}
     return {"status": "Closed", "color": "red"}
 
 def display_header():
-    """Displays the header on every page."""
     status_info = get_market_status()
     st.markdown(f"""
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h2 style="margin: 0;">BlockVista Terminal</h2>
             <div style="text-align: right;">
-                <span style="margin: 0;">India | Market Status:
-                    <span style="color:{status_info['color']}; font-weight: bold;">{status_info['status']}</span>
-                </span>
+                <span style="margin: 0;">India | Market Status: <span style="color:{status_info['color']}; font-weight: bold;">{status_info['status']}</span></span>
             </div>
-        </div>
-        <hr>
+        </div><hr>
     """, unsafe_allow_html=True)
-
 
 # --- Charting Functions ---
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
-    if df.empty:
-        return go.Figure() # Return empty figure if no data
     fig = go.Figure()
+    if df.empty: return fig # Return empty figure if no data
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(df['open'], df['high'], df['low'], df['close'])
         fig.add_trace(go.Candlestick(x=ha_df.index, open=ha_df['HA_open'], high=ha_df['HA_high'], low=ha_df['HA_low'], close=ha_df['HA_close'], name='Heikin-Ashi'))
@@ -106,11 +87,9 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
         fig.add_trace(go.Ohlc(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Bar'))
     else: # Candlestick
         fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Candlestick'))
-
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBL_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), name='Lower Band'))
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBU_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), fill='tonexty', fillcolor='rgba(135, 206, 250, 0.1)', name='Upper Band'))
-    if forecast_df is not None:
-        fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
+    if forecast_df is not None: fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template='plotly_dark', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
 
