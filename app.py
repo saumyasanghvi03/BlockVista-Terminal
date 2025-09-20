@@ -246,11 +246,17 @@ def get_options_chain(underlying, instrument_df, expiry_date=None, exchange=None
         if not exchange:
             exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'CDS' if underlying == 'USDINR' else 'NFO'
         
-        underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else f"{exchange}:{underlying}"
+        # Correctly map underlying name for LTP fetching
+        index_map = {"NIFTY": "NIFTY 50", "BANKNIFTY": "BANK NIFTY", "FINNIFTY": "FINNIFTY"}
+        ltp_symbol = index_map.get(underlying, underlying)
+        ltp_exchange = "NSE" if exchange == "NFO" else exchange
+
+        underlying_instrument_name = f"{ltp_exchange}:{ltp_symbol}"
         try:
             ltp_data = client.ltp(underlying_instrument_name)
             underlying_ltp = ltp_data[underlying_instrument_name]['last_price']
-        except Exception: underlying_ltp = 0.0
+        except Exception: 
+            underlying_ltp = 0.0
 
         options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
         if options.empty: return pd.DataFrame(), None, underlying_ltp, []
