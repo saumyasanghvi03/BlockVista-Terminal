@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import pandas_ta as ta
@@ -30,40 +29,40 @@ from urllib.parse import quote
 st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 
 # --- ML Data Configuration ---
-# Maps user-friendly names to GitHub URLs and broker-specific details
+# CORRECTED: Maps user-friendly names to correct GitHub URLs and broker-specific details
 ML_DATA_SOURCES = {
     "NIFTY 50": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20NIFTY%2050.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%2050.csv",
         "tradingsymbol": "NIFTY 50",
         "exchange": "NFO"
     },
     "BANK NIFTY": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20BANK%20NIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/BANK%20NIFTY.csv",
         "tradingsymbol": "BANKNIFTY",
         "exchange": "NFO"
     },
     "NIFTY Financial Services": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20NIFTY%20Financial%20Services.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%20Financial%20Services.csv",
         "tradingsymbol": "FINNIFTY",
         "exchange": "NFO"
     },
     "GOLD": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20GOLD.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/GOLD.csv",
         "tradingsymbol": "GOLDM",
         "exchange": "MCX"
     },
     "USDINR": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20USDINR.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/USDINR.csv",
         "tradingsymbol": "USDINR",
         "exchange": "CDS"
     },
     "SENSEX": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20SENSEX.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/SENSEX.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     },
     "S&P 500": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20S%26P%20500.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/S%26P%20500.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     }
@@ -117,9 +116,28 @@ def get_broker_client():
 # --- Market Status and Header ---
 @st.cache_data(ttl=3600)
 def get_market_holidays(year):
-    if year == 2025: return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25']
-    if year == 2026: return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
-    return []
+    """
+    Returns a list of NSE market holidays for a given year.
+    NOTE: This list should be updated annually for future years.
+    """
+    holidays_by_year = {
+        2024: [
+            '2024-01-22', '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29',
+            '2024-04-11', '2024-04-17', '2024-05-01', '2024-05-20', '2024-06-17',
+            '2024-07-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15',
+            '2024-12-25'
+        ],
+        2025: [
+            '2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18',
+            '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05',
+            '2025-12-25'
+        ],
+        2026: [
+            '2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01',
+            '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25'
+        ]
+    }
+    return holidays_by_year.get(year, []) # Return list for the year, or empty list if not found
 
 def get_market_status():
     ist = pytz.timezone('Asia/Kolkata')
