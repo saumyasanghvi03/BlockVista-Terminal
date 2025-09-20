@@ -307,7 +307,20 @@ def place_order(symbol, quantity, order_type, transaction_type, product, price=N
 # --- Analytics, ML, News & Greeks Functions ---
 @st.cache_data(ttl=900)
 def fetch_and_analyze_news(query=None):
-    analyzer, news_sources, all_news = SentimentIntensityAnalyzer(), {"Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml", "Business Standard": "https://www.business-standard.com/rss/markets-102.cms", "Reuters": "http://feeds.reuters.com/reuters/businessNews", "WSJ": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml", "Bloomberg": "https://feeds.bloomberg.com/wealth/news.rss"}, []
+    analyzer = SentimentIntensityAnalyzer()
+    news_sources = {
+        "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+        "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml",
+        "Business Standard": "https://www.business-standard.com/rss/markets-102.cms",
+        "Livemint": "https://www.livemint.com/rss/markets",
+        "Financial Express": "https://www.financialexpress.com/market/feed/",
+        "Business Today": "https://www.businesstoday.in/rssfeeds/122.cms",
+        "CNBC TV18": "https://www.cnbctv18.com/rss/markets.xml",
+        "Reuters India": "https://feeds.reuters.com/reuters/INbusinessNews",
+        "WSJ Markets": "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+        "Bloomberg": "https://feeds.bloomberg.com/wealth/news.rss"
+    }
+    all_news = []
     for source, url in news_sources.items():
         feed = feedparser.parse(url)
         for entry in feed.entries:
@@ -730,60 +743,72 @@ def page_forecasting_ml():
     st.info("Train advanced models using a hybrid of historical and live data to forecast the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
 
     market_status = get_market_status()
+    if market_status['status'] == 'Closed':
+        st.warning("The market is currently closed. Forecasts are based on the latest available historical data and will not include today's live price action.")
 
-    if market_status['status'] == 'Open':
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.subheader("Model Configuration")
-            
-            instrument_name = st.selectbox("Select an Instrument for Forecasting", list(ML_DATA_SOURCES.keys()))
-            model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
-            
-            with st.spinner(f"Loading data for {instrument_name}..."):
-                data = load_and_combine_data(instrument_name)
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.subheader("Model Configuration")
+        
+        instrument_name = st.selectbox("Select an Instrument for Forecasting", list(ML_DATA_SOURCES.keys()))
+        model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
+        
+        with st.spinner(f"Loading data for {instrument_name}..."):
+            data = load_and_combine_data(instrument_name)
 
-            if data is not None and not data.empty:
-                if st.button(f"Train {model_choice} Model & Forecast {instrument_name}"):
-                    with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                        predictions, accuracy, rmse, max_drawdown, backtest_df = (
-                            train_xgboost_model(data, instrument_name) if model_choice == "XGBoost" 
-                            else train_arima_model(data)
-                        )
-                    
-                    with col2:
-                        st.subheader("Multi-Horizon Forecast")
-                        if predictions:
-                            forecast_df = pd.DataFrame.from_dict(predictions, orient='index', columns=['Predicted Price'])
-                            forecast_df.index.name = "Forecast Horizon"
-                            st.dataframe(forecast_df.style.format("₹{:.2f}"))
-                        else:
-                            st.error("Model training failed to produce forecasts.")
-                        
-                        st.subheader("Model Performance (Based on 1-Day Close)")
-                        if accuracy is not None:
-                            c1, c2, c3 = st.columns(3)
-                            c1.metric("Model Accuracy", f"{accuracy:.2f}%")
-                            c2.metric("RMSE", f"{rmse:.2f}")
-                            c3.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
-                            
-                            st.subheader("Backtest: Predicted vs. Actual Prices")
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
-                            fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                            template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
-                            fig.update_layout(title=f'{instrument_name} 1-Day Backtest Results', yaxis_title='Price (INR)', template=template)
-                            st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            st.error("Could not generate performance metrics.")
-                else:
-                    with col2:
-                        st.subheader(f"Historical Data for {instrument_name}")
-                        st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
+        if data is not None and not data.empty:
+            if st.button(f"Train {model_choice} Model & Forecast {instrument_name}"):
+                with st.spinner(f"Training {model_choice} model... This may take a moment."):
+                    predictions, accuracy, rmse, max_drawdown, backtest_df = (
+                        train_xgboost_model(data, instrument_name) if model_choice == "XGBoost" 
+                        else train_arima_model(data)
+                    )
+                
+                # Store results in session state to display them
+                st.session_state['ml_predictions'] = predictions
+                st.session_state['ml_accuracy'] = accuracy
+                st.session_state['ml_rmse'] = rmse
+                st.session_state['ml_max_drawdown'] = max_drawdown
+                st.session_state['ml_backtest_df'] = backtest_df
+                st.session_state['ml_instrument_name'] = instrument_name
+
+            # Display historical data chart before training
+            with col2:
+                if 'ml_predictions' not in st.session_state or st.session_state['ml_instrument_name'] != instrument_name:
+                     st.subheader(f"Historical Data for {instrument_name}")
+                     st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
+        else:
+            st.warning(f"Could not load sufficient data for {instrument_name}.")
+
+    # Display results in the second column after they are computed
+    if 'ml_predictions' in st.session_state:
+        with col2:
+            st.subheader("Multi-Horizon Forecast")
+            if st.session_state['ml_predictions']:
+                forecast_df = pd.DataFrame.from_dict(st.session_state['ml_predictions'], orient='index', columns=['Predicted Price'])
+                forecast_df.index.name = "Forecast Horizon"
+                st.dataframe(forecast_df.style.format("₹{:.2f}"))
             else:
-                st.warning(f"Could not load sufficient data for {instrument_name}.")
-    else:
-        st.warning("Forecasting models can only be run when the market is open (9:15 AM - 3:30 PM IST on weekdays).")
-        st.info("This ensures that the model has access to the latest live data for the most accurate short-term predictions.")
+                st.error("Model training failed to produce forecasts.")
+            
+            st.subheader("Model Performance (Based on 1-Day Close)")
+            if st.session_state['ml_accuracy'] is not None:
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Model Accuracy", f"{st.session_state['ml_accuracy']:.2f}%")
+                c2.metric("RMSE", f"{st.session_state['ml_rmse']:.2f}")
+                c3.metric("Max Drawdown", f"{st.session_state['ml_max_drawdown']*100:.2f}%")
+                
+                st.subheader("Backtest: Predicted vs. Actual Prices")
+                backtest_df = st.session_state['ml_backtest_df']
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
+                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
+                template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+                fig.update_layout(title=f"{st.session_state['ml_instrument_name']} 1-Day Backtest Results", yaxis_title='Price (INR)', template=template)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.error("Could not generate performance metrics.")
+
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
@@ -852,8 +877,18 @@ def main():
         st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], key='mode_selector')
 
         st.sidebar.header("Live Data")
+        
+        # Determine the current page selection
+        if st.session_state.terminal_mode == "Intraday":
+            pages = {"Dashboard": page_dashboard, "Advanced Charting": page_advanced_charting, "Alpha Engine": page_alpha_engine, "Portfolio & Risk": page_portfolio_and_risk, "Forecasting & ML": page_forecasting_ml, "AI Assistant": page_ai_assistant}
+        else: # Options Mode
+            pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
+        
+        st.sidebar.header("Navigation")
+        selection = st.sidebar.radio("Go to", list(pages.keys()), key='nav_selector')
+        
         # Only show auto-refresh toggle if not on the ML page
-        if st.session_state.get('page_selection') != "Forecasting & ML":
+        if selection != "Forecasting & ML":
             auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
             if auto_refresh:
                 refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=5, disabled=not auto_refresh)
@@ -865,18 +900,12 @@ def main():
                 price, product, transaction_type = st.number_input("Price", min_value=0.01) if order_type == "LIMIT" else 0, st.radio("Product", ["MIS", "CNC"]), st.radio("Transaction", ["BUY", "SELL"])
                 if st.form_submit_button("Submit Order") and symbol: place_order(symbol, qty, order_type, transaction_type, product, price if price > 0 else None)
         
-        if st.session_state.terminal_mode == "Intraday":
-            pages = {"Dashboard": page_dashboard, "Advanced Charting": page_advanced_charting, "Alpha Engine": page_alpha_engine, "Portfolio & Risk": page_portfolio_and_risk, "Forecasting & ML": page_forecasting_ml, "AI Assistant": page_ai_assistant}
-        else: # Options Mode
-            pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
-        st.sidebar.header("Navigation")
-        selection = st.sidebar.radio("Go to", list(pages.keys()), key='nav_selector')
-        st.session_state['page_selection'] = selection # Store page selection
-        
         pages[selection]()
         
         if st.sidebar.button("Logout"):
-            for key in ['access_token', 'kite', 'profile', 'messages', 'journal', 'broker', 'page_selection']:
+            keys_to_clear = ['access_token', 'kite', 'profile', 'messages', 'journal', 'broker', 
+                             'ml_predictions', 'ml_accuracy', 'ml_rmse', 'ml_max_drawdown', 'ml_backtest_df', 'ml_instrument_name']
+            for key in keys_to_clear:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
     else:
