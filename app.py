@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import pandas_ta as ta
@@ -29,40 +30,40 @@ from urllib.parse import quote
 st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 
 # --- ML Data Configuration ---
-# CORRECTED: Maps user-friendly names to correct GitHub URLs and broker-specific details
+# Maps user-friendly names to GitHub URLs and broker-specific details
 ML_DATA_SOURCES = {
     "NIFTY 50": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%2050.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY_50.csv",
         "tradingsymbol": "NIFTY 50",
         "exchange": "NFO"
     },
     "BANK NIFTY": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/BANK%20NIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANK_NIFTY.csv",
         "tradingsymbol": "BANKNIFTY",
         "exchange": "NFO"
     },
     "NIFTY Financial Services": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%20Financial%20Services.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
         "tradingsymbol": "FINNIFTY",
         "exchange": "NFO"
     },
     "GOLD": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/GOLD.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/GOLD.csv",
         "tradingsymbol": "GOLDM",
         "exchange": "MCX"
     },
     "USDINR": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/USDINR.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/USDINR.csv",
         "tradingsymbol": "USDINR",
         "exchange": "CDS"
     },
     "SENSEX": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/SENSEX.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     },
     "S&P 500": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/S%26P%20500.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     }
@@ -116,28 +117,9 @@ def get_broker_client():
 # --- Market Status and Header ---
 @st.cache_data(ttl=3600)
 def get_market_holidays(year):
-    """
-    Returns a list of NSE market holidays for a given year.
-    NOTE: This list should be updated annually for future years.
-    """
-    holidays_by_year = {
-        2024: [
-            '2024-01-22', '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29',
-            '2024-04-11', '2024-04-17', '2024-05-01', '2024-05-20', '2024-06-17',
-            '2024-07-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15',
-            '2024-12-25'
-        ],
-        2025: [
-            '2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18',
-            '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05',
-            '2025-12-25'
-        ],
-        2026: [
-            '2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01',
-            '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25'
-        ]
-    }
-    return holidays_by_year.get(year, []) # Return list for the year, or empty list if not found
+    if year == 2025: return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25']
+    if year == 2026: return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
+    return []
 
 def get_market_status():
     ist = pytz.timezone('Asia/Kolkata')
@@ -264,17 +246,11 @@ def get_options_chain(underlying, instrument_df, expiry_date=None, exchange=None
         if not exchange:
             exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'CDS' if underlying == 'USDINR' else 'NFO'
         
-        # Correctly map underlying name for LTP fetching
-        index_map = {"NIFTY": "NIFTY 50", "BANKNIFTY": "BANK NIFTY", "FINNIFTY": "FINNIFTY"}
-        ltp_symbol = index_map.get(underlying, underlying)
-        ltp_exchange = "NSE" if exchange == "NFO" else exchange
-
-        underlying_instrument_name = f"{ltp_exchange}:{ltp_symbol}"
+        underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else f"{exchange}:{underlying}"
         try:
             ltp_data = client.ltp(underlying_instrument_name)
             underlying_ltp = ltp_data[underlying_instrument_name]['last_price']
-        except Exception: 
-            underlying_ltp = 0.0
+        except Exception: underlying_ltp = 0.0
 
         options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
         if options.empty: return pd.DataFrame(), None, underlying_ltp, []
@@ -458,12 +434,6 @@ def train_xgboost_model(_data, ticker):
         X = df[features]
         y = df[target_name]
 
-        # Ensure all feature columns are numeric before splitting
-        for col in X.columns:
-            X[col] = pd.to_numeric(X[col], errors='coerce')
-        X.dropna(inplace=True)
-        y = y[X.index] # Align target with features after dropping NaNs
-
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 
         scaler = MinMaxScaler()
@@ -553,13 +523,8 @@ def load_and_combine_data(instrument_name):
         hist_df = pd.read_csv(source_info['github_url'])
         hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed') # FIX: Use mixed format parsing
         hist_df.set_index('Date', inplace=True)
-        # Standardize column names and convert to numeric, coercing errors
+        # Standardize column names
         hist_df.columns = [col.lower().replace(' ', '_').replace('%', 'pct') for col in hist_df.columns]
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            if col in hist_df.columns:
-                 hist_df[col] = pd.to_numeric(hist_df[col].astype(str).str.replace(',', ''), errors='coerce')
-        hist_df.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
-
     except Exception as e:
         st.error(f"Failed to load historical data from GitHub. Please check the URL and your connection. Error: {e}")
         return pd.DataFrame()
@@ -910,7 +875,7 @@ def page_ai_assistant():
 # ==============================================================================
 
 def main():
-    if 'theme' not in st.session_state: st.session_state.theme = 'Light'
+    if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
     set_blockvista_style(st.session_state.theme)
 
