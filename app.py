@@ -64,7 +64,7 @@ ML_DATA_SOURCES = {
         "exchange": None
     },
     "S&P 500": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20S&P%20500.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20S%26P%20500.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     }
@@ -486,7 +486,7 @@ def load_and_combine_data(instrument_name):
         # Standardize column names
         hist_df.columns = [col.lower().replace(' ', '_').replace('%', 'pct') for col in hist_df.columns]
     except Exception as e:
-        st.error(f"Failed to load historical data from GitHub: {e}")
+        st.error(f"Failed to load historical data from GitHub. Please check the URL and your connection. Error: {e}")
         return pd.DataFrame()
 
     # 2. Fetch recent live data if broker is connected and symbol exists
@@ -944,4 +944,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"
 
