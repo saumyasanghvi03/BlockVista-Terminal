@@ -737,55 +737,61 @@ def page_forecasting_ml():
     st.title("📈 Advanced ML Forecasting")
     st.info("Train advanced models using a hybrid of historical and live data to forecast the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
 
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.subheader("Model Configuration")
-        
-        instrument_name = st.selectbox("Select an Instrument for Forecasting", list(ML_DATA_SOURCES.keys()))
-        model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
-        
-        with st.spinner(f"Loading data for {instrument_name}..."):
-            data = load_and_combine_data(instrument_name)
+    market_status = get_market_status()
 
-        if data is not None and not data.empty:
-            if st.button(f"Train {model_choice} Model & Forecast {instrument_name}"):
-                with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                    predictions, accuracy, rmse, max_drawdown, backtest_df = (
-                        train_xgboost_model(data, instrument_name) if model_choice == "XGBoost" 
-                        else train_arima_model(data)
-                    )
-                
-                with col2:
-                    st.subheader("Multi-Horizon Forecast")
-                    if predictions:
-                        forecast_df = pd.DataFrame.from_dict(predictions, orient='index', columns=['Predicted Price'])
-                        forecast_df.index.name = "Forecast Horizon"
-                        st.dataframe(forecast_df.style.format("₹{:.2f}"))
-                    else:
-                        st.error("Model training failed to produce forecasts.")
+    if market_status['status'] == 'Open':
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.subheader("Model Configuration")
+            
+            instrument_name = st.selectbox("Select an Instrument for Forecasting", list(ML_DATA_SOURCES.keys()))
+            model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
+            
+            with st.spinner(f"Loading data for {instrument_name}..."):
+                data = load_and_combine_data(instrument_name)
+
+            if data is not None and not data.empty:
+                if st.button(f"Train {model_choice} Model & Forecast {instrument_name}"):
+                    with st.spinner(f"Training {model_choice} model... This may take a moment."):
+                        predictions, accuracy, rmse, max_drawdown, backtest_df = (
+                            train_xgboost_model(data, instrument_name) if model_choice == "XGBoost" 
+                            else train_arima_model(data)
+                        )
                     
-                    st.subheader("Model Performance (Based on 1-Day Close)")
-                    if accuracy is not None:
-                        c1, c2, c3 = st.columns(3)
-                        c1.metric("Model Accuracy", f"{accuracy:.2f}%")
-                        c2.metric("RMSE", f"{rmse:.2f}")
-                        c3.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
+                    with col2:
+                        st.subheader("Multi-Horizon Forecast")
+                        if predictions:
+                            forecast_df = pd.DataFrame.from_dict(predictions, orient='index', columns=['Predicted Price'])
+                            forecast_df.index.name = "Forecast Horizon"
+                            st.dataframe(forecast_df.style.format("₹{:.2f}"))
+                        else:
+                            st.error("Model training failed to produce forecasts.")
                         
-                        st.subheader("Backtest: Predicted vs. Actual Prices")
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
-                        fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                        template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
-                        fig.update_layout(title=f'{instrument_name} 1-Day Backtest Results', yaxis_title='Price (INR)', template=template)
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.error("Could not generate performance metrics.")
+                        st.subheader("Model Performance (Based on 1-Day Close)")
+                        if accuracy is not None:
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("Model Accuracy", f"{accuracy:.2f}%")
+                            c2.metric("RMSE", f"{rmse:.2f}")
+                            c3.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
+                            
+                            st.subheader("Backtest: Predicted vs. Actual Prices")
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
+                            fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
+                            template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+                            fig.update_layout(title=f'{instrument_name} 1-Day Backtest Results', yaxis_title='Price (INR)', template=template)
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.error("Could not generate performance metrics.")
+                else:
+                    with col2:
+                        st.subheader(f"Historical Data for {instrument_name}")
+                        st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
             else:
-                with col2:
-                    st.subheader(f"Historical Data for {instrument_name}")
-                    st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
-        else:
-            st.warning(f"Could not load sufficient data for {instrument_name}.")
+                st.warning(f"Could not load sufficient data for {instrument_name}.")
+    else:
+        st.warning("Forecasting models can only be run when the market is open (9:15 AM - 3:30 PM IST on weekdays).")
+        st.info("This ensures that the model has access to the latest live data for the most accurate short-term predictions.")
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
@@ -854,9 +860,13 @@ def main():
         st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], key='mode_selector')
 
         st.sidebar.header("Live Data")
-        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=5, disabled=not auto_refresh)
-        if auto_refresh: st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
+        # Only show auto-refresh toggle if not on the ML page
+        if st.session_state.get('page_selection') != "Forecasting & ML":
+            auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+            if auto_refresh:
+                refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=5, disabled=not auto_refresh)
+                st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
+        
         with st.sidebar.expander("🚀 Place Order", expanded=False):
             with st.form("order_form"):
                 symbol, qty, order_type = st.text_input("Symbol"), st.number_input("Quantity", min_value=1, step=1), st.radio("Order Type", ["MARKET", "LIMIT"])
@@ -869,11 +879,12 @@ def main():
             pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
         st.sidebar.header("Navigation")
         selection = st.sidebar.radio("Go to", list(pages.keys()), key='nav_selector')
+        st.session_state['page_selection'] = selection # Store page selection
         
         pages[selection]()
         
         if st.sidebar.button("Logout"):
-            for key in ['access_token', 'kite', 'profile', 'messages', 'journal', 'broker']:
+            for key in ['access_token', 'kite', 'profile', 'messages', 'journal', 'broker', 'page_selection']:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
     else:
