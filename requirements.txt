@@ -1,3 +1,4 @@
+# requirements.txt
 streamlit
 pandas
 pandas-ta
@@ -10,3 +11,4 @@ kiteconnect
 streamlit-autorefresh
 scikit-learn
 statsmodels
+google-generativeai
