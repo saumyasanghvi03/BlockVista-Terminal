@@ -540,7 +540,7 @@ def main():
         st.sidebar.header("Navigation")
         selection = st.sidebar.radio("Go to", list(pages.keys()))
         
-        # FIX: Pass terminal_mode only to the dashboard page
+        # FIX: Call the dashboard page with the correct argument
         if selection == "Dashboard":
             pages[selection](st.session_state.terminal_mode)
         else:
