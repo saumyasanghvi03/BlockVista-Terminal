@@ -80,7 +80,7 @@ def set_blockvista_style(theme='Dark'):
                 .stSidebar {{ background-color: #010409; }}
                 .stSidebar * {{ color: {light_text_color}; }}
                 .stMetric {{ border-left: 3px solid #58a6ff; padding-left: 10px; }}
-                /* Make input text readable */
+                /* Make input text readable in Dark Mode */
                 .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div, .stNumberInput input {{
                     color: #FFFFFF !important;
                     -webkit-text-fill-color: #FFFFFF !important;
@@ -94,6 +94,11 @@ def set_blockvista_style(theme='Dark'):
                 .stSidebar {{ background-color: #f0f2f6; }}
                 .stMetric {{ border-left: 3px solid #1c64f2; padding-left: 10px; }}
                 h1, h2, h3, h4, h5, h6 {{ color: #1c64f2; }}
+                /* Ensure input text is readable in Light Mode */
+                .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div, .stNumberInput input {{
+                    color: #000000 !important;
+                    -webkit-text-fill-color: #000000 !important;
+                }}
             </style>
         """, unsafe_allow_html=True)
 
