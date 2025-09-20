@@ -10,9 +10,9 @@ import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 import xgboost as xgb
+from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -50,12 +50,12 @@ def get_market_holidays(year):
     """Returns a list of NSE market holidays for the given year."""
     if year == 2025:
         # Source: NSE Website (Illustrative list)
-        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18',
-                '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05',
+        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', 
+                '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', 
                 '2025-12-25']
     if year == 2026:
         # Placeholder for 2026 holidays
-        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01',
+        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', 
                 '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
     return []
 
@@ -65,9 +65,9 @@ def get_market_status():
     now = datetime.now(ist)
     market_open_time = time(9, 15)
     market_close_time = time(15, 30)
-
+    
     holidays = get_market_holidays(now.year)
-
+    
     if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays:
         return {"status": "Closed", "color": "red"}
     if market_open_time <= now.time() <= market_close_time:
@@ -81,7 +81,7 @@ def display_header():
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h2 style="margin: 0;">BlockVista Terminal</h2>
             <div style="text-align: right;">
-                <span style="margin: 0;">India | Market Status:
+                <span style="margin: 0;">India | Market Status: 
                     <span style="color:{status_info['color']}; font-weight: bold;">{status_info['status']}</span>
                 </span>
             </div>
@@ -225,8 +225,22 @@ def train_xgboost_model(_data):
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
     reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse')
     reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
-    df['prediction'], mse = reg.predict(df[features]), mean_squared_error(df[target], df['prediction'])
-    return reg, mse
+    preds = reg.predict(X_test)
+    mape = mean_absolute_percentage_error(y_test, preds) * 100
+    last_features = df[features].iloc[-1]
+    future_pred = reg.predict(pd.DataFrame([last_features]))[0]
+    return future_pred, mape
+
+@st.cache_data
+def train_arima_model(_data):
+    df = _data['close']
+    train_data, test_data = df[:-30], df[-30:]
+    model = ARIMA(train_data, order=(5,1,0))
+    model_fit = model.fit()
+    preds = model_fit.forecast(steps=30)
+    mape = mean_absolute_percentage_error(test_data, preds) * 100
+    future_pred = model_fit.forecast(steps=1).iloc[0]
+    return future_pred, mape
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T)) if sigma > 0 and T > 0 else 0
@@ -272,14 +286,8 @@ def page_dashboard():
 
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting")
-    # CORRECTED SECTION
-    instrument_df = get_instrument_df(st.session_state.kite)
-    st.sidebar.header("Chart Controls")
-    
-    ticker = st.sidebar.text_input("Select Ticker", "RELIANCE")
-    period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4)
-    interval = st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2)
-    chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
+    instrument_df, st.sidebar.header("Chart Controls") = get_instrument_df(st.session_state.kite), None
+    ticker, period, interval, chart_type = st.sidebar.text_input("Select Ticker", "RELIANCE"), st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4), st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2), st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
     token = get_instrument_token(ticker, instrument_df)
     if token:
         data = get_historical_data(token, interval, period)
@@ -305,7 +313,7 @@ def page_options_hub():
             option_selection = st.selectbox("Select an option to analyze", chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist())
             option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
             strike_price, option_type, ltp = option_details['strike'], option_details['instrument_type'].lower(), chain_df[chain_df['CALL']==option_selection]['CALL LTP'].iloc[0] if option_type=='ce' else chain_df[chain_df['PUT']==option_selection]['PUT LTP'].iloc[0]
-            days_to_expiry, T, r = (expiry - datetime.now().date()).days, (expiry - datetime.now().date()).days / 365, 0.07
+            days_to_expiry, T, r = (expiry.date() - datetime.now().date()).days, (expiry.date() - datetime.now().date()).days / 365, 0.07
             iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
             if not np.isnan(iv):
                 greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
@@ -346,22 +354,28 @@ def page_portfolio_and_risk():
             st.info(text); st.caption(f"Logged: {ts.strftime('%d %b %H:%M')}")
 
 def page_forecasting_ml():
-    display_header(); st.title("📈 Advanced ML Forecasting (XGBoost)")
-    st.info("This tool trains an XGBoost model on historical data to predict the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
+    display_header(); st.title("📈 Advanced ML Forecasting")
+    st.info("Train advanced models on historical data to forecast the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
     instrument_df, ticker = get_instrument_df(st.session_state.kite), st.text_input("Enter a stock symbol to analyze", "TCS")
+    model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
+    
     token = get_instrument_token(ticker, instrument_df)
     if token:
-        data = get_historical_data(token, "day", "5y")
+        data = get_historical_data(token, "day", "5y" if model_choice == "XGBoost" else "1y")
         if not data.empty:
-            if st.button(f"Train XGBoost Model & Forecast {ticker}"):
-                with st.spinner("Training advanced model on 5 years of data..."):
-                    model, mse = train_xgboost_model(data)
-                    st.success(f"Model trained. Test Set MSE: {mse:.2f}")
-                    last_features = create_features(data.tail(10)).iloc[-1]
-                    features_for_pred = [col for col in last_features.index if col not in ['open', 'high', 'low', 'close', 'volume', 'target']]
-                    future_preds = model.predict(pd.DataFrame([last_features[features_for_pred]]))
-                    st.metric(f"Forecasted next closing price for {ticker}", f"₹{future_preds[0]:.2f}")
-            st.subheader("Historical Data for Training"); st.plotly_chart(create_chart(data.tail(252), ticker), use_container_width=True)
+            if st.button(f"Train {model_choice} Model & Forecast {ticker}"):
+                with st.spinner(f"Training {model_choice} model... This may take a moment."):
+                    if model_choice == "XGBoost":
+                        prediction, accuracy = train_xgboost_model(data)
+                    else: # ARIMA
+                        prediction, accuracy = train_arima_model(data)
+                    
+                    st.success(f"Model trained successfully!")
+                    col1, col2 = st.columns(2)
+                    col1.metric(f"Forecasted Next Day's Close for {ticker}", f"₹{prediction:,.2f}")
+                    col2.metric("Model Accuracy (MAPE on Test Set)", f"{accuracy:.2f}%")
+            
+            st.subheader("Historical Data Used for Training"); st.plotly_chart(create_chart(data.tail(252), ticker), use_container_width=True)
         else: st.warning("Could not fetch sufficient data for training.")
     else: st.error("Ticker not found.")
 
