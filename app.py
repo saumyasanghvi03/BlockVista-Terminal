@@ -80,6 +80,11 @@ def set_blockvista_style(theme='Dark'):
                 .stSidebar {{ background-color: #010409; }}
                 .stSidebar * {{ color: {light_text_color}; }}
                 .stMetric {{ border-left: 3px solid #58a6ff; padding-left: 10px; }}
+                /* Make input text readable */
+                .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div, .stNumberInput input {{
+                    color: #FFFFFF !important;
+                    -webkit-text-fill-color: #FFFFFF !important;
+                }}
             </style>
         """, unsafe_allow_html=True)
     else: # Light Theme
@@ -894,12 +899,11 @@ def main():
         st.sidebar.header("Navigation")
         selection = st.sidebar.radio("Go to", list(pages.keys()), key='nav_selector')
         
-        # Only show auto-refresh toggle if not on the ML page
-        if selection != "Forecasting & ML":
-            auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-            if auto_refresh:
-                refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=5, disabled=not auto_refresh)
-                st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
+        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=5, disabled=not auto_refresh)
+        
+        if auto_refresh and selection != "Forecasting & ML":
+            st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
         
         with st.sidebar.expander("🚀 Place Order", expanded=False):
             with st.form("order_form"):
