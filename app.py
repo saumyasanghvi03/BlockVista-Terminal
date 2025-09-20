@@ -44,7 +44,7 @@ ML_DATA_SOURCES = {
         "exchange": "NFO"
     },
     "NIFTY Financial Services": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY%20Financial%20Services.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
         "tradingsymbol": "FINNIFTY",
         "exchange": "NFO"
     },
