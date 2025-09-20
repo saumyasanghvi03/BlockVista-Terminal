@@ -20,7 +20,6 @@ from scipy.optimize import newton
 from tabulate import tabulate
 import os
 import praw
-import tweepy
 from time import mktime
 from urllib.parse import quote
 
@@ -333,13 +332,6 @@ def fetch_social_media_sentiment(query):
         for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(query, limit=25):
             results.append({"source": "Reddit", "text": submission.title, "sentiment": analyzer.polarity_scores(submission.title)['compound']})
     except Exception as e: st.toast(f"Could not connect to Reddit: {e}", icon="⚠️")
-    try:
-        client = tweepy.Client(bearer_token=st.secrets["TWITTER_BEARER_TOKEN"])
-        response = client.search_recent_tweets(f'"{query}" lang:en -is:retweet', max_results=25)
-        if response.data:
-            for tweet in response.data:
-                results.append({"source": "Twitter", "text": tweet.text, "sentiment": analyzer.polarity_scores(tweet.text)['compound']})
-    except Exception as e: st.toast(f"Could not connect to Twitter: {e}", icon="⚠️")
     return pd.DataFrame(results)
 
 def create_features(df, ticker):
