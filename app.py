@@ -11,6 +11,7 @@ import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
+from sklearn.ensemble import RandomForestRegressor
 import xgboost as xgb
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
@@ -213,7 +214,6 @@ def fetch_and_analyze_news(query=None):
                 all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": analyzer.polarity_scores(entry.title)['compound']})
     return pd.DataFrame(all_news)
 
-# FIX: Removed caching from this function as it deals with non-serializable client objects
 def fetch_social_media_sentiment(query):
     analyzer, results = SentimentIntensityAnalyzer(), []
     try:
@@ -240,7 +240,7 @@ def create_features(df):
 def train_xgboost_model(_data):
     df = create_features(_data.copy())
     features, target = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']], 'close'
-    if len(df) < 50: return None, None, None, None, None # Not enough data to split
+    if len(df) < 50: return None, None, None, None, None
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
     reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse', learning_rate=0.01, max_depth=3, subsample=0.8, colsample_bytree=0.8)
     reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
@@ -347,6 +347,7 @@ def page_options_hub():
         underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "GOLDM", "SILVERM", "CRUDEOIL", "NATURALGAS", "USDINR"])
         chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
         
+        selected_expiry = expiry
         if available_expiries:
             selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
             if selected_expiry != expiry:
@@ -446,31 +447,34 @@ def page_forecasting_ml():
         if token:
             data = get_historical_data(token, "day", "5y" if model_choice == "XGBoost" else "1y")
             if not data.empty:
-                with st.spinner(f"Training {model_choice} model automatically..."):
-                    prediction, accuracy, rmse, max_drawdown, backtest_df = train_xgboost_model(data) if model_choice == "XGBoost" else train_arima_model(data)
-                
-                with col2:
-                    st.subheader("Model Performance")
-                    if prediction is not None:
-                        c1, c2, c3, c4 = st.columns(4)
-                        c1.metric(f"Forecasted Next Close", f"₹{prediction:,.2f}")
-                        c2.metric("Model Accuracy", f"{accuracy:.2f}%")
-                        c3.metric("RMSE", f"{rmse:.2f}")
-                        c4.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
-                        if accuracy < 85: st.warning("Note: Model accuracy is below 85%. Financial markets are highly unpredictable.")
-                    else:
-                        st.error("Model training failed. Could not generate performance metrics.")
+                if st.button(f"Train {model_choice} Model & Forecast {ticker}"):
+                    with st.spinner(f"Training {model_choice} model..."):
+                        prediction, accuracy, rmse, max_drawdown, backtest_df = train_xgboost_model(data) if model_choice == "XGBoost" else train_arima_model(data)
+                    
+                    with col2:
+                        st.subheader("Model Performance")
+                        if prediction is not None:
+                            c1, c2, c3, c4 = st.columns(4)
+                            c1.metric(f"Forecasted Next Close", f"₹{prediction:,.2f}")
+                            c2.metric("Model Accuracy", f"{accuracy:.2f}%")
+                            c3.metric("RMSE", f"{rmse:.2f}")
+                            c4.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
+                            if accuracy < 85: st.warning("Note: Model accuracy is below 85%. Financial markets are highly unpredictable.")
+                        else:
+                            st.error("Model training failed. Could not generate performance metrics.")
 
-                st.subheader("Backtest: Predicted vs. Actual Prices")
-                if backtest_df is not None:
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
-                    fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                    template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
-                    fig.update_layout(title=f'{ticker} Backtest Results', yaxis_title='Price (INR)', template=template)
-                    st.plotly_chart(fig, use_container_width=True)
-            else: st.warning("Could not fetch sufficient data for training.")
-        else: st.error("Ticker not found.")
+                    st.subheader("Backtest: Predicted vs. Actual Prices")
+                    if backtest_df is not None:
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
+                        fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
+                        template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+                        fig.update_layout(title=f'{ticker} Backtest Results', yaxis_title='Price (INR)', template=template)
+                        st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.subheader("Historical Data for Training"); st.plotly_chart(create_chart(data.tail(252), ticker), use_container_width=True)
+        else: st.warning("Could not fetch sufficient data for training.")
+    else: st.error("Ticker not found.")
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
@@ -535,8 +539,7 @@ def main():
             pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
         st.sidebar.header("Navigation")
         selection = st.sidebar.radio("Go to", list(pages.keys()))
-        if selection == "Dashboard": pages[selection](st.session_state.terminal_mode)
-        else: pages[selection]()
+        pages[selection]()
         
         if st.sidebar.button("Logout"):
             for key in ['access_token', 'kite', 'profile']:
