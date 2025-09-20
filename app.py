@@ -53,6 +53,17 @@ def set_blockvista_style(theme='Dark'):
 # 2. HELPER FUNCTIONS
 # ==============================================================================
 
+# --- Broker Client Abstraction ---
+def get_broker_client():
+    """Gets the appropriate broker client from session state."""
+    broker = st.session_state.get('broker')
+    if broker == "Zerodha":
+        return st.session_state.get('kite')
+    # Add other broker client retrievals here
+    # elif broker == "Angelone":
+    #     return st.session_state.get('smartapi_client')
+    return None
+
 # --- Market Status and Header ---
 @st.cache_data(ttl=3600)
 def get_market_holidays(year):
@@ -96,116 +107,151 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
 
-# --- Kite Connect API Functions ---
+# --- Broker API Functions ---
 @st.cache_resource(ttl=3600)
-def get_instrument_df(_kite):
-    kite = st.session_state.get('kite');
-    if not kite: return pd.DataFrame()
-    return pd.DataFrame(kite.instruments())
+def get_instrument_df():
+    client = get_broker_client()
+    if not client: return pd.DataFrame()
+
+    if st.session_state.broker == "Zerodha":
+        return pd.DataFrame(client.instruments())
+    # Add logic for other brokers here
+    else:
+        st.warning(f"Instrument list for {st.session_state.broker} not implemented.")
+        return pd.DataFrame()
 
 def get_instrument_token(symbol, instrument_df, exchange='NSE'):
+    if instrument_df.empty: return None
     match = instrument_df[(instrument_df['tradingsymbol'] == symbol.upper()) & (instrument_df['exchange'] == exchange)]
     if not match.empty: return match.iloc[0]['instrument_token']
     return None
 
 @st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period):
-    kite = st.session_state.get('kite')
-    if not kite or not instrument_token: return pd.DataFrame()
-    to_date, days_to_subtract = datetime.now().date(), {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
-    from_date = to_date - timedelta(days=days_to_subtract.get(period, 365))
-    try:
-        records = kite.historical_data(instrument_token, from_date, to_date, interval)
-        df = pd.DataFrame(records)
-        if df.empty: return df
-        df.set_index('date', inplace=True); df.index = pd.to_datetime(df.index)
-        df.ta.adx(append=True); df.ta.apo(append=True); df.ta.aroon(append=True); df.ta.atr(append=True); df.ta.bbands(append=True)
-        df.ta.cci(append=True); df.ta.chop(append=True); df.ta.cksp(append=True); df.ta.cmf(append=True); df.ta.coppock(append=True)
-        df.ta.ema(length=50, append=True); df.ta.ema(length=200, append=True); df.ta.fisher(append=True); df.ta.kst(append=True); df.ta.macd(append=True)
-        df.ta.mfi(append=True); df.ta.mom(append=True); df.ta.obv(append=True); df.ta.rsi(append=True); df.ta.stoch(append=True)
-        df.ta.supertrend(append=True); df.ta.willr(append=True)
-        return df
-    except Exception as e:
-        st.error(f"Kite API Error (Historical): {e}"); return pd.DataFrame()
+    client = get_broker_client()
+    if not client or not instrument_token: return pd.DataFrame()
+    
+    if st.session_state.broker == "Zerodha":
+        to_date, days_to_subtract = datetime.now().date(), {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
+        from_date = to_date - timedelta(days=days_to_subtract.get(period, 365))
+        try:
+            records = client.historical_data(instrument_token, from_date, to_date, interval)
+            df = pd.DataFrame(records)
+            if df.empty: return df
+            df.set_index('date', inplace=True); df.index = pd.to_datetime(df.index)
+            # Add technical indicators
+            df.ta.adx(append=True); df.ta.apo(append=True); df.ta.aroon(append=True); df.ta.atr(append=True); df.ta.bbands(append=True)
+            df.ta.cci(append=True); df.ta.chop(append=True); df.ta.cksp(append=True); df.ta.cmf(append=True); df.ta.coppock(append=True)
+            df.ta.ema(length=50, append=True); df.ta.ema(length=200, append=True); df.ta.fisher(append=True); df.ta.kst(append=True); df.ta.macd(append=True)
+            df.ta.mfi(append=True); df.ta.mom(append=True); df.ta.obv(append=True); df.ta.rsi(append=True); df.ta.stoch(append=True)
+            df.ta.supertrend(append=True); df.ta.willr(append=True)
+            return df
+        except Exception as e:
+            st.error(f"Kite API Error (Historical): {e}"); return pd.DataFrame()
+    else:
+        st.warning(f"Historical data for {st.session_state.broker} not implemented.")
+        return pd.DataFrame()
 
 @st.cache_data(ttl=5)
 def get_watchlist_data(symbols_with_tokens, exchange="NSE"):
-    kite = st.session_state.get('kite')
-    if not kite or not symbols_with_tokens: return pd.DataFrame()
-    instrument_names = [f"{exchange}:{item['symbol']}" for item in symbols_with_tokens]
-    try:
-        ltp_data, quotes, watchlist = kite.ltp(instrument_names), kite.quote(instrument_names), []
-        for item in symbols_with_tokens:
-            instrument = f"{exchange}:{item['symbol']}"
-            if instrument in ltp_data and instrument in quotes:
-                last_price, prev_close = ltp_data[instrument]['last_price'], quotes[instrument]['ohlc']['close']
-                change, pct_change = last_price - prev_close, (last_price - prev_close) / prev_close * 100 if prev_close != 0 else 0
-                watchlist.append({'Ticker': item['symbol'], 'Price': f"₹{last_price:,.2f}", 'Change': f"{change:,.2f}", 'Pct Change': f"{pct_change:.2f}"})
-        return pd.DataFrame(watchlist)
-    except Exception as e:
-        st.toast(f"Error fetching LTP: {e}", icon="⚠️"); return pd.DataFrame()
+    client = get_broker_client()
+    if not client or not symbols_with_tokens: return pd.DataFrame()
+
+    if st.session_state.broker == "Zerodha":
+        instrument_names = [f"{exchange}:{item['symbol']}" for item in symbols_with_tokens]
+        try:
+            ltp_data, quotes, watchlist = client.ltp(instrument_names), client.quote(instrument_names), []
+            for item in symbols_with_tokens:
+                instrument = f"{exchange}:{item['symbol']}"
+                if instrument in ltp_data and instrument in quotes:
+                    last_price, prev_close = ltp_data[instrument]['last_price'], quotes[instrument]['ohlc']['close']
+                    change, pct_change = last_price - prev_close, (last_price - prev_close) / prev_close * 100 if prev_close != 0 else 0
+                    watchlist.append({'Ticker': item['symbol'], 'Price': f"₹{last_price:,.2f}", 'Change': f"{change:,.2f}", 'Pct Change': f"{pct_change:.2f}"})
+            return pd.DataFrame(watchlist)
+        except Exception as e:
+            st.toast(f"Error fetching LTP: {e}", icon="⚠️"); return pd.DataFrame()
+    else:
+        st.warning(f"Watchlist for {st.session_state.broker} not implemented.")
+        return pd.DataFrame()
+
 
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df, expiry_date=None, exchange=None):
-    kite = st.session_state.get('kite')
-    if not kite: return pd.DataFrame(), None, 0.0, []
-    if not exchange:
-        exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'CDS' if underlying == 'USDINR' else 'NFO'
-    
-    underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else f"{exchange}:{underlying}"
-    try:
-        ltp_data = kite.ltp(underlying_instrument_name)
-        underlying_ltp = ltp_data[underlying_instrument_name]['last_price']
-    except Exception: underlying_ltp = 0.0
+    client = get_broker_client()
+    if not client: return pd.DataFrame(), None, 0.0, []
 
-    options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
-    if options.empty: return pd.DataFrame(), None, underlying_ltp, []
+    if st.session_state.broker == "Zerodha":
+        if not exchange:
+            exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'CDS' if underlying == 'USDINR' else 'NFO'
+        
+        underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else f"{exchange}:{underlying}"
+        try:
+            ltp_data = client.ltp(underlying_instrument_name)
+            underlying_ltp = ltp_data[underlying_instrument_name]['last_price']
+        except Exception: underlying_ltp = 0.0
 
-    # Expiry logic
-    expiries = sorted(pd.to_datetime(options['expiry'].unique()))
-    three_months_later = datetime.now() + timedelta(days=90)
-    available_expiries = [e for e in expiries if e.date() >= datetime.now().date() and e.date() <= three_months_later.date()]
+        options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
+        if options.empty: return pd.DataFrame(), None, underlying_ltp, []
 
-    if not expiry_date:
-        expiry_date = available_expiries[0] if available_expiries else None
-    
-    if not expiry_date: return pd.DataFrame(), None, underlying_ltp, available_expiries
+        expiries = sorted(pd.to_datetime(options['expiry'].unique()))
+        three_months_later = datetime.now() + timedelta(days=90)
+        available_expiries = [e for e in expiries if e.date() >= datetime.now().date() and e.date() <= three_months_later.date()]
 
-    chain_df = options[options['expiry'] == expiry_date].sort_values(by='strike')
-    ce_df, pe_df = chain_df[chain_df['instrument_type'] == 'CE'].copy(), chain_df[chain_df['instrument_type'] == 'PE'].copy()
-    instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
+        if not expiry_date: expiry_date = available_expiries[0] if available_expiries else None
+        if not expiry_date: return pd.DataFrame(), None, underlying_ltp, available_expiries
 
-    if not instruments_to_fetch: return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
-    
-    quotes = kite.quote(instruments_to_fetch)
-    ce_df['LTP'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
-    pe_df['LTP'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
-    final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP']], pe_df[['tradingsymbol', 'strike', 'LTP']], on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'})
-    return final_chain[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']], expiry_date, underlying_ltp, available_expiries
+        chain_df = options[options['expiry'] == expiry_date].sort_values(by='strike')
+        ce_df, pe_df = chain_df[chain_df['instrument_type'] == 'CE'].copy(), chain_df[chain_df['instrument_type'] == 'PE'].copy()
+        instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
+
+        if not instruments_to_fetch: return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
+        
+        quotes = client.quote(instruments_to_fetch)
+        ce_df['LTP'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
+        pe_df['LTP'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
+        final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP']], pe_df[['tradingsymbol', 'strike', 'LTP']], on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'})
+        return final_chain[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']], expiry_date, underlying_ltp, available_expiries
+    else:
+        st.warning(f"Options chain for {st.session_state.broker} not implemented.")
+        return pd.DataFrame(), None, 0.0, []
 
 @st.cache_data(ttl=10)
 def get_portfolio():
-    kite = st.session_state.get('kite')
-    if not kite: return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
-    try:
-        positions, holdings = kite.positions()['net'], kite.holdings()
-        positions_df, total_pnl = (pd.DataFrame(positions)[['tradingsymbol', 'quantity', 'average_price', 'last_price', 'pnl']], pd.DataFrame(positions)['pnl'].sum()) if positions else (pd.DataFrame(), 0.0)
-        holdings_df, total_investment = (pd.DataFrame(holdings)[['tradingsymbol', 'quantity', 'average_price', 'last_price', 'pnl']], (pd.DataFrame(holdings)['quantity'] * pd.DataFrame(holdings)['average_price']).sum()) if holdings else (pd.DataFrame(), 0.0)
-        return positions_df, holdings_df, total_pnl, total_investment
-    except Exception as e:
-        st.error(f"Kite API Error (Portfolio): {e}"); return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
+    client = get_broker_client()
+    if not client: return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
 
-def place_zerodha_order(symbol, quantity, order_type, transaction_type, product, price=None):
-    kite = st.session_state.get('kite')
-    try:
-        order_id = kite.place_order(tradingsymbol=symbol.upper(), exchange=kite.EXCHANGE_NSE, transaction_type=transaction_type, quantity=quantity, order_type=order_type, product=product, variety=kite.VARIETY_REGULAR, price=price)
-        st.toast(f"✅ Order placed successfully! ID: {order_id}", icon="🎉")
-        if 'order_history' not in st.session_state: st.session_state.order_history = []
-        st.session_state.order_history.insert(0, {"id": order_id, "symbol": symbol, "qty": quantity, "type": transaction_type, "status": "Success"})
-    except Exception as e:
-        st.toast(f"❌ Order failed: {e}", icon="🔥")
-        if 'order_history' not in st.session_state: st.session_state.order_history = []
-        st.session_state.order_history.insert(0, {"id": "N/A", "symbol": symbol, "qty": quantity, "type": transaction_type, "status": f"Failed: {e}"})
+    if st.session_state.broker == "Zerodha":
+        try:
+            positions, holdings = client.positions()['net'], client.holdings()
+            positions_df, total_pnl = (pd.DataFrame(positions)[['tradingsymbol', 'quantity', 'average_price', 'last_price', 'pnl']], pd.DataFrame(positions)['pnl'].sum()) if positions else (pd.DataFrame(), 0.0)
+            holdings_df, total_investment = (pd.DataFrame(holdings)[['tradingsymbol', 'quantity', 'average_price', 'last_price', 'pnl']], (pd.DataFrame(holdings)['quantity'] * pd.DataFrame(holdings)['average_price']).sum()) if holdings else (pd.DataFrame(), 0.0)
+            return positions_df, holdings_df, total_pnl, total_investment
+        except Exception as e:
+            st.error(f"Kite API Error (Portfolio): {e}"); return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
+    else:
+        st.warning(f"Portfolio for {st.session_state.broker} not implemented.")
+        return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
+
+
+def place_order(symbol, quantity, order_type, transaction_type, product, price=None):
+    client = get_broker_client()
+    if not client: 
+        st.error("Broker not connected.")
+        return
+
+    if st.session_state.broker == "Zerodha":
+        try:
+            order_id = client.place_order(tradingsymbol=symbol.upper(), exchange=client.EXCHANGE_NSE, transaction_type=transaction_type, quantity=quantity, order_type=order_type, product=product, variety=client.VARIETY_REGULAR, price=price)
+            st.toast(f"✅ Order placed successfully! ID: {order_id}", icon="🎉")
+            if 'order_history' not in st.session_state: st.session_state.order_history = []
+            st.session_state.order_history.insert(0, {"id": order_id, "symbol": symbol, "qty": quantity, "type": transaction_type, "status": "Success"})
+        except Exception as e:
+            st.toast(f"❌ Order failed: {e}", icon="🔥")
+            if 'order_history' not in st.session_state: st.session_state.order_history = []
+            st.session_state.order_history.insert(0, {"id": "N/A", "symbol": symbol, "qty": quantity, "type": transaction_type, "status": f"Failed: {e}"})
+    else:
+        st.warning(f"Order placement for {st.session_state.broker} not implemented.")
+
 
 # --- Analytics, ML, News & Greeks Functions ---
 @st.cache_data(ttl=900)
@@ -338,7 +384,7 @@ def get_greek_interpretations(greeks):
 def page_dashboard():
     display_header()
     st.title("Dashboard")
-    instrument_df = get_instrument_df(st.session_state.kite)
+    instrument_df = get_instrument_df()
     watchlist_symbols = ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']
     watchlist_tokens = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols]
     nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NFO')
@@ -364,7 +410,7 @@ def page_dashboard():
 
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting")
-    instrument_df = get_instrument_df(st.session_state.kite)
+    instrument_df = get_instrument_df()
     st.sidebar.header("Chart Controls")
     ticker, period, interval, chart_type = st.sidebar.text_input("Select Ticker", "RELIANCE"), st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4), st.sidebar.selectbox("Interval", ["5minute", "day", "week"], index=1), st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
     token = get_instrument_token(ticker, instrument_df)
@@ -434,7 +480,7 @@ def page_advanced_charting():
 
 def page_options_hub():
     display_header(); st.title("Options Hub")
-    instrument_df = get_instrument_df(st.session_state.kite)
+    instrument_df = get_instrument_df()
     
     col1, col2 = st.columns([1,2])
     with col1:
@@ -541,7 +587,7 @@ def page_forecasting_ml():
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("Model Configuration")
-        instrument_df = get_instrument_df(st.session_state.kite)
+        instrument_df = get_instrument_df()
         ticker = st.selectbox("Select a Stock for Forecasting", ['TCS', 'RELIANCE', 'INFY', 'HDFCBANK', 'ICICIBANK'])
         model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
         
@@ -596,8 +642,8 @@ def page_ai_assistant():
         with st.chat_message("assistant"):
             with st.spinner("Accessing data..."):
                 prompt_lower, response = prompt.lower(), "I can provide information on your holdings, positions, orders, funds, and current stock prices. Please ask a specific question."
-                kite = st.session_state.get('kite')
-                if not kite:
+                client = get_broker_client()
+                if not client:
                     response = "I am not connected to your broker. Please log in."
                 elif "holdings" in prompt_lower:
                     _, holdings_df, _, _ = get_portfolio()
@@ -606,15 +652,21 @@ def page_ai_assistant():
                     positions_df, _, total_pnl, _ = get_portfolio()
                     response = f"Here are your current positions. Your total P&L is ₹{total_pnl:,.2f}:\n```\n" + tabulate(positions_df, headers='keys', tablefmt='psql') + "\n```" if not positions_df.empty else "You have no open positions."
                 elif "orders" in prompt_lower:
-                    orders = kite.orders()
-                    response = "Here are your orders for the day:\n```\n" + tabulate(pd.DataFrame(orders), headers='keys', tablefmt='psql') + "\n```" if orders else "You have no orders for the day."
+                    if st.session_state.broker == "Zerodha":
+                        orders = client.orders()
+                        response = "Here are your orders for the day:\n```\n" + tabulate(pd.DataFrame(orders), headers='keys', tablefmt='psql') + "\n```" if orders else "You have no orders for the day."
+                    else:
+                        response = f"Fetching orders for {st.session_state.broker} is not yet implemented."
                 elif "funds" in prompt_lower or "margin" in prompt_lower:
-                    funds = kite.margins()
-                    response = f"Here are your available funds:\n- Equity: ₹{funds['equity']['available']['live_balance']:,.2f}\n- Commodity: ₹{funds['commodity']['available']['live_balance']:,.2f}"
+                    if st.session_state.broker == "Zerodha":
+                        funds = client.margins()
+                        response = f"Here are your available funds:\n- Equity: ₹{funds['equity']['available']['live_balance']:,.2f}\n- Commodity: ₹{funds['commodity']['available']['live_balance']:,.2f}"
+                    else:
+                        response = f"Fetching funds for {st.session_state.broker} is not yet implemented."
                 elif "price of" in prompt_lower or "ltp of" in prompt_lower:
                     try:
                         ticker = prompt.split(" of ")[-1].strip().upper()
-                        instrument_df = get_instrument_df(kite)
+                        instrument_df = get_instrument_df()
                         token = get_instrument_token(ticker, instrument_df)
                         if token:
                             ltp_data = get_watchlist_data([{'symbol': ticker, 'token': token}])
@@ -638,8 +690,9 @@ def main():
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
     set_blockvista_style(st.session_state.theme)
 
-    if 'kite' in st.session_state:
-        st.sidebar.title(f"Welcome {st.session_state.profile['user_name']}")
+    if 'profile' in st.session_state:
+        st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
+        st.sidebar.caption(f"Connected via {st.session_state.broker}")
         st.sidebar.header("Terminal Controls")
         st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], key='theme_selector')
         st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], key='mode_selector')
@@ -652,7 +705,7 @@ def main():
             with st.form("order_form"):
                 symbol, qty, order_type = st.text_input("Symbol"), st.number_input("Quantity", min_value=1, step=1), st.radio("Order Type", ["MARKET", "LIMIT"])
                 price, product, transaction_type = st.number_input("Price", min_value=0.01) if order_type == "LIMIT" else 0, st.radio("Product", ["MIS", "CNC"]), st.radio("Transaction", ["BUY", "SELL"])
-                if st.form_submit_button("Submit Order") and symbol: place_zerodha_order(symbol, qty, order_type, transaction_type, product, price if price > 0 else None)
+                if st.form_submit_button("Submit Order") and symbol: place_order(symbol, qty, order_type, transaction_type, product, price if price > 0 else None)
         
         if st.session_state.terminal_mode == "Intraday":
             pages = {"Dashboard": page_dashboard, "Advanced Charting": page_advanced_charting, "Alpha Engine": page_alpha_engine, "Portfolio & Risk": page_portfolio_and_risk, "Forecasting & ML": page_forecasting_ml, "AI Assistant": page_ai_assistant}
@@ -664,28 +717,49 @@ def main():
         pages[selection]()
         
         if st.sidebar.button("Logout"):
-            for key in ['access_token', 'kite', 'profile', 'messages', 'journal']:
+            for key in ['access_token', 'kite', 'profile', 'messages', 'journal', 'broker']:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
     else:
         st.title("BlockVista Terminal")
-        st.subheader("How are you today, User name?")
-        try:
-            api_key, api_secret = st.secrets["ZERODHA_API_KEY"], st.secrets["ZERODHA_API_SECRET"]
-        except (FileNotFoundError, KeyError):
-            st.error("Kite API credentials not found. Set ZERODHA_API_KEY and ZERODHA_API_SECRET in Streamlit secrets.")
-            st.stop()
-        kite, request_token = KiteConnect(api_key=api_key), st.query_params.get("request_token")
-        if request_token:
+        st.subheader("Broker Login")
+        
+        broker = st.selectbox("Select Your Broker", ["Zerodha", "Angelone", "Groww", "Motilal Oswal"])
+
+        if broker == "Zerodha":
             try:
-                data = kite.generate_session(request_token, api_secret=api_secret)
-                st.session_state.access_token = data["access_token"]
-                kite.set_access_token(st.session_state.access_token)
-                st.session_state.kite = kite
-                st.session_state.profile = kite.profile()
-                st.query_params.clear(); st.rerun()
-            except Exception as e: st.error(f"Authentication failed: {e}")
-        else: st.link_button("Login with Kite", kite.login_url())
+                api_key, api_secret = st.secrets["ZERODHA_API_KEY"], st.secrets["ZERODHA_API_SECRET"]
+            except (FileNotFoundError, KeyError):
+                st.error("Kite API credentials not found. Set ZERODHA_API_KEY and ZERODHA_API_SECRET in Streamlit secrets.")
+                st.stop()
+            
+            kite = KiteConnect(api_key=api_key)
+            request_token = st.query_params.get("request_token")
+
+            if request_token:
+                try:
+                    data = kite.generate_session(request_token, api_secret=api_secret)
+                    st.session_state.access_token = data["access_token"]
+                    kite.set_access_token(st.session_state.access_token)
+                    
+                    st.session_state.kite = kite
+                    st.session_state.profile = kite.profile()
+                    st.session_state.broker = "Zerodha"
+                    
+                    st.toast("Broker Login Successful!", icon="✅")
+                    st.query_params.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Authentication failed: {e}")
+            else:
+                st.link_button("Login with Zerodha Kite", kite.login_url())
+
+        elif broker in ["Angelone", "Groww", "Motilal Oswal"]:
+            st.info(f"{broker} integration is a work in progress.")
+            st.write(f"To enable {broker} login, you would need to add the respective API keys to your Streamlit secrets and implement their authentication flow here.")
+            if st.button(f"Login with {broker} (Placeholder)"):
+                st.warning("This button is a placeholder and does not initiate a real login.")
+
 
 if __name__ == "__main__":
     main()
