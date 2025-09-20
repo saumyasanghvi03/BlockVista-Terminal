@@ -38,37 +38,38 @@ ML_DATA_SOURCES = {
         "tradingsymbol": "NIFTY 50",
         "exchange": "NFO"
     },
-    "BANK NIFTY": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/BANKNIFTY.csv",
-        "tradingsymbol": "BANKNIFTY",
-        "exchange": "NFO"
-    },
-    "NIFTY Financial Services": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%20Financial%20Services.csv",
-        "tradingsymbol": "FINNIFTY",
-        "exchange": "NFO"
-    },
-    "GOLD": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/GOLD.csv",
-        "tradingsymbol": "GOLDM",
-        "exchange": "MCX"
-    },
-    "USDINR": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/USDINR.csv",
-        "tradingsymbol": "USDINR",
-        "exchange": "CDS"
-    },
-    "SENSEX": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/SENSEX.csv",
-        "tradingsymbol": None, # Not available on Zerodha for live data
-        "exchange": None
-    },
-    "S&P 500": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/SP500.csv",
-        "tradingsymbol": None, # Not available on Zerodha for live data
-        "exchange": None
-    }
+    "BANK NIFTY": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/BANKNIFTY.csv",
+        "tradingsymbol": "BANKNIFTY",
+        "exchange": "NFO"
+    },
+    "NIFTY Financial Services": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%20Financial%20Services.csv",
+        "tradingsymbol": "FINNIFTY",
+        "exchange": "NFO"
+    },
+    "GOLD": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/GOLD.csv",
+        "tradingsymbol": "GOLDM",
+        "exchange": "MCX"
+    },
+    "USDINR": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/USDINR.csv",
+        "tradingsymbol": "USDINR",
+        "exchange": "CDS"
+    },
+    "SENSEX": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/SENSEX.csv",
+        "tradingsymbol": None, # Not available on Zerodha for live data
+        "exchange": None
+    },
+    "S&P 500": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/SP500.csv",
+        "tradingsymbol": None, # Not available on Zerodha for live data
+        "exchange": None
+    }
 }
+
 
 def set_blockvista_style(theme='Dark'):
     """ Sets the dark or light theme for the BlockVista Terminal """
@@ -813,8 +814,8 @@ def page_forecasting_ml():
             # Display historical data chart before training
             with col2:
                 if 'ml_predictions' not in st.session_state or st.session_state['ml_instrument_name'] != instrument_name:
-                     st.subheader(f"Historical Data for {instrument_name}")
-                     st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
+                    st.subheader(f"Historical Data for {instrument_name}")
+                    st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
         else:
             st.warning(f"Could not load sufficient data for {instrument_name}.")
 
@@ -896,7 +897,7 @@ def page_ai_assistant():
                             response = f"I could not find the ticker symbol '{ticker}'. Please check the symbol and try again."
                     except (ValueError, IndexError): response = "Please specify a stock ticker, for example: 'price of RELIANCE'."
                 st.markdown(response)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+            st.session_state.messages.append({"role": "assistant", "content": response})
 
 # ==============================================================================
 # 4. MAIN APP LOGIC AND AUTHENTICATION
