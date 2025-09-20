@@ -33,37 +33,37 @@ st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 # Maps user-friendly names to GitHub URLs and broker-specific details
 ML_DATA_SOURCES = {
     "NIFTY 50": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20NIFTY%2050.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY_50.csv",
         "tradingsymbol": "NIFTY 50",
         "exchange": "NFO"
     },
     "BANK NIFTY": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20BANK%20NIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANK_NIFTY.csv",
         "tradingsymbol": "BANKNIFTY",
         "exchange": "NFO"
     },
     "NIFTY Financial Services": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20NIFTY%20Financial%20Services.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
         "tradingsymbol": "FINNIFTY",
         "exchange": "NFO"
     },
     "GOLD": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20GOLD.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/GOLD.csv",
         "tradingsymbol": "GOLDM",
         "exchange": "MCX"
     },
     "USDINR": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20USDINR.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/USDINR.csv",
         "tradingsymbol": "USDINR",
         "exchange": "CDS"
     },
     "SENSEX": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20SENSEX.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     },
     "S&P 500": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20S%26P%20500.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     }
@@ -895,26 +895,25 @@ def main():
 
         st.sidebar.header("Live Data")
         
-        # Determine the current page selection
-        if st.session_state.terminal_mode == "Intraday":
-            pages = {"Dashboard": page_dashboard, "Advanced Charting": page_advanced_charting, "Alpha Engine": page_alpha_engine, "Portfolio & Risk": page_portfolio_and_risk, "Forecasting & ML": page_forecasting_ml, "AI Assistant": page_ai_assistant}
-        else: # Options Mode
-            pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
-        
-        st.sidebar.header("Navigation")
-        selection = st.sidebar.radio("Go to", list(pages.keys()), key='nav_selector')
-        
         auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
         refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=5, disabled=not auto_refresh)
-        
-        if auto_refresh and selection != "Forecasting & ML":
-            st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
-        
+
         with st.sidebar.expander("🚀 Place Order", expanded=False):
             with st.form("order_form"):
                 symbol, qty, order_type = st.text_input("Symbol"), st.number_input("Quantity", min_value=1, step=1), st.radio("Order Type", ["MARKET", "LIMIT"])
                 price, product, transaction_type = st.number_input("Price", min_value=0.01) if order_type == "LIMIT" else 0, st.radio("Product", ["MIS", "CNC"]), st.radio("Transaction", ["BUY", "SELL"])
                 if st.form_submit_button("Submit Order") and symbol: place_order(symbol, qty, order_type, transaction_type, product, price if price > 0 else None)
+        
+        st.sidebar.header("Navigation")
+        if st.session_state.terminal_mode == "Intraday":
+            pages = {"Dashboard": page_dashboard, "Advanced Charting": page_advanced_charting, "Alpha Engine": page_alpha_engine, "Portfolio & Risk": page_portfolio_and_risk, "Forecasting & ML": page_forecasting_ml, "AI Assistant": page_ai_assistant}
+        else: # Options Mode
+            pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
+        
+        selection = st.sidebar.radio("Go to", list(pages.keys()), key='nav_selector')
+        
+        if auto_refresh and selection != "Forecasting & ML":
+            st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
         
         pages[selection]()
         
