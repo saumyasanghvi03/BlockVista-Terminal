@@ -285,10 +285,11 @@ def main():
         # --- LOGIN STATE ---
         st.subheader("Zerodha Kite Authentication")
         try:
-            api_key = st.secrets["KITE_API_KEY"]
-            api_secret = st.secrets["KITE_API_SECRET"]
+            # CORRECTED: Using the secret names you provided
+            api_key = st.secrets["ZERODHA_API_KEY"]
+            api_secret = st.secrets["ZERODHA_API_SECRET"]
         except (FileNotFoundError, KeyError):
-            st.error("Kite API credentials not found. Please create `.streamlit/secrets.toml`.")
+            st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
             st.stop()
         
         kite = KiteConnect(api_key=api_key)
