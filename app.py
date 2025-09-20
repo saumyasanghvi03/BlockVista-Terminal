@@ -204,17 +204,17 @@ def fetch_and_analyze_news(query=None):
                 all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": analyzer.polarity_scores(entry.title)['compound']})
     return pd.DataFrame(all_news)
 
-@st.cache_data(ttl=900)
-def fetch_social_media_sentiment(_query):
+def fetch_social_media_sentiment(query):
+    # This function is not cached to avoid issues with non-serializable API clients
     analyzer, results = SentimentIntensityAnalyzer(), []
     try:
         reddit = praw.Reddit(client_id=st.secrets["REDDIT_CLIENT_ID"], client_secret=st.secrets["REDDIT_CLIENT_SECRET"], user_agent=st.secrets["REDDIT_USER_AGENT"])
-        for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(_query, limit=25):
+        for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(query, limit=25):
             results.append({"source": "Reddit", "text": submission.title, "sentiment": analyzer.polarity_scores(submission.title)['compound']})
     except Exception as e: st.toast(f"Could not connect to Reddit: {e}", icon="⚠️")
     try:
         client = tweepy.Client(bearer_token=st.secrets["TWITTER_BEARER_TOKEN"])
-        response = client.search_recent_tweets(f'"{_query}" lang:en -is:retweet', max_results=25)
+        response = client.search_recent_tweets(f'"{query}" lang:en -is:retweet', max_results=25)
         if response.data:
             for tweet in response.data:
                 results.append({"source": "Twitter", "text": tweet.text, "sentiment": analyzer.polarity_scores(tweet.text)['compound']})
@@ -302,22 +302,18 @@ def interpret_indicators(df):
 # ==============================================================================
 # 3. PAGE DEFINITIONS
 # ==============================================================================
-def page_dashboard(terminal_mode):
-    display_header()
-    if terminal_mode == "Intraday":
-        st.title("Intraday Dashboard")
-        instrument_df, watchlist_symbols = get_instrument_df(st.session_state.kite), ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']
-        watchlist_tokens, nifty_token = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols], get_instrument_token('NIFTY 50', instrument_df, 'NFO')
-        watchlist_data, nifty_data, (_, _, total_pnl, total_investment) = get_watchlist_data(watchlist_tokens), get_historical_data(nifty_token, "5minute", "1d"), get_portfolio()
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.subheader("Live Watchlist"); st.dataframe(watchlist_data, use_container_width=True, hide_index=True)
-            st.subheader("Portfolio Overview"); st.metric("Total Investment", f"₹{total_investment:,.2f}"); st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}")
-        with col2:
-            st.subheader("NIFTY 50 Live Chart (5-min)");
-            if not nifty_data.empty: st.plotly_chart(create_chart(nifty_data.tail(75), "NIFTY 50"), use_container_width=True)
-    else: # Options Terminal
-        page_options_hub()
+def page_dashboard():
+    display_header(); st.title("Dashboard")
+    instrument_df, watchlist_symbols = get_instrument_df(st.session_state.kite), ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']
+    watchlist_tokens, nifty_token = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols], get_instrument_token('NIFTY 50', instrument_df, 'NFO')
+    watchlist_data, nifty_data, (_, _, total_pnl, total_investment) = get_watchlist_data(watchlist_tokens), get_historical_data(nifty_token, "5minute", "1d"), get_portfolio()
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.subheader("Live Watchlist"); st.dataframe(watchlist_data, use_container_width=True, hide_index=True)
+        st.subheader("Portfolio Overview"); st.metric("Total Investment", f"₹{total_investment:,.2f}"); st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}")
+    with col2:
+        st.subheader("NIFTY 50 Live Chart (5-min)");
+        if not nifty_data.empty: st.plotly_chart(create_chart(nifty_data.tail(75), "NIFTY 50"), use_container_width=True)
 
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting")
