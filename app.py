@@ -434,6 +434,12 @@ def train_xgboost_model(_data, ticker):
         X = df[features]
         y = df[target_name]
 
+        # Ensure all feature columns are numeric before splitting
+        for col in X.columns:
+            X[col] = pd.to_numeric(X[col], errors='coerce')
+        X.dropna(inplace=True)
+        y = y[X.index] # Align target with features after dropping NaNs
+
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 
         scaler = MinMaxScaler()
@@ -523,8 +529,13 @@ def load_and_combine_data(instrument_name):
         hist_df = pd.read_csv(source_info['github_url'])
         hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed') # FIX: Use mixed format parsing
         hist_df.set_index('Date', inplace=True)
-        # Standardize column names
+        # Standardize column names and convert to numeric, coercing errors
         hist_df.columns = [col.lower().replace(' ', '_').replace('%', 'pct') for col in hist_df.columns]
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col in hist_df.columns:
+                 hist_df[col] = pd.to_numeric(hist_df[col].astype(str).str.replace(',', ''), errors='coerce')
+        hist_df.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
+
     except Exception as e:
         st.error(f"Failed to load historical data from GitHub. Please check the URL and your connection. Error: {e}")
         return pd.DataFrame()
