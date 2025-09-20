@@ -26,33 +26,35 @@ import tweepy
 
 st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 
-def set_blockvista_style():
-    """ Sets the dark theme for the BlockVista Terminal """
-    st.markdown("""
-        <style>
-            .main .block-container {
-                padding-top: 2rem; padding-bottom: 2rem;
-                padding-left: 3rem; padding-right: 3rem;
-            }
-            .stMetric {
-                border-left: 3px solid #58a6ff; padding-left: 10px;
-            }
-        </style>
-    """, unsafe_allow_html=True)
-
-set_blockvista_style()
+def set_blockvista_style(theme='Dark'):
+    """ Sets the dark or light theme for the BlockVista Terminal """
+    if theme == 'Dark':
+        st.markdown("""
+            <style>
+                .main .block-container { background-color: #0d1117; color: #c9d1d9; }
+                .stSidebar { background-color: #010409; }
+                .stMetric { border-left: 3px solid #58a6ff; padding-left: 10px; }
+            </style>
+        """, unsafe_allow_html=True)
+    else: # Light Theme
+        st.markdown("""
+            <style>
+                .main .block-container { background-color: #ffffff; color: #000000; }
+                .stSidebar { background-color: #f0f2f6; }
+                .stMetric { border-left: 3px solid #1c64f2; padding-left: 10px; }
+                h1, h2, h3, h4, h5, h6 { color: #1c64f2; }
+            </style>
+        """, unsafe_allow_html=True)
 
 # ==============================================================================
 # 2. HELPER FUNCTIONS (CHARTS, KITE API, ML, NEWS, AI, GREEKS, MARKET STATUS)
 # ==============================================================================
 
 # --- Market Status and Header ---
-@st.cache_data(ttl=3600) # Cache holidays for 1 hour
+@st.cache_data(ttl=3600)
 def get_market_holidays(year):
-    if year == 2025:
-        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25']
-    if year == 2026:
-        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
+    if year == 2025: return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25']
+    if year == 2026: return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
     return []
 
 def get_market_status():
@@ -77,20 +79,18 @@ def display_header():
 # --- Charting Functions ---
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
     fig = go.Figure()
-    if df.empty: return fig # Return empty figure if no data
+    if df.empty: return fig
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(df['open'], df['high'], df['low'], df['close'])
         fig.add_trace(go.Candlestick(x=ha_df.index, open=ha_df['HA_open'], high=ha_df['HA_high'], low=ha_df['HA_low'], close=ha_df['HA_close'], name='Heikin-Ashi'))
-    elif chart_type == 'Line':
-        fig.add_trace(go.Scatter(x=df.index, y=df['close'], mode='lines', name='Line'))
-    elif chart_type == 'Bar':
-        fig.add_trace(go.Ohlc(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Bar'))
-    else: # Candlestick
-        fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Candlestick'))
+    elif chart_type == 'Line': fig.add_trace(go.Scatter(x=df.index, y=df['close'], mode='lines', name='Line'))
+    elif chart_type == 'Bar': fig.add_trace(go.Ohlc(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Bar'))
+    else: fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Candlestick'))
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBL_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), name='Lower Band'))
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBU_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), fill='tonexty', fillcolor='rgba(135, 206, 250, 0.1)', name='Upper Band'))
     if forecast_df is not None: fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
-    fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template='plotly_dark', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+    fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
 
 # --- Kite Connect API Functions ---
@@ -116,7 +116,11 @@ def get_historical_data(instrument_token, interval, period):
         df = pd.DataFrame(records)
         if df.empty: return df
         df.set_index('date', inplace=True); df.index = pd.to_datetime(df.index)
-        df.ta.rsi(append=True); df.ta.macd(append=True); df.ta.bbands(length=20, append=True); df.ta.adx(append=True)
+        df.ta.adx(append=True); df.ta.apo(append=True); df.ta.aroon(append=True); df.ta.atr(append=True); df.ta.bbands(append=True)
+        df.ta.cci(append=True); df.ta.chop(append=True); df.ta.cksp(append=True); df.ta.cmf(append=True); df.ta.coppock(append=True)
+        df.ta.ema(length=50, append=True); df.ta.ema(length=200, append=True); df.ta.fisher(append=True); df.ta.kst(append=True); df.ta.macd(append=True)
+        df.ta.mfi(append=True); df.ta.mom(append=True); df.ta.obv(append=True); df.ta.rsi(append=True); df.ta.stoch(append=True)
+        df.ta.supertrend(append=True); df.ta.willr(append=True)
         return df
     except Exception as e:
         st.error(f"Kite API Error (Historical): {e}"); return pd.DataFrame()
@@ -133,7 +137,7 @@ def get_watchlist_data(symbols_with_tokens, exchange="NSE"):
             if instrument in ltp_data and instrument in quotes:
                 last_price, prev_close = ltp_data[instrument]['last_price'], quotes[instrument]['ohlc']['close']
                 change, pct_change = last_price - prev_close, (last_price - prev_close) / prev_close * 100 if prev_close != 0 else 0
-                watchlist.append({'Ticker': item['symbol'], 'Price': f"₹{last_price:,.2f}", 'Change': f"{change:,.2f}", '% Change': f"{pct_change:.2f}"})
+                watchlist.append({'Ticker': item['symbol'], 'Price': f"₹{last_price:,.2f}", 'Change': f"{change:,.2f}", 'Pct Change': f"{pct_change:.2f}"})
         return pd.DataFrame(watchlist)
     except Exception as e:
         st.toast(f"Error fetching LTP: {e}", icon="⚠️"); return pd.DataFrame()
@@ -142,8 +146,8 @@ def get_watchlist_data(symbols_with_tokens, exchange="NSE"):
 def get_options_chain(underlying, instrument_df):
     kite = st.session_state.get('kite')
     if not kite: return pd.DataFrame(), None, 0.0
-    exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS", "USDINR"] else 'NFO'
-    underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY", "USDINR"] else (f"CDS:{underlying}" if underlying == "USDINR" else f"{exchange}:{underlying}")
+    exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'CDS' if underlying == 'USDINR' else 'NFO'
+    underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else f"{exchange}:{underlying}"
     try:
         underlying_ltp = kite.ltp(underlying_instrument_name)[underlying_instrument_name]['last_price']
     except Exception: underlying_ltp = 0.0
@@ -242,16 +246,19 @@ def train_arima_model(_data):
     return future_pred, accuracy
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
-    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T)) if sigma > 0 and T > 0 else 0
-    d2 = d1 - sigma * np.sqrt(T) if sigma > 0 and T > 0 else 0
+    if sigma <= 0 or T <= 0: return {key: 0 for key in ["price", "delta", "gamma", "vega", "theta", "rho"]}
+    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
     if option_type == "call":
         price, delta = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2), norm.cdf(d1)
-        theta = (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2)) if T > 0 else 0
+        theta = (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2))
+        rho = K * T * np.exp(-r * T) * norm.cdf(d2)
     else: # put
         price, delta = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1), norm.cdf(d1) - 1
-        theta = (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * norm.cdf(-d2)) if T > 0 else 0
-    gamma, vega = norm.pdf(d1) / (S * sigma * np.sqrt(T)) if sigma > 0 and T > 0 else 0, S * norm.pdf(d1) * np.sqrt(T) if T > 0 else 0
-    return {"price": price, "delta": delta, "gamma": gamma, "vega": vega / 100, "theta": theta / 365}
+        theta = (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * norm.cdf(-d2))
+        rho = -K * T * np.exp(-r * T) * norm.cdf(-d2)
+    gamma, vega = norm.pdf(d1) / (S * sigma * np.sqrt(T)), S * norm.pdf(d1) * np.sqrt(T)
+    return {"price": price, "delta": delta, "gamma": gamma, "vega": vega / 100, "theta": theta / 365, "rho": rho / 100}
 
 def implied_volatility(S, K, T, r, market_price, option_type):
     if T <= 0: return np.nan
@@ -261,26 +268,35 @@ def implied_volatility(S, K, T, r, market_price, option_type):
 
 def interpret_indicators(df):
     latest, interpretation = df.iloc[-1], {}
+    # Oscillators
     if (rsi := latest.get('RSI_14')) is not None: interpretation['RSI (14)'] = "Overbought (Bearish)" if rsi > 70 else "Oversold (Bullish)" if rsi < 30 else "Neutral"
+    if (stoch_k := latest.get('STOK_14_3_3')) is not None and stoch_k > 80: interpretation['Stochastic (14,3,3)'] = "Overbought (Bearish)"
+    elif stoch_k is not None and stoch_k < 20: interpretation['Stochastic (14,3,3)'] = "Oversold (Bullish)"
+    # Trend
     if (macd := latest.get('MACD_12_26_9')) is not None and (signal := latest.get('MACDs_12_26_9')) is not None: interpretation['MACD (12,26,9)'] = "Bullish Crossover" if macd > signal else "Bearish Crossover"
     if (adx := latest.get('ADX_14')) is not None: interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
+    if (supertrend_dir := latest.get('SUPERTd_7_3.0')) is not None: interpretation['Supertrend (7,3)'] = "Bullish" if supertrend_dir == 1 else "Bearish"
     return interpretation
 
 # ==============================================================================
 # 3. PAGE DEFINITIONS
 # ==============================================================================
-def page_dashboard():
-    display_header(); st.title("Dashboard")
-    instrument_df, watchlist_symbols = get_instrument_df(st.session_state.kite), ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']
-    watchlist_tokens, nifty_token = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols], get_instrument_token('NIFTY 50', instrument_df, 'NFO')
-    watchlist_data, nifty_data, (_, _, total_pnl, total_investment) = get_watchlist_data(watchlist_tokens), get_historical_data(nifty_token, "5minute", "1d"), get_portfolio()
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.subheader("Live Watchlist"); st.dataframe(watchlist_data, use_container_width=True, hide_index=True)
-        st.subheader("Portfolio Overview"); st.metric("Total Investment", f"₹{total_investment:,.2f}"); st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}")
-    with col2:
-        st.subheader("NIFTY 50 Live Chart (5-min)");
-        if not nifty_data.empty: st.plotly_chart(create_chart(nifty_data.tail(75), "NIFTY 50"), use_container_width=True)
+def page_dashboard(terminal_mode):
+    display_header()
+    if terminal_mode == "Intraday":
+        st.title("Intraday Dashboard")
+        instrument_df, watchlist_symbols = get_instrument_df(st.session_state.kite), ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']
+        watchlist_tokens, nifty_token = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols], get_instrument_token('NIFTY 50', instrument_df, 'NFO')
+        watchlist_data, nifty_data, (_, _, total_pnl, total_investment) = get_watchlist_data(watchlist_tokens), get_historical_data(nifty_token, "5minute", "1d"), get_portfolio()
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.subheader("Live Watchlist"); st.dataframe(watchlist_data, use_container_width=True, hide_index=True)
+            st.subheader("Portfolio Overview"); st.metric("Total Investment", f"₹{total_investment:,.2f}"); st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}")
+        with col2:
+            st.subheader("NIFTY 50 Live Chart (5-min)");
+            if not nifty_data.empty: st.plotly_chart(create_chart(nifty_data.tail(75), "NIFTY 50"), use_container_width=True)
+    else: # Options Terminal
+        page_options_hub()
 
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting")
@@ -308,7 +324,7 @@ def page_options_hub():
         else: st.warning(f"Could not fetch options chain for {underlying}.")
     with tab2:
         st.subheader("Option Greeks Calculator (Black-Scholes)")
-        if not chain_df.empty:
+        if not chain_df.empty and underlying_ltp > 0:
             option_selection = st.selectbox("Select an option to analyze", chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist())
             option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
             strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
@@ -317,20 +333,18 @@ def page_options_hub():
                 ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
             elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty:
                 ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
-
             days_to_expiry, T, r = (expiry.date() - datetime.now().date()).days, (expiry.date() - datetime.now().date()).days / 365, 0.07
             iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
             if not np.isnan(iv):
                 greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
                 st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Delta", f"{greeks['delta']:.4f}"); col2.metric("Gamma", f"{greeks['gamma']:.4f}"); col3.metric("Vega", f"{greeks['vega']:.4f}"); col4.metric("Theta", f"{greeks['theta']:.4f}")
+                col1, col2, col3, col4, col5 = st.columns(5)
+                col1.metric("Delta", f"{greeks['delta']:.4f}"); col2.metric("Gamma", f"{greeks['gamma']:.4f}"); col3.metric("Vega", f"{greeks['vega']:.4f}"); col4.metric("Theta", f"{greeks['theta']:.4f}"); col5.metric("Rho", f"{greeks['rho']:.4f}")
             else: st.warning("Could not calculate Implied Volatility for this option.")
 
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News & Social Sentiment")
     query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
-    
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("News Sentiment")
@@ -342,7 +356,6 @@ def page_alpha_engine():
                 st.metric(f"News Sentiment for '{query}'", sentiment_label, f"{avg_sentiment:.3f}")
                 st.dataframe(news_df, use_container_width=True, hide_index=True)
             else: st.info(f"No recent news found for '{query}'.")
-
     with col2:
         st.subheader("Social Media Sentiment")
         with st.spinner("Fetching and analyzing social media..."):
@@ -430,26 +443,47 @@ def page_ai_assistant():
 # ==============================================================================
 
 def main():
+    # Initialize session state keys
+    if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
+    if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
+
+    set_blockvista_style(st.session_state.theme)
+
     if 'kite' in st.session_state:
         st.sidebar.title(f"Welcome {st.session_state.profile['user_name']}")
+        
+        # --- Sidebar Controls ---
+        st.sidebar.header("Terminal Controls")
+        st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"])
+        st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"])
+
         st.sidebar.header("Live Data")
         auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
         refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=5, disabled=not auto_refresh)
         if auto_refresh: st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
+        
         with st.sidebar.expander("🚀 Place Order", expanded=False):
             with st.form("order_form"):
                 symbol, qty, order_type = st.text_input("Symbol"), st.number_input("Quantity", min_value=1, step=1), st.radio("Order Type", ["MARKET", "LIMIT"])
                 price, product, transaction_type = st.number_input("Price", min_value=0.01) if order_type == "LIMIT" else 0, st.radio("Product", ["MIS", "CNC"]), st.radio("Transaction", ["BUY", "SELL"])
                 if st.form_submit_button("Submit Order") and symbol: place_zerodha_order(symbol, qty, order_type, transaction_type, product, price if price > 0 else None)
-        pages = {"Dashboard": page_dashboard, "Advanced Charting": page_advanced_charting, "Options Hub": page_options_hub, "Alpha Engine": page_alpha_engine, "Portfolio & Risk": page_portfolio_and_risk, "Forecasting & ML": page_forecasting_ml, "AI Assistant": page_ai_assistant}
+        
+        # --- Page Navigation based on Terminal Mode ---
+        if st.session_state.terminal_mode == "Intraday":
+            pages = {"Dashboard": page_dashboard, "Advanced Charting": page_advanced_charting, "Alpha Engine": page_alpha_engine, "Portfolio & Risk": page_portfolio_and_risk, "Forecasting & ML": page_forecasting_ml, "AI Assistant": page_ai_assistant}
+        else: # Options Mode
+            pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
+
         st.sidebar.header("Navigation")
         selection = st.sidebar.radio("Go to", list(pages.keys()))
         pages[selection]()
+        
         if st.sidebar.button("Logout"):
             for key in ['access_token', 'kite', 'profile']:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
     else:
+        # --- LOGIN STATE ---
         st.title("BlockVista Terminal")
         st.subheader("Zerodha Kite Authentication")
         try:
