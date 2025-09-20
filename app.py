@@ -22,12 +22,54 @@ import os
 import praw
 import tweepy
 from time import mktime
+from urllib.parse import quote
 
 # ==============================================================================
 # 1. STYLING AND CONFIGURATION
 # ==============================================================================
 
 st.set_page_config(page_title="BlockVista Terminal", layout="wide")
+
+# --- ML Data Configuration ---
+# Maps user-friendly names to GitHub URLs and broker-specific details
+ML_DATA_SOURCES = {
+    "NIFTY 50": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20NIFTY%2050.csv",
+        "tradingsymbol": "NIFTY 50",
+        "exchange": "NFO"
+    },
+    "BANK NIFTY": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20BANK%20NIFTY.csv",
+        "tradingsymbol": "BANKNIFTY",
+        "exchange": "NFO"
+    },
+    "NIFTY Financial Services": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20NIFTY%20Financial%20Services.csv",
+        "tradingsymbol": "FINNIFTY",
+        "exchange": "NFO"
+    },
+    "GOLD": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20GOLD.csv",
+        "tradingsymbol": "GOLDM",
+        "exchange": "MCX"
+    },
+    "USDINR": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20USDINR.csv",
+        "tradingsymbol": "USDINR",
+        "exchange": "CDS"
+    },
+    "SENSEX": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20SENSEX.csv",
+        "tradingsymbol": None, # Not available on Zerodha for live data
+        "exchange": None
+    },
+    "S&P 500": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data_1757529097439.xlsx%20-%20S&P%20500.csv",
+        "tradingsymbol": None, # Not available on Zerodha for live data
+        "exchange": None
+    }
+}
+
 
 def set_blockvista_style(theme='Dark'):
     """ Sets the dark or light theme for the BlockVista Terminal """
@@ -61,9 +103,6 @@ def get_broker_client():
     broker = st.session_state.get('broker')
     if broker == "Zerodha":
         return st.session_state.get('kite')
-    # Add other broker client retrievals here
-    # elif broker == "Angelone":
-    #     return st.session_state.get('smartapi_client')
     return None
 
 # --- Market Status and Header ---
@@ -96,15 +135,25 @@ def display_header():
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
     fig = go.Figure()
     if df.empty: return fig
+    # Ensure columns are lowercase for charting
+    df.columns = [col.lower() for col in df.columns]
+    
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(df['open'], df['high'], df['low'], df['close'])
         fig.add_trace(go.Candlestick(x=ha_df.index, open=ha_df['HA_open'], high=ha_df['HA_high'], low=ha_df['HA_low'], close=ha_df['HA_close'], name='Heikin-Ashi'))
     elif chart_type == 'Line': fig.add_trace(go.Scatter(x=df.index, y=df['close'], mode='lines', name='Line'))
     elif chart_type == 'Bar': fig.add_trace(go.Ohlc(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Bar'))
     else: fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Candlestick'))
-    fig.add_trace(go.Scatter(x=df.index, y=df.get('BBL_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), name='Lower Band'))
-    fig.add_trace(go.Scatter(x=df.index, y=df.get('BBU_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), fill='tonexty', fillcolor='rgba(135, 206, 250, 0.1)', name='Upper Band'))
+    
+    # Check for Bollinger Bands columns (case-insensitive)
+    bbl_col = next((col for col in df.columns if 'bbl' in col.lower()), None)
+    bbu_col = next((col for col in df.columns if 'bbu' in col.lower()), None)
+    
+    if bbl_col: fig.add_trace(go.Scatter(x=df.index, y=df[bbl_col], line=dict(color='rgba(135, 206, 250, 0.5)', width=1), name='Lower Band'))
+    if bbu_col: fig.add_trace(go.Scatter(x=df.index, y=df[bbu_col], line=dict(color='rgba(135, 206, 250, 0.5)', width=1), fill='tonexty', fillcolor='rgba(135, 206, 250, 0.1)', name='Upper Band'))
+    
     if forecast_df is not None: fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
+    
     template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
@@ -117,7 +166,6 @@ def get_instrument_df():
 
     if st.session_state.broker == "Zerodha":
         return pd.DataFrame(client.instruments())
-    # Add logic for other brokers here
     else:
         st.warning(f"Instrument list for {st.session_state.broker} not implemented.")
         return pd.DataFrame()
@@ -134,11 +182,10 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
     if not client or not instrument_token: return pd.DataFrame()
 
     if st.session_state.broker == "Zerodha":
-        if not to_date:
-            to_date = datetime.now().date()
+        if not to_date: to_date = datetime.now().date()
         if not from_date:
             days_to_subtract = {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
-            from_date = to_date - timedelta(days=days_to_subtract.get(period, 1825)) # Default to 5 years
+            from_date = to_date - timedelta(days=days_to_subtract.get(period, 1825))
 
         try:
             records = client.historical_data(instrument_token, from_date, to_date, interval)
@@ -158,7 +205,7 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         st.warning(f"Historical data for {st.session_state.broker} not implemented.")
         return pd.DataFrame()
 
-@st.cache_data(ttl=5)
+# ... (Other broker functions like get_watchlist_data, get_options_chain, etc. remain the same)
 def get_watchlist_data(symbols_with_tokens, exchange="NSE"):
     client = get_broker_client()
     if not client or not symbols_with_tokens: return pd.DataFrame()
@@ -258,7 +305,6 @@ def place_order(symbol, quantity, order_type, transaction_type, product, price=N
     else:
         st.warning(f"Order placement for {st.session_state.broker} not implemented.")
 
-
 # --- Analytics, ML, News & Greeks Functions ---
 @st.cache_data(ttl=900)
 def fetch_and_analyze_news(query=None):
@@ -299,6 +345,8 @@ def fetch_social_media_sentiment(query):
 def create_features(df, ticker):
     """Create time series features, technical indicators, and news sentiment from price data."""
     df = df.copy()
+    df.columns = [col.lower() for col in df.columns]
+
     # Time-based features
     df['dayofweek'] = df.index.dayofweek
     df['quarter'] = df.index.quarter
@@ -396,9 +444,12 @@ def train_xgboost_model(_data, ticker):
 
 @st.cache_data(show_spinner=False)
 def train_arima_model(_data):
-    df = _data['close']
-    if len(df) < 50: return None, None, None, None, None
-    train_data, test_data = df[:-30], df[-30:]
+    df = _data.copy()
+    df.columns = [col.lower() for col in df.columns]
+    df_close = df['close']
+
+    if len(df_close) < 50: return None, None, None, None, None
+    train_data, test_data = df_close[:-30], df_close[-30:]
     try:
         model = ARIMA(train_data, order=(5,1,0))
         model_fit = model.fit()
@@ -418,6 +469,48 @@ def train_arima_model(_data):
     
     future_pred = model_fit.forecast(steps=1).iloc[0]
     return future_pred, accuracy, rmse, max_drawdown, backtest_df
+
+@st.cache_data
+def load_and_combine_data(instrument_name):
+    """Loads historical data from GitHub and combines it with recent live data."""
+    source_info = ML_DATA_SOURCES.get(instrument_name)
+    if not source_info:
+        st.error(f"No data source configured for {instrument_name}")
+        return pd.DataFrame()
+
+    # 1. Load historical data from GitHub
+    try:
+        hist_df = pd.read_csv(source_info['github_url'])
+        hist_df['Date'] = pd.to_datetime(hist_df['Date'])
+        hist_df.set_index('Date', inplace=True)
+        # Standardize column names
+        hist_df.columns = [col.lower().replace(' ', '_').replace('%', 'pct') for col in hist_df.columns]
+    except Exception as e:
+        st.error(f"Failed to load historical data from GitHub: {e}")
+        return pd.DataFrame()
+
+    # 2. Fetch recent live data if broker is connected and symbol exists
+    live_df = pd.DataFrame()
+    if get_broker_client() and source_info.get('tradingsymbol'):
+        instrument_df = get_instrument_df()
+        token = get_instrument_token(source_info['tradingsymbol'], instrument_df, source_info['exchange'])
+        if token:
+            # Fetch last year of data to ensure overlap
+            from_date = datetime.now().date() - timedelta(days=365)
+            live_df = get_historical_data(token, 'day', from_date=from_date)
+            live_df.columns = [col.lower() for col in live_df.columns]
+
+
+    # 3. Combine and de-duplicate
+    if not live_df.empty:
+        combined_df = pd.concat([hist_df, live_df])
+        # Remove duplicates, keeping the entry from the live data (last one)
+        combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
+        combined_df.sort_index(inplace=True)
+        return combined_df
+    else:
+        hist_df.sort_index(inplace=True)
+        return hist_df
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
     if sigma <= 0 or T <= 0: return {key: 0 for key in ["price", "delta", "gamma", "vega", "theta", "rho"]}
@@ -442,12 +535,20 @@ def implied_volatility(S, K, T, r, market_price, option_type):
 
 def interpret_indicators(df):
     latest, interpretation = df.iloc[-1], {}
-    if (rsi := latest.get('RSI_14')) is not None: interpretation['RSI (14)'] = "Overbought (Bearish)" if rsi > 70 else "Oversold (Bullish)" if rsi < 30 else "Neutral"
-    if (stoch_k := latest.get('STOK_14_3_3')) is not None and stoch_k > 80: interpretation['Stochastic (14,3,3)'] = "Overbought (Bearish)"
-    elif stoch_k is not None and stoch_k < 20: interpretation['Stochastic (14,3,3)'] = "Oversold (Bullish)"
-    if (macd := latest.get('MACD_12_26_9')) is not None and (signal := latest.get('MACDs_12_26_9')) is not None: interpretation['MACD (12,26,9)'] = "Bullish Crossover" if macd > signal else "Bearish Crossover"
-    if (adx := latest.get('ADX_14')) is not None: interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
-    if (supertrend_dir := latest.get('SUPERTd_7_3.0')) is not None: interpretation['Supertrend (7,3)'] = "Bullish" if supertrend_dir == 1 else "Bearish"
+    df.columns = [col.lower() for col in df.columns]
+    if 'rsi_14' in df.columns: interpretation['RSI (14)'] = "Overbought (Bearish)" if df['rsi_14'].iloc[-1] > 70 else "Oversold (Bullish)" if df['rsi_14'].iloc[-1] < 30 else "Neutral"
+    if 'stok_14_3_3' in df.columns:
+        if df['stok_14_3_3'].iloc[-1] > 80: interpretation['Stochastic (14,3,3)'] = "Overbought (Bearish)"
+        elif df['stok_14_3_3'].iloc[-1] < 20: interpretation['Stochastic (14,3,3)'] = "Oversold (Bullish)"
+    if 'macd_12_26_9' in df.columns and 'macds_12_26_9' in df.columns:
+        if df['macd_12_26_9'].iloc[-1] > df['macds_12_26_9'].iloc[-1]: interpretation['MACD (12,26,9)'] = "Bullish Crossover"
+        else: interpretation['MACD (12,26,9)'] = "Bearish Crossover"
+    if 'adx_14' in df.columns:
+        adx = df['adx_14'].iloc[-1]
+        interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
+    if 'supertd_7_3.0' in df.columns:
+        supertrend_dir = df['supertd_7_3.0'].iloc[-1]
+        interpretation['Supertrend (7,3)'] = "Bullish" if supertrend_dir == 1 else "Bearish"
     return interpretation
 
 def get_greek_interpretations(greeks):
@@ -664,61 +765,52 @@ def page_portfolio_and_risk():
 def page_forecasting_ml():
     display_header()
     st.title("📈 Advanced ML Forecasting")
-    st.info("Train advanced models with enhanced features and optimized parameters to forecast the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
+    st.info("Train advanced models using a hybrid of historical and live data to forecast the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
 
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("Model Configuration")
-        instrument_df = get_instrument_df()
-        ticker = st.selectbox("Select a Stock for Forecasting", ['TCS', 'RELIANCE', 'INFY', 'HDFCBANK', 'ICICIBANK'])
+        
+        # Dropdown to select the instrument for ML
+        instrument_name = st.selectbox("Select an Instrument for Forecasting", list(ML_DATA_SOURCES.keys()))
         model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
         
-        token = get_instrument_token(ticker, instrument_df)
-        if token:
-            data = None
-            if model_choice == "XGBoost":
-                from_date_xgb = datetime(2020, 1, 1).date()
-                to_date_xgb = datetime.now().date()
-                with st.spinner(f"Fetching data for {ticker} from {from_date_xgb} to {to_date_xgb}..."):
-                    data = get_historical_data(token, "day", from_date=from_date_xgb, to_date=to_date_xgb)
-            else: # ARIMA
-                with st.spinner("Fetching data for ARIMA model..."):
-                    data = get_historical_data(token, "day", period="1y")
+        # Load the combined data
+        with st.spinner(f"Loading data for {instrument_name}..."):
+            data = load_and_combine_data(instrument_name)
 
-            if data is not None and not data.empty:
-                if st.button(f"Train {model_choice} Model & Forecast {ticker}"):
-                    with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                        if model_choice == "XGBoost":
-                            prediction, accuracy, rmse, max_drawdown, backtest_df = train_xgboost_model(data, ticker)
-                        else: # ARIMA
-                            prediction, accuracy, rmse, max_drawdown, backtest_df = train_arima_model(data)
-                    
-                    with col2:
-                        st.subheader("Model Performance")
-                        if prediction is not None:
-                            c1, c2, c3, c4 = st.columns(4)
-                            c1.metric(f"Forecasted Next Close", f"₹{prediction:,.2f}")
-                            c2.metric("Model Accuracy", f"{accuracy:.2f}%")
-                            c3.metric("RMSE", f"{rmse:.2f}")
-                            c4.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
-                            
-                            st.subheader("Backtest: Predicted vs. Actual Prices")
-                            fig = go.Figure()
-                            fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
-                            fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                            template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
-                            fig.update_layout(title=f'{ticker} Backtest Results', yaxis_title='Price (INR)', template=template)
-                            st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            st.error("Model training failed. Could not generate performance metrics.")
-                else:
-                    with col2:
-                        st.subheader("Historical Data for Training")
-                        st.plotly_chart(create_chart(data.tail(252), ticker), use_container_width=True)
+        if data is not None and not data.empty:
+            if st.button(f"Train {model_choice} Model & Forecast {instrument_name}"):
+                with st.spinner(f"Training {model_choice} model... This may take a moment."):
+                    if model_choice == "XGBoost":
+                        prediction, accuracy, rmse, max_drawdown, backtest_df = train_xgboost_model(data, instrument_name)
+                    else: # ARIMA
+                        prediction, accuracy, rmse, max_drawdown, backtest_df = train_arima_model(data)
+                
+                with col2:
+                    st.subheader("Model Performance")
+                    if prediction is not None:
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric(f"Forecasted Next Close", f"₹{prediction:,.2f}")
+                        c2.metric("Model Accuracy", f"{accuracy:.2f}%")
+                        c3.metric("RMSE", f"{rmse:.2f}")
+                        c4.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
+                        
+                        st.subheader("Backtest: Predicted vs. Actual Prices")
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
+                        fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
+                        template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+                        fig.update_layout(title=f'{instrument_name} Backtest Results', yaxis_title='Price (INR)', template=template)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.error("Model training failed. Could not generate performance metrics.")
             else:
-                st.warning("Could not fetch sufficient data for training.")
+                with col2:
+                    st.subheader(f"Historical Data for {instrument_name}")
+                    st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
         else:
-            st.error(f"Ticker '{ticker}' not found.")
+            st.warning(f"Could not load sufficient data for {instrument_name}.")
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
