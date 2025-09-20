@@ -13,7 +13,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 import xgboost as xgb
 from statsmodels.tsa.arima.model import ARIMA
-import pmdarima as pm
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -273,13 +272,13 @@ def train_arima_model(_data):
     if len(df) < 50: return None, None, None, None, None
     train_data, test_data = df[:-30], df[-30:]
     try:
-        model = pm.auto_arima(train_data, seasonal=False, stepwise=True, suppress_warnings=True, error_action='ignore')
-        model_fit = model.fit(train_data)
+        model = ARIMA(train_data, order=(5,1,0))
+        model_fit = model.fit()
     except Exception as e:
-        st.warning(f"ARIMA model failed: {e}")
+        st.warning(f"ARIMA model failed to converge: {e}")
         return None, None, None, None, None
     
-    preds = model_fit.predict(n_periods=30)
+    preds = model_fit.forecast(steps=len(test_data))
     accuracy = 100 - (mean_absolute_percentage_error(test_data, preds) * 100)
     rmse = np.sqrt(mean_squared_error(test_data, preds))
     backtest_df = pd.DataFrame({'Actual': test_data, 'Predicted': preds}, index=test_data.index)
@@ -289,7 +288,7 @@ def train_arima_model(_data):
     drawdown = (cumulative_returns - peak) / peak
     max_drawdown = drawdown.min()
     
-    future_pred = model_fit.predict(n_periods=1)[0]
+    future_pred = model_fit.forecast(steps=1).iloc[0]
     return future_pred, accuracy, rmse, max_drawdown, backtest_df
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
@@ -670,7 +669,7 @@ def main():
             st.rerun()
     else:
         st.title("BlockVista Terminal")
-        st.subheader("Zerodha Kite Authentication")
+        st.subheader("How are you today, User name?")
         try:
             api_key, api_secret = st.secrets["ZERODHA_API_KEY"], st.secrets["ZERODHA_API_SECRET"]
         except (FileNotFoundError, KeyError):
