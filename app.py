@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import pandas_ta as ta
@@ -22,13 +21,8 @@ import os
 import praw
 from time import mktime
 from urllib.parse import quote
-import warnings
-
-# Suppress statsmodels warnings
-warnings.filterwarnings("ignore", category=UserWarning, module='statsmodels')
-warnings.filterwarnings("ignore", category=FutureWarning, module='statsmodels')
-warnings.filterwarnings("ignore", category=ValueWarning, module='statsmodels')
-
+import requests
+import io
 
 # ==============================================================================
 # 1. STYLING AND CONFIGURATION
@@ -37,40 +31,40 @@ warnings.filterwarnings("ignore", category=ValueWarning, module='statsmodels')
 st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 
 # --- ML Data Configuration ---
-# Maps user-friendly names to GitHub URLs and broker-specific details
+# Maps user-friendly names to correct GitHub URLs and broker-specific details
 ML_DATA_SOURCES = {
     "NIFTY 50": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY_50.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%2050.csv",
         "tradingsymbol": "NIFTY 50",
         "exchange": "NFO"
     },
     "BANK NIFTY": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANK_NIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/BANK%20NIFTY.csv",
         "tradingsymbol": "BANKNIFTY",
         "exchange": "NFO"
     },
     "NIFTY Financial Services": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%20Financial%20Services.csv",
         "tradingsymbol": "FINNIFTY",
         "exchange": "NFO"
     },
     "GOLD": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/GOLD.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/GOLD.csv",
         "tradingsymbol": "GOLDM",
         "exchange": "MCX"
     },
     "USDINR": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/USDINR.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/USDINR.csv",
         "tradingsymbol": "USDINR",
         "exchange": "CDS"
     },
     "SENSEX": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/SENSEX.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     },
     "S&P 500": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/S%26P%20500.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     }
@@ -124,9 +118,28 @@ def get_broker_client():
 # --- Market Status and Header ---
 @st.cache_data(ttl=3600)
 def get_market_holidays(year):
-    if year == 2025: return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25']
-    if year == 2026: return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
-    return []
+    """
+    Returns a list of NSE market holidays for a given year.
+    NOTE: This list should be updated annually for future years.
+    """
+    holidays_by_year = {
+        2024: [
+            '2024-01-22', '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29',
+            '2024-04-11', '2024-04-17', '2024-05-01', '2024-05-20', '2024-06-17',
+            '2024-07-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15',
+            '2024-12-25'
+        ],
+        2025: [
+            '2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18',
+            '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05',
+            '2025-12-25'
+        ],
+        2026: [
+            '2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01',
+            '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25'
+        ]
+    }
+    return holidays_by_year.get(year, []) # Return list for the year, or empty list if not found
 
 def get_market_status():
     ist = pytz.timezone('Asia/Kolkata')
@@ -153,23 +166,23 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
     if df.empty: return fig
     # Ensure columns are lowercase for charting
     df.columns = [col.lower() for col in df.columns]
-
+    
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(df['open'], df['high'], df['low'], df['close'])
         fig.add_trace(go.Candlestick(x=ha_df.index, open=ha_df['HA_open'], high=ha_df['HA_high'], low=ha_df['HA_low'], close=ha_df['HA_close'], name='Heikin-Ashi'))
     elif chart_type == 'Line': fig.add_trace(go.Scatter(x=df.index, y=df['close'], mode='lines', name='Line'))
     elif chart_type == 'Bar': fig.add_trace(go.Ohlc(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Bar'))
     else: fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Candlestick'))
-
+    
     # Check for Bollinger Bands columns (case-insensitive)
     bbl_col = next((col for col in df.columns if 'bbl' in col.lower()), None)
     bbu_col = next((col for col in df.columns if 'bbu' in col.lower()), None)
-
+    
     if bbl_col: fig.add_trace(go.Scatter(x=df.index, y=df[bbl_col], line=dict(color='rgba(135, 206, 250, 0.5)', width=1), name='Lower Band'))
     if bbu_col: fig.add_trace(go.Scatter(x=df.index, y=df[bbu_col], line=dict(color='rgba(135, 206, 250, 0.5)', width=1), fill='tonexty', fillcolor='rgba(135, 206, 250, 0.1)', name='Upper Band'))
-
+    
     if forecast_df is not None: fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
-
+    
     template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
@@ -251,12 +264,17 @@ def get_options_chain(underlying, instrument_df, expiry_date=None, exchange=None
     if st.session_state.broker == "Zerodha":
         if not exchange:
             exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'CDS' if underlying == 'USDINR' else 'NFO'
+        
+        index_map = {"NIFTY": "NIFTY 50", "BANKNIFTY": "BANK NIFTY", "FINNIFTY": "FINNIFTY"}
+        ltp_symbol = index_map.get(underlying, underlying)
+        ltp_exchange = "NSE" if exchange == "NFO" else exchange
 
-        underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else f"{exchange}:{underlying}"
+        underlying_instrument_name = f"{ltp_exchange}:{ltp_symbol}"
         try:
             ltp_data = client.ltp(underlying_instrument_name)
             underlying_ltp = ltp_data[underlying_instrument_name]['last_price']
-        except Exception: underlying_ltp = 0.0
+        except Exception: 
+            underlying_ltp = 0.0
 
         options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
         if options.empty: return pd.DataFrame(), None, underlying_ltp, []
@@ -273,7 +291,7 @@ def get_options_chain(underlying, instrument_df, expiry_date=None, exchange=None
         instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
 
         if not instruments_to_fetch: return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
-
+        
         quotes = client.quote(instruments_to_fetch)
         ce_df['LTP'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
         pe_df['LTP'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
@@ -303,7 +321,7 @@ def get_portfolio():
 
 def place_order(symbol, quantity, order_type, transaction_type, product, price=None):
     client = get_broker_client()
-    if not client:
+    if not client: 
         st.error("Broker not connected.")
         return
 
@@ -344,11 +362,11 @@ def fetch_and_analyze_news(query=None):
                 published_date = datetime.now()
                 if hasattr(entry, 'published_parsed') and entry.published_parsed:
                     published_date = datetime.fromtimestamp(mktime(entry.published_parsed))
-
+                
                 all_news.append({
-                    "source": source,
-                    "title": entry.title,
-                    "link": entry.link,
+                    "source": source, 
+                    "title": entry.title, 
+                    "link": entry.link, 
                     "date": published_date.date(),
                     "sentiment": analyzer.polarity_scores(entry.title)['compound']
                 })
@@ -368,50 +386,42 @@ def create_features(df, ticker):
     df = df.copy()
     df.columns = [col.lower() for col in df.columns]
 
-    # Time-based features
     df['dayofweek'] = df.index.dayofweek
     df['quarter'] = df.index.quarter
     df['month'] = df.index.month
     df['year'] = df.index.year
     df['dayofyear'] = df.index.dayofyear
-
-    # Lag features
+    
     for lag in range(1, 6):
         df[f'lag_{lag}'] = df['close'].shift(lag)
-
-    # Rolling window features
+        
     df['rolling_mean_7'] = df['close'].rolling(window=7).mean()
     df['rolling_std_7'] = df['close'].rolling(window=7).std()
     df['rolling_mean_30'] = df['close'].rolling(window=30).mean()
     df['rolling_std_30'] = df['close'].rolling(window=30).std()
 
-    # Technical Indicators using pandas-ta
     df.ta.rsi(length=14, append=True)
     df.ta.macd(append=True)
     df.ta.bbands(length=20, append=True)
     df.ta.atr(length=14, append=True)
     df.ta.stoch(append=True)
-
-    # --- Add News Sentiment ---
+    
     news_df = fetch_and_analyze_news(ticker)
     if not news_df.empty:
         news_df['date'] = pd.to_datetime(news_df['date'])
         daily_sentiment = news_df.groupby(news_df['date'].dt.date)['sentiment'].mean().to_frame()
         daily_sentiment.index = pd.to_datetime(daily_sentiment.index)
-
+        
         df = df.merge(daily_sentiment, left_index=True, right_index=True, how='left')
-
-        # --- FIX: Isolate fillna logic to sentiment columns ---
-        # Forward-fill sentiment, then fill any remaining NaNs at the beginning with 0
-        df['sentiment'] = df['sentiment'].fillna(method='ffill').fillna(0)
+        
+        df['sentiment'] = df['sentiment'].fillna(method='ffill')
         df['sentiment_rolling_3d'] = df['sentiment'].rolling(window=3, min_periods=1).mean()
+        df.fillna(0, inplace=True)
     else:
         df['sentiment'] = 0
         df['sentiment_rolling_3d'] = 0
 
     df.columns = df.columns.str.replace('[^A-Za-z0-9_]+', '', regex=True)
-
-    # Drop any rows with NaNs remaining from lag/rolling features
     df.dropna(inplace=True)
     return df
 
@@ -419,14 +429,14 @@ def create_features(df, ticker):
 def train_xgboost_model(_data, ticker):
     """Trains an XGBoost model for multiple forecast horizons."""
     df_features = create_features(_data.copy(), ticker)
-
+    
     horizons = {
         "1-Day Open": ("open", 1), "1-Day Close": ("close", 1),
         "5-Day Close": ("close", 5), "15-Day Close": ("close", 15),
         "30-Day Close": ("close", 30), "45-Day Close": ("close", 45),
         "60-Day Close": ("close", 60)
     }
-
+    
     predictions = {}
     backtest_results = {}
 
@@ -437,20 +447,25 @@ def train_xgboost_model(_data, ticker):
         df.dropna(subset=[target_name], inplace=True)
 
         features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
-
+        
         if len(df) < 100: continue
 
         X = df[features]
         y = df[target_name]
 
+        for col in X.columns:
+            X[col] = pd.to_numeric(X[col], errors='coerce')
+        X.dropna(inplace=True)
+        y = y[X.index] 
+
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 
         scaler = MinMaxScaler()
         X_train_scaled = scaler.fit_transform(X_train)
-
+        
         model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05,
-                                   max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
-
+                                 max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
+        
         model.fit(X_train_scaled, y_train, eval_set=[(scaler.transform(X_test), y_test)], verbose=False)
 
         last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
@@ -461,14 +476,14 @@ def train_xgboost_model(_data, ticker):
             accuracy = 100 - (mean_absolute_percentage_error(y_test, preds_test) * 100)
             rmse = np.sqrt(mean_squared_error(y_test, preds_test))
             backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds_test}, index=y_test.index)
-
+            
             cumulative_returns = (1 + (y_test.pct_change().fillna(0))).cumprod()
             peak = cumulative_returns.cummax()
             drawdown = (cumulative_returns - peak) / peak
             max_drawdown = drawdown.min()
-
+            
             backtest_results = {
-                "accuracy": accuracy, "rmse": rmse,
+                "accuracy": accuracy, "rmse": rmse, 
                 "max_drawdown": max_drawdown, "backtest_df": backtest_df
             }
 
@@ -478,22 +493,16 @@ def train_xgboost_model(_data, ticker):
 def train_arima_model(_data):
     df = _data.copy()
     df.columns = [col.lower() for col in df.columns]
-
-    # --- FIX: Ensure data has a business day frequency for ARIMA ---
-    df = df.asfreq('B')
-    df.fillna(method='ffill', inplace=True)
-
+    
     predictions = {}
-    accuracy, rmse, backtest_df, max_drawdown = None, None, None, None
-
-    # Forecast Closing Prices
+    
     df_close = df['close']
     if len(df_close) > 50:
         train_data_close, test_data_close = df_close[:-30], df_close[-30:]
         try:
             model_close = ARIMA(train_data_close, order=(5,1,0)).fit()
             forecasts_close = model_close.forecast(steps=60)
-
+            
             predictions["1-Day Close"] = forecasts_close.iloc[0]
             predictions["5-Day Close"] = forecasts_close.iloc[4]
             predictions["15-Day Close"] = forecasts_close.iloc[14]
@@ -501,7 +510,6 @@ def train_arima_model(_data):
             predictions["45-Day Close"] = forecasts_close.iloc[44]
             predictions["60-Day Close"] = forecasts_close.iloc[59]
 
-            # Backtest for 1-day close
             preds_test = model_close.forecast(steps=len(test_data_close))
             accuracy = 100 - (mean_absolute_percentage_error(test_data_close, preds_test) * 100)
             rmse = np.sqrt(mean_squared_error(test_data_close, preds_test))
@@ -510,9 +518,8 @@ def train_arima_model(_data):
             max_drawdown = (max_drawdown / max_drawdown.cummax() - 1).min()
 
         except Exception:
-            pass
+            accuracy, rmse, backtest_df, max_drawdown = None, None, None, None
 
-    # Forecast Opening Price
     df_open = df['open']
     if len(df_open) > 50:
         try:
@@ -532,52 +539,30 @@ def load_and_combine_data(instrument_name):
         st.error(f"No data source configured for {instrument_name}")
         return pd.DataFrame()
 
-    # 1. Load and robustly clean historical data from GitHub
     try:
-        hist_df = pd.read_csv(source_info['github_url'])
+        url = source_info['github_url']
+        response = requests.get(url)
+        response.raise_for_status() 
+
+        # Corrected line: Use pandas directly to read the CSV from the response content
+        hist_df = pd.read_csv(io.StringIO(response.text))
+
         hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed')
         hist_df.set_index('Date', inplace=True)
-
-        # --- FIX: Handle diverse data formats in CSVs ---
-        # A. Clean percentage strings (e.g., '1.73%')
-        if 'Change %' in hist_df.columns:
-            hist_df['Change %'] = hist_df['Change %'].astype(str).str.replace('%', '')
-            hist_df['Change %'] = pd.to_numeric(hist_df['Change %'], errors='coerce') / 100.0
-
-        # B. Clean volume strings (e.g., '1.5M', '250K')
-        if 'Vol.' in hist_df.columns:
-            hist_df['Vol.'] = hist_df['Vol.'].astype(str).str.replace('M', 'e6').str.replace('K', 'e3').str.replace('-', '0')
-            hist_df['Vol.'] = pd.to_numeric(hist_df['Vol.'], errors='coerce').fillna(0)
-
-        # C. Clean price columns with commas
-        for col in ['Price', 'Open', 'High', 'Low', 'Close']:
-            if col in hist_df.columns:
-                hist_df[col] = hist_df[col].astype(str).str.replace(',', '')
-                hist_df[col] = pd.to_numeric(hist_df[col], errors='coerce')
-
-        # D. Standardize all possible column names to a common format
-        rename_map = {
-            'Shares Traded': 'volume',
-            'Turnover (₹ Cr)': 'turnover',
-            'Vol.': 'volume',
-            'Price': 'close',
-            'Change %': 'change_pct'
-        }
-        hist_df.rename(columns=lambda c: rename_map.get(c.strip(), c.strip()), inplace=True)
-        hist_df.columns = [col.lower().replace(' ', '_') for col in hist_df.columns]
         
-        # Ensure final key columns are numeric after all transformations
+        hist_df.columns = [col.lower().replace(' ', '_').replace('%', 'pct') for col in hist_df.columns]
         for col in ['open', 'high', 'low', 'close', 'volume']:
             if col in hist_df.columns:
-                hist_df[col] = pd.to_numeric(hist_df[col], errors='coerce')
+                 hist_df[col] = pd.to_numeric(hist_df[col].astype(str).str.replace(',', ''), errors='coerce')
         hist_df.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
 
-
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"Failed to load historical data from GitHub. Please check the URL and your connection. Error: {http_err}")
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Failed to load or clean historical data. Error: {e}")
+        st.error(f"An unexpected error occurred while processing the data: {e}")
         return pd.DataFrame()
 
-    # 2. Fetch recent live data
     live_df = pd.DataFrame()
     if get_broker_client() and source_info.get('tradingsymbol'):
         instrument_df = get_instrument_df()
@@ -588,7 +573,6 @@ def load_and_combine_data(instrument_name):
             if not live_df.empty:
                 live_df.columns = [col.lower() for col in live_df.columns]
 
-    # 3. Combine and de-duplicate
     if not live_df.empty:
         combined_df = pd.concat([hist_df, live_df])
         combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
@@ -597,7 +581,6 @@ def load_and_combine_data(instrument_name):
     else:
         hist_df.sort_index(inplace=True)
         return hist_df
-
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
     if sigma <= 0 or T <= 0: return {key: 0 for key in ["price", "delta", "gamma", "vega", "theta", "rho"]}
@@ -695,12 +678,12 @@ def page_advanced_charting():
 def page_options_hub():
     display_header(); st.title("Options Hub")
     instrument_df = get_instrument_df()
-
+    
     col1, col2 = st.columns([1,2])
     with col1:
         underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "GOLDM", "SILVERM", "CRUDEOIL", "NATURALGAS", "USDINR"])
         chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
-
+        
         selected_expiry = expiry
         if available_expiries:
             selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
@@ -725,12 +708,12 @@ def page_options_hub():
                         ltp = 0
                         if option_type == 'ce' and not chain_df[chain_df['CALL'] == option_selection].empty: ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
                         elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
-
+                        
                         expiry_date = pd.to_datetime(expiry).date()
                         days_to_expiry = (expiry_date - datetime.now().date()).days
                         T = max(days_to_expiry, 0) / 365.0
                         r = 0.07
-
+                        
                         iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
                         if not np.isnan(iv):
                             greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
@@ -740,7 +723,7 @@ def page_options_hub():
                             c4, c5, _ = st.columns(3)
                             c4.metric("Theta", f"{greeks['theta']:.4f}"); c5.metric("Rho", f"{greeks['rho']:.4f}")
                         else: st.warning("Could not calculate Implied Volatility for this option.")
-
+    
     st.subheader(f"{underlying} Options Chain")
     if not chain_df.empty and expiry: st.caption(f"Displaying expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
     else: st.warning(f"Could not fetch options chain for {underlying}.")
@@ -748,7 +731,7 @@ def page_options_hub():
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News & Social Sentiment")
     query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
-
+    
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("News Sentiment")
@@ -805,10 +788,10 @@ def page_forecasting_ml():
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("Model Configuration")
-
+        
         instrument_name = st.selectbox("Select an Instrument for Forecasting", list(ML_DATA_SOURCES.keys()))
         model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
-
+        
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
 
@@ -816,29 +799,28 @@ def page_forecasting_ml():
             if st.button(f"Train {model_choice} Model & Forecast {instrument_name}"):
                 with st.spinner(f"Training {model_choice} model... This may take a moment."):
                     predictions, accuracy, rmse, max_drawdown, backtest_df = (
-                        train_xgboost_model(data, instrument_name) if model_choice == "XGBoost"
+                        train_xgboost_model(data, instrument_name) if model_choice == "XGBoost" 
                         else train_arima_model(data)
                     )
-
-                    # Store results in session state to display them
-                    st.session_state['ml_predictions'] = predictions
-                    st.session_state['ml_accuracy'] = accuracy
-                    st.session_state['ml_rmse'] = rmse
-                    st.session_state['ml_max_drawdown'] = max_drawdown
-                    st.session_state['ml_backtest_df'] = backtest_df
-                    st.session_state['ml_instrument_name'] = instrument_name
-                    st.rerun()
+                
+                # Store results in session state to display them
+                st.session_state['ml_predictions'] = predictions
+                st.session_state['ml_accuracy'] = accuracy
+                st.session_state['ml_rmse'] = rmse
+                st.session_state['ml_max_drawdown'] = max_drawdown
+                st.session_state['ml_backtest_df'] = backtest_df
+                st.session_state['ml_instrument_name'] = instrument_name
 
             # Display historical data chart before training
             with col2:
-                if 'ml_predictions' not in st.session_state or st.session_state.get('ml_instrument_name') != instrument_name:
-                       st.subheader(f"Historical Data for {instrument_name}")
-                       st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
+                if 'ml_predictions' not in st.session_state or st.session_state['ml_instrument_name'] != instrument_name:
+                     st.subheader(f"Historical Data for {instrument_name}")
+                     st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
         else:
             st.warning(f"Could not load sufficient data for {instrument_name}.")
 
     # Display results in the second column after they are computed
-    if 'ml_predictions' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
+    if 'ml_predictions' in st.session_state:
         with col2:
             st.subheader("Multi-Horizon Forecast")
             if st.session_state['ml_predictions']:
@@ -847,26 +829,22 @@ def page_forecasting_ml():
                 st.dataframe(forecast_df.style.format("₹{:.2f}"))
             else:
                 st.error("Model training failed to produce forecasts.")
-
+            
             st.subheader("Model Performance (Based on 1-Day Close)")
-            if st.session_state.get('ml_accuracy') is not None:
+            if st.session_state['ml_accuracy'] is not None:
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Model Accuracy", f"{st.session_state['ml_accuracy']:.2f}%")
                 c2.metric("RMSE", f"{st.session_state['ml_rmse']:.2f}")
-                if st.session_state['ml_max_drawdown']:
-                    c3.metric("Max Drawdown", f"{st.session_state['ml_max_drawdown']*100:.2f}%")
-
+                c3.metric("Max Drawdown", f"{st.session_state['ml_max_drawdown']*100:.2f}%")
+                
                 st.subheader("Backtest: Predicted vs. Actual Prices")
                 backtest_df = st.session_state['ml_backtest_df']
-                if backtest_df is not None and not backtest_df.empty:
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
-                    fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                    template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
-                    fig.update_layout(title=f"{st.session_state['ml_instrument_name']} 1-Day Backtest Results", yaxis_title='Price', template=template)
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("Backtesting data is not available for this model run.")
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
+                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
+                template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+                fig.update_layout(title=f"{st.session_state['ml_instrument_name']} 1-Day Backtest Results", yaxis_title='Price (INR)', template=template)
+                st.plotly_chart(fig, use_container_width=True)
             else:
                 st.error("Could not generate performance metrics.")
 
@@ -918,7 +896,7 @@ def page_ai_assistant():
                         else:
                             response = f"I could not find the ticker symbol '{ticker}'. Please check the symbol and try again."
                     except (ValueError, IndexError): response = "Please specify a stock ticker, for example: 'price of RELIANCE'."
-            st.markdown(response)
+                st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})
 
 # ==============================================================================
@@ -926,11 +904,11 @@ def page_ai_assistant():
 # ==============================================================================
 
 def main():
-    if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
+    if 'theme' not in st.session_state: st.session_state.theme = 'Light'
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
     set_blockvista_style(st.session_state.theme)
 
-    # Logic to handle page redirection after login
+    # NEW: Logic to handle page redirection after login
     if 'profile' in st.session_state and 'logged_in_redirect' in st.session_state:
         # Set the radio button to the target page
         st.session_state.nav_selector = st.session_state.logged_in_redirect
@@ -945,7 +923,7 @@ def main():
         st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], key='mode_selector')
 
         st.sidebar.header("Live Data")
-
+        
         auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
         refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=5, disabled=not auto_refresh)
 
@@ -954,23 +932,23 @@ def main():
                 symbol, qty, order_type = st.text_input("Symbol"), st.number_input("Quantity", min_value=1, step=1), st.radio("Order Type", ["MARKET", "LIMIT"])
                 price, product, transaction_type = st.number_input("Price", min_value=0.01) if order_type == "LIMIT" else 0, st.radio("Product", ["MIS", "CNC"]), st.radio("Transaction", ["BUY", "SELL"])
                 if st.form_submit_button("Submit Order") and symbol: place_order(symbol, qty, order_type, transaction_type, product, price if price > 0 else None)
-
+        
         st.sidebar.header("Navigation")
         if st.session_state.terminal_mode == "Intraday":
             pages = {"Dashboard": page_dashboard, "Advanced Charting": page_advanced_charting, "Alpha Engine": page_alpha_engine, "Portfolio & Risk": page_portfolio_and_risk, "Forecasting & ML": page_forecasting_ml, "AI Assistant": page_ai_assistant}
         else: # Options Mode
             pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
-
+        
         selection = st.sidebar.radio("Go to", list(pages.keys()), key='nav_selector')
-
+        
         if auto_refresh and selection != "Forecasting & ML":
             st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
-
+        
         pages[selection]()
-
+        
         if st.sidebar.button("Logout"):
-            keys_to_clear = ['access_token', 'kite', 'profile', 'messages', 'journal', 'broker',
-                               'ml_predictions', 'ml_accuracy', 'ml_rmse', 'ml_max_drawdown', 'ml_backtest_df', 'ml_instrument_name']
+            keys_to_clear = ['access_token', 'kite', 'profile', 'messages', 'journal', 'broker', 
+                             'ml_predictions', 'ml_accuracy', 'ml_rmse', 'ml_max_drawdown', 'ml_backtest_df', 'ml_instrument_name']
             for key in keys_to_clear:
                 if key in st.session_state: del st.session_state[key]
             st.query_params.clear()
@@ -979,7 +957,7 @@ def main():
         # LOGIN PAGE LOGIC
         st.title("BlockVista Terminal")
         st.subheader("Broker Login")
-
+        
         # Store the target page from URL if it exists
         if 'page' in st.query_params:
             st.session_state.target_page_after_login = st.query_params['page']
@@ -992,7 +970,7 @@ def main():
             except (FileNotFoundError, KeyError):
                 st.error("Kite API credentials not found. Set ZERODHA_API_KEY and ZERODHA_API_SECRET in Streamlit secrets.")
                 st.stop()
-
+            
             kite = KiteConnect(api_key=api_key)
             request_token = st.query_params.get("request_token")
 
@@ -1001,14 +979,14 @@ def main():
                     data = kite.generate_session(request_token, api_secret=api_secret)
                     st.session_state.access_token = data["access_token"]
                     kite.set_access_token(st.session_state.access_token)
-
+                    
                     st.session_state.kite = kite
                     st.session_state.profile = kite.profile()
                     st.session_state.broker = "Zerodha"
-
+                    
                     st.toast("Broker Login Successful!", icon="✅")
-
-                    # Prepare for redirect
+                    
+                    # NEW: Prepare for redirect
                     if 'target_page_after_login' in st.session_state:
                         st.session_state['logged_in_redirect'] = st.session_state.target_page_after_login
                         del st.session_state['target_page_after_login']
