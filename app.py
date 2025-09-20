@@ -869,6 +869,13 @@ def main():
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
     set_blockvista_style(st.session_state.theme)
 
+    # NEW: Logic to handle page redirection after login
+    if 'profile' in st.session_state and 'logged_in_redirect' in st.session_state:
+        # Set the radio button to the target page
+        st.session_state.nav_selector = st.session_state.logged_in_redirect
+        # Clean up the redirect flag
+        del st.session_state['logged_in_redirect']
+
     if 'profile' in st.session_state and 'broker' in st.session_state:
         st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
         st.sidebar.caption(f"Connected via {st.session_state.broker}")
@@ -907,11 +914,17 @@ def main():
                              'ml_predictions', 'ml_accuracy', 'ml_rmse', 'ml_max_drawdown', 'ml_backtest_df', 'ml_instrument_name']
             for key in keys_to_clear:
                 if key in st.session_state: del st.session_state[key]
+            st.query_params.clear()
             st.rerun()
     else:
+        # LOGIN PAGE LOGIC
         st.title("BlockVista Terminal")
         st.subheader("Broker Login")
         
+        # Store the target page from URL if it exists
+        if 'page' in st.query_params:
+            st.session_state.target_page_after_login = st.query_params['page']
+
         broker = st.selectbox("Select Your Broker", ["Zerodha", "Angelone", "Groww", "Motilal Oswal"])
 
         if broker == "Zerodha":
@@ -935,8 +948,15 @@ def main():
                     st.session_state.broker = "Zerodha"
                     
                     st.toast("Broker Login Successful!", icon="✅")
+                    
+                    # NEW: Prepare for redirect
+                    if 'target_page_after_login' in st.session_state:
+                        st.session_state['logged_in_redirect'] = st.session_state.target_page_after_login
+                        del st.session_state['target_page_after_login']
+
                     st.query_params.clear()
                     st.rerun()
+
                 except Exception as e:
                     st.error(f"Authentication failed: {e}")
             else:
