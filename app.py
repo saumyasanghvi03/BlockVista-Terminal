@@ -21,6 +21,7 @@ from tabulate import tabulate
 import os
 import praw
 import tweepy
+from time import mktime
 
 # ==============================================================================
 # 1. STYLING AND CONFIGURATION
@@ -262,7 +263,17 @@ def fetch_and_analyze_news(query=None):
         feed = feedparser.parse(url)
         for entry in feed.entries:
             if query is None or query.lower() in entry.title.lower() or (hasattr(entry, 'summary') and query.lower() in entry.summary.lower()):
-                all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": analyzer.polarity_scores(entry.title)['compound']})
+                published_date = datetime.now()
+                if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                    published_date = datetime.fromtimestamp(mktime(entry.published_parsed))
+                
+                all_news.append({
+                    "source": source, 
+                    "title": entry.title, 
+                    "link": entry.link, 
+                    "date": published_date.date(),
+                    "sentiment": analyzer.polarity_scores(entry.title)['compound']
+                })
     return pd.DataFrame(all_news)
 
 def fetch_social_media_sentiment(query):
@@ -281,8 +292,8 @@ def fetch_social_media_sentiment(query):
     except Exception as e: st.toast(f"Could not connect to Twitter: {e}", icon="⚠️")
     return pd.DataFrame(results)
 
-def create_features(df):
-    """Create time series features and technical indicators from price data."""
+def create_features(df, ticker):
+    """Create time series features, technical indicators, and news sentiment from price data."""
     df = df.copy()
     # Time-based features
     df['dayofweek'] = df.index.dayofweek
@@ -308,26 +319,38 @@ def create_features(df):
     df.ta.atr(length=14, append=True)
     df.ta.stoch(append=True)
     
-    # Clean up column names from pandas-ta (remove special characters)
+    # --- NEW: Add News Sentiment ---
+    news_df = fetch_and_analyze_news(ticker)
+    if not news_df.empty:
+        news_df['date'] = pd.to_datetime(news_df['date'])
+        daily_sentiment = news_df.groupby(news_df['date'].dt.date)['sentiment'].mean().to_frame()
+        daily_sentiment.index = pd.to_datetime(daily_sentiment.index)
+        
+        df = df.merge(daily_sentiment, left_index=True, right_index=True, how='left')
+        
+        df['sentiment'] = df['sentiment'].fillna(method='ffill')
+        df['sentiment_rolling_3d'] = df['sentiment'].rolling(window=3, min_periods=1).mean()
+        df.fillna(0, inplace=True)
+    else:
+        df['sentiment'] = 0
+        df['sentiment_rolling_3d'] = 0
+
     df.columns = df.columns.str.replace('[^A-Za-z0-9_]+', '', regex=True)
-    
     df.dropna(inplace=True)
     return df
 
 @st.cache_data(show_spinner=False)
-def train_xgboost_model(_data):
+def train_xgboost_model(_data, ticker):
     """Trains an XGBoost model with enhanced features and optimized parameters."""
-    df = create_features(_data.copy())
+    df = create_features(_data.copy(), ticker)
     
-    # Define features and target
     features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume']]
     target = 'close'
 
-    if len(df) < 100:  # Increased minimum length due to more features/NaNs
+    if len(df) < 100:
         st.warning("Not enough data to train the model after feature creation.")
         return None, None, None, None, None
 
-    # Ensure all feature columns are numeric
     for col in features:
         if not pd.api.types.is_numeric_dtype(df[col]):
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -336,47 +359,31 @@ def train_xgboost_model(_data):
     X = df[features]
     y = df[target]
 
-    # Split data
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 
-    # Scale features
     scaler = MinMaxScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
 
-    # Optimized XGBoost parameters
     model = xgb.XGBRegressor(
-        objective='reg:squarederror',
-        n_estimators=500,          # More trees
-        learning_rate=0.05,        # Smaller learning rate
-        max_depth=4,               # Shallower trees to prevent overfitting
-        subsample=0.8,             # Fraction of samples used for fitting
-        colsample_bytree=0.8,      # Fraction of features used
-        random_state=42,
-        n_jobs=-1,
-        early_stopping_rounds=20   # Stop if validation score doesn't improve
+        objective='reg:squarederror', n_estimators=500, learning_rate=0.05,
+        max_depth=4, subsample=0.8, colsample_bytree=0.8,
+        random_state=42, n_jobs=-1, early_stopping_rounds=20
     )
     
-    # Train the model with early stopping
-    model.fit(X_train_scaled, y_train, 
-              eval_set=[(X_test_scaled, y_test)], 
-              verbose=False)
+    model.fit(X_train_scaled, y_train, eval_set=[(X_test_scaled, y_test)], verbose=False)
     
-    # Make predictions
     preds = model.predict(X_test_scaled)
     
-    # Calculate metrics
     accuracy = 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
     rmse = np.sqrt(mean_squared_error(y_test, preds))
     backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds}, index=y_test.index)
     
-    # Calculate drawdown
     cumulative_returns = (1 + (y_test.pct_change().fillna(0))).cumprod()
     peak = cumulative_returns.cummax()
     drawdown = (cumulative_returns - peak) / peak
     max_drawdown = drawdown.min()
 
-    # Forecast the next step
     last_features = X.iloc[-1].values.reshape(1, -1)
     last_features_scaled = scaler.transform(last_features)
     future_pred = model.predict(last_features_scaled)[0]
@@ -671,7 +678,7 @@ def page_forecasting_ml():
                 if st.button(f"Train {model_choice} Model & Forecast {ticker}"):
                     with st.spinner(f"Training {model_choice} model... This may take a moment."):
                         if model_choice == "XGBoost":
-                            prediction, accuracy, rmse, max_drawdown, backtest_df = train_xgboost_model(data)
+                            prediction, accuracy, rmse, max_drawdown, backtest_df = train_xgboost_model(data, ticker)
                         else: # ARIMA
                             prediction, accuracy, rmse, max_drawdown, backtest_df = train_arima_model(data)
                     
@@ -761,7 +768,7 @@ def main():
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
     set_blockvista_style(st.session_state.theme)
 
-    if 'profile' in st.session_state:
+    if 'profile' in st.session_state and 'broker' in st.session_state:
         st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
         st.sidebar.caption(f"Connected via {st.session_state.broker}")
         st.sidebar.header("Terminal Controls")
