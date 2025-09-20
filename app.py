@@ -34,37 +34,37 @@ st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 # Maps user-friendly names to correct GitHub URLs and broker-specific details
 ML_DATA_SOURCES = {
     "NIFTY 50": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY50.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY50.csv",
         "tradingsymbol": "NIFTY 50",
         "exchange": "NFO"
     },
     "BANK NIFTY": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANKNIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/BANKNIFTY.csv",
         "tradingsymbol": "BANKNIFTY",
         "exchange": "NFO"
     },
     "NIFTY Financial Services": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/NIFTY%20Financial%20Services.csv",
         "tradingsymbol": "FINNIFTY",
         "exchange": "NFO"
     },
     "GOLD": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/GOLD.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/GOLD.csv",
         "tradingsymbol": "GOLDM",
         "exchange": "MCX"
     },
     "USDINR": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/USDINR.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/USDINR.csv",
         "tradingsymbol": "USDINR",
         "exchange": "CDS"
     },
     "SENSEX": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/SENSEX.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     },
     "S&P 500": {
-        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/ML%20Interface%20Data/SP500.csv",
         "tradingsymbol": None, # Not available on Zerodha for live data
         "exchange": None
     }
