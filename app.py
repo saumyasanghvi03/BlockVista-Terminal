@@ -157,7 +157,8 @@ def get_options_chain(underlying, instrument_df):
     options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
     if options.empty: return pd.DataFrame(), None, underlying_ltp
     expiries = sorted(options['expiry'].unique())
-    nearest_expiry = expiries[0]
+    nearest_expiry = expiries[0] if len(expiries) > 0 else None
+    if not nearest_expiry: return pd.DataFrame(), None, underlying_ltp
     chain_df = options[options['expiry'] == nearest_expiry].sort_values(by='strike')
     ce_df, pe_df = chain_df[chain_df['instrument_type'] == 'CE'].copy(), chain_df[chain_df['instrument_type'] == 'PE'].copy()
     instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
@@ -203,17 +204,17 @@ def fetch_and_analyze_news(query=None):
                 all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": analyzer.polarity_scores(entry.title)['compound']})
     return pd.DataFrame(all_news)
 
-@st.cache_data(ttl=900)
-def fetch_social_media_sentiment(_query): # Changed to _query to avoid hashing issues with client objects
+# FIX: Removed caching from this function as it deals with non-serializable client objects
+def fetch_social_media_sentiment(query):
     analyzer, results = SentimentIntensityAnalyzer(), []
     try:
         reddit = praw.Reddit(client_id=st.secrets["REDDIT_CLIENT_ID"], client_secret=st.secrets["REDDIT_CLIENT_SECRET"], user_agent=st.secrets["REDDIT_USER_AGENT"])
-        for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(_query, limit=25):
+        for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(query, limit=25):
             results.append({"source": "Reddit", "text": submission.title, "sentiment": analyzer.polarity_scores(submission.title)['compound']})
     except Exception as e: st.toast(f"Could not connect to Reddit: {e}", icon="⚠️")
     try:
         client = tweepy.Client(bearer_token=st.secrets["TWITTER_BEARER_TOKEN"])
-        response = client.search_recent_tweets(f'"{_query}" lang:en -is:retweet', max_results=25)
+        response = client.search_recent_tweets(f'"{query}" lang:en -is:retweet', max_results=25)
         if response.data:
             for tweet in response.data:
                 results.append({"source": "Twitter", "text": tweet.text, "sentiment": analyzer.polarity_scores(tweet.text)['compound']})
@@ -230,7 +231,7 @@ def create_features(df):
 def train_xgboost_model(_data):
     df = create_features(_data.copy())
     features, target = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']], 'close'
-    if len(df) < 20: return None, None, None, None, None # Not enough data to split
+    if len(df) < 50: return None, None, None, None, None # Not enough data to split
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
     reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse', learning_rate=0.01, max_depth=3, subsample=0.8, colsample_bytree=0.8)
     reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
@@ -249,7 +250,7 @@ def train_xgboost_model(_data):
 @st.cache_data
 def train_arima_model(_data):
     df = _data['close']
-    if len(df) < 50: return None, None, None, None, None # Not enough data for ARIMA
+    if len(df) < 50: return None, None, None, None, None
     train_data, test_data = df[:-30], df[-30:]
     model, model_fit = ARIMA(train_data, order=(5,1,0)), None
     try: model_fit = model.fit()
@@ -283,7 +284,7 @@ def black_scholes(S, K, T, r, sigma, option_type="call"):
     return {"price": price, "delta": delta, "gamma": gamma, "vega": vega / 100, "theta": theta / 365, "rho": rho / 100}
 
 def implied_volatility(S, K, T, r, market_price, option_type):
-    if T <= 0: return np.nan
+    if T <= 0 or market_price <= 0: return np.nan
     def equation(sigma): return black_scholes(S, K, T, r, sigma, option_type)['price'] - market_price
     try: return newton(equation, 0.5, tol=1e-5, maxiter=100)
     except RuntimeError: return np.nan
@@ -340,7 +341,7 @@ def page_options_hub():
     tab1, tab2 = st.tabs(["Options Chain", "Greeks Calculator & Analysis"])
     with tab1:
         st.subheader(f"{underlying} Options Chain")
-        if not chain_df.empty and expiry: st.caption(f"Displaying nearest expiry: {expiry.strftime('%d %b %Y')}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
+        if not chain_df.empty and expiry: st.caption(f"Displaying nearest expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
         else: st.warning(f"Could not fetch options chain for {underlying}.")
     with tab2:
         st.subheader("Option Greeks Calculator (Black-Scholes)")
