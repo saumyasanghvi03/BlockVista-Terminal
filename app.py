@@ -13,6 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 import xgboost as xgb
 from statsmodels.tsa.arima.model import ARIMA
+import pmdarima as pm  # NEW: For auto_arima
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -146,23 +147,26 @@ def get_watchlist_data(symbols_with_tokens, exchange="NSE"):
         st.toast(f"Error fetching LTP: {e}", icon="⚠️"); return pd.DataFrame()
 
 @st.cache_data(ttl=30)
-def get_options_chain(underlying, instrument_df, expiry_date=None):
+def get_options_chain(underlying, instrument_df, expiry_date=None, exchange=None):
     kite = st.session_state.get('kite')
     if not kite: return pd.DataFrame(), None, 0.0, []
-    exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'CDS' if underlying == 'USDINR' else 'NFO'
+    if not exchange:
+        exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'CDS' if underlying == 'USDINR' else 'NFO'
+    
     underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else f"{exchange}:{underlying}"
     try:
-        underlying_ltp = kite.ltp(underlying_instrument_name)[underlying_instrument_name]['last_price']
+        ltp_data = kite.ltp(underlying_instrument_name)
+        underlying_ltp = ltp_data[underlying_instrument_name]['last_price']
     except Exception: underlying_ltp = 0.0
+
     options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
     if options.empty: return pd.DataFrame(), None, underlying_ltp, []
-    
+
     # Expiry logic
-    expiries = sorted(options['expiry'].unique())
-    expiries = [pd.to_datetime(e) for e in expiries]
+    expiries = sorted(pd.to_datetime(options['expiry'].unique()))
     three_months_later = datetime.now() + timedelta(days=90)
     available_expiries = [e for e in expiries if e.date() >= datetime.now().date() and e.date() <= three_months_later.date()]
-    
+
     if not expiry_date:
         expiry_date = available_expiries[0] if available_expiries else None
     
@@ -171,12 +175,15 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
     chain_df = options[options['expiry'] == expiry_date].sort_values(by='strike')
     ce_df, pe_df = chain_df[chain_df['instrument_type'] == 'CE'].copy(), chain_df[chain_df['instrument_type'] == 'PE'].copy()
     instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
+
     if not instruments_to_fetch: return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
+    
     quotes = kite.quote(instruments_to_fetch)
     ce_df['LTP'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
     pe_df['LTP'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
     final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP']], pe_df[['tradingsymbol', 'strike', 'LTP']], on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'})
     return final_chain[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']], expiry_date, underlying_ltp, available_expiries
+
 
 @st.cache_data(ttl=10)
 def get_portfolio():
@@ -256,7 +263,6 @@ def train_xgboost_model(_data):
     max_drawdown = drawdown.min()
 
     last_features = df[features].iloc[-1].values.reshape(1, -1)
-    # Create a DataFrame for prediction with correct feature names
     last_features_df = pd.DataFrame(last_features, columns=features)
     future_pred = model.predict(last_features_df)[0]
     
@@ -267,20 +273,25 @@ def train_arima_model(_data):
     df = _data['close']
     if len(df) < 50: return None, None, None, None, None
     train_data, test_data = df[:-30], df[-30:]
-    model, model_fit = ARIMA(train_data, order=(5,1,0)), None
-    try: model_fit = model.fit()
-    except Exception as e: st.warning(f"ARIMA model failed to converge: {e}"); return None, None, None, None, None
-    preds = model_fit.forecast(steps=30)
+    try:
+        # FIX: Use auto_arima to find the best model order
+        model = pm.auto_arima(train_data, seasonal=False, stepwise=True, suppress_warnings=True, error_action='ignore')
+        model_fit = model.fit(train_data)
+    except Exception as e:
+        st.warning(f"ARIMA model failed: {e}")
+        return None, None, None, None, None
+    
+    preds = model_fit.predict(n_periods=30)
     accuracy = 100 - (mean_absolute_percentage_error(test_data, preds) * 100)
     rmse = np.sqrt(mean_squared_error(test_data, preds))
-    backtest_df = pd.DataFrame({'Actual': test_data, 'Predicted': preds})
+    backtest_df = pd.DataFrame({'Actual': test_data, 'Predicted': preds}, index=test_data.index)
     
     cumulative_returns = (1 + (test_data.pct_change().fillna(0))).cumprod()
     peak = cumulative_returns.cummax()
     drawdown = (cumulative_returns - peak) / peak
     max_drawdown = drawdown.min()
     
-    future_pred = model_fit.forecast(steps=1).iloc[0]
+    future_pred = model_fit.predict(n_periods=1)[0]
     return future_pred, accuracy, rmse, max_drawdown, backtest_df
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
@@ -302,7 +313,7 @@ def implied_volatility(S, K, T, r, market_price, option_type):
     if T <= 0 or market_price <= 0: return np.nan
     def equation(sigma): return black_scholes(S, K, T, r, sigma, option_type)['price'] - market_price
     try: return newton(equation, 0.5, tol=1e-5, maxiter=100)
-    except RuntimeError: return np.nan
+    except (RuntimeError, TypeError): return np.nan
 
 def interpret_indicators(df):
     latest, interpretation = df.iloc[-1], {}
@@ -314,21 +325,48 @@ def interpret_indicators(df):
     if (supertrend_dir := latest.get('SUPERTd_7_3.0')) is not None: interpretation['Supertrend (7,3)'] = "Bullish" if supertrend_dir == 1 else "Bearish"
     return interpretation
 
+# NEW: Function to provide interpretations for Option Greeks
+def get_greek_interpretations(greeks):
+    interpretations = {
+        "Delta (Δ)": f"This option's price is expected to change by ₹{greeks['delta']:.2f} for every ₹1 change in the underlying stock price. It also represents the approximate probability of the option expiring in-the-money.",
+        "Gamma (Γ)": f"For every ₹1 change in the underlying stock price, this option's Delta is expected to change by {greeks['gamma']:.4f}. It measures the rate of change of Delta.",
+        "Vega (ν)": f"For every 1% change in implied volatility, this option's price is expected to change by ₹{greeks['vega']:.2f}. Vega is highest for at-the-money options with longer time to expiration.",
+        "Theta (Θ)": f"This option's price is expected to decrease by ₹{abs(greeks['theta']):.2f} each day due to the passage of time (time decay).",
+        "Rho (ρ)": f"For every 1% change in the risk-free interest rate, this option's price is expected to change by ₹{greeks['rho']:.2f}."
+    }
+    return interpretations
+
 # ==============================================================================
 # 3. PAGE DEFINITIONS
 # ==============================================================================
 def page_dashboard():
-    display_header(); st.title("Dashboard")
-    instrument_df, watchlist_symbols = get_instrument_df(st.session_state.kite), ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']
-    watchlist_tokens, nifty_token = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols], get_instrument_token('NIFTY 50', instrument_df, 'NFO')
-    watchlist_data, nifty_data, (_, _, total_pnl, total_investment) = get_watchlist_data(watchlist_tokens), get_historical_data(nifty_token, "5minute", "1d"), get_portfolio()
+    display_header()
+    st.title("Dashboard")
+    instrument_df = get_instrument_df(st.session_state.kite)
+    watchlist_symbols = ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']
+    watchlist_tokens = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols]
+    nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NFO')
+
+    watchlist_data = get_watchlist_data(watchlist_tokens)
+    # FIX: Set interval to "minute" for 1-min chart
+    nifty_data = get_historical_data(nifty_token, "minute", "1d")
+    _, _, total_pnl, total_investment = get_portfolio()
+
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.subheader("Live Watchlist"); st.dataframe(watchlist_data, use_container_width=True, hide_index=True)
-        st.subheader("Portfolio Overview"); st.metric("Total Investment", f"₹{total_investment:,.2f}"); st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}")
+        st.subheader("Live Watchlist")
+        st.dataframe(watchlist_data, use_container_width=True, hide_index=True)
+        st.subheader("Portfolio Overview")
+        st.metric("Total Investment", f"₹{total_investment:,.2f}")
+        st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}")
+
     with col2:
-        st.subheader("NIFTY 50 Live Chart (5-min)");
-        if not nifty_data.empty: st.plotly_chart(create_chart(nifty_data.tail(75), "NIFTY 50"), use_container_width=True)
+        st.subheader("NIFTY 50 Live Chart (1-min)")
+        if not nifty_data.empty:
+            st.plotly_chart(create_chart(nifty_data.tail(75), "NIFTY 50"), use_container_width=True)
+        else:
+            # FIX: Add a helpful message when market is closed
+            st.warning("Could not load NIFTY 50 chart. The market is currently closed or live data is unavailable.")
 
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting")
@@ -341,8 +379,64 @@ def page_advanced_charting():
         if not data.empty:
             st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True)
             st.subheader("Technical Indicator Analysis"); st.dataframe(pd.DataFrame([interpret_indicators(data)], index=["Interpretation"]).T, use_container_width=True)
+
+            # NEW: Add Greeks Analysis expander
+            with st.expander("🔬 Options Greeks Analysis"):
+                chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(ticker, instrument_df, exchange='NFO')
+                
+                if not available_expiries:
+                    st.warning(f"No options contracts found for {ticker}.")
+                else:
+                    selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'), key=f"{ticker}_expiry")
+                    if selected_expiry:
+                        chain_df, expiry, underlying_ltp, _ = get_options_chain(ticker, instrument_df, selected_expiry, exchange='NFO')
+                        
+                        if not chain_df.empty:
+                            option_list = chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist()
+                            option_selection = st.selectbox("Select an option contract to analyze", option_list)
+                            
+                            if option_selection:
+                                option_details_df = instrument_df[instrument_df['tradingsymbol'] == option_selection]
+                                if not option_details_df.empty:
+                                    option_details = option_details_df.iloc[0]
+                                    strike_price = option_details['strike']
+                                    option_type = option_details['instrument_type'].lower()
+                                    
+                                    ltp = 0
+                                    if option_type == 'ce': ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
+                                    else: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
+
+                                    # FIX: Robust time to expiry calculation
+                                    days_to_expiry = (pd.to_datetime(expiry).date() - datetime.now().date()).days
+                                    T = max(days_to_expiry, 0) / 365.0
+                                    r = 0.07 # Assume risk-free rate of 7%
+                                    S = data['close'].iloc[-1] # Current stock price
+
+                                    iv = implied_volatility(S, strike_price, T, r, ltp, option_type)
+                                    
+                                    if not np.isnan(iv):
+                                        greeks = black_scholes(S, strike_price, T, r, iv, option_type)
+                                        st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
+                                        
+                                        c1, c2, c3 = st.columns(3)
+                                        c1.metric("Delta (Δ)", f"{greeks['delta']:.4f}")
+                                        c2.metric("Gamma (Γ)", f"{greeks['gamma']:.4f}")
+                                        c3.metric("Vega (ν)", f"{greeks['vega']:.4f}")
+                                        c4, c5, _ = st.columns(3)
+                                        c4.metric("Theta (Θ)", f"{greeks['theta']:.4f}")
+                                        c5.metric("Rho (ρ)", f"{greeks['rho']:.4f}")
+
+                                        st.subheader("Greek Interpretations")
+                                        interpretations = get_greek_interpretations(greeks)
+                                        for greek, interp in interpretations.items():
+                                            st.markdown(f"**{greek}:** {interp}")
+                                    else:
+                                        st.warning("Could not calculate Implied Volatility and Greeks for this option (LTP might be zero or expiry too close).")
+                        else:
+                            st.warning(f"No options chain data available for {ticker} on {selected_expiry.strftime('%d %b %Y')}.")
         else: st.warning(f"No chart data for {ticker}.")
     else: st.error(f"Ticker '{ticker}' not found.")
+
 
 def page_options_hub():
     display_header(); st.title("Options Hub")
@@ -374,20 +468,20 @@ def page_options_hub():
                     if option_type == 'ce' and not chain_df[chain_df['CALL'] == option_selection].empty: ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
                     elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
                     
+                    # FIX: Robust time to expiry calculation
                     expiry_date = pd.to_datetime(expiry).date()
-                    T = ((expiry_date - datetime.now().date()).days / 365)
+                    days_to_expiry = (expiry_date - datetime.now().date()).days
+                    T = max(days_to_expiry, 0) / 365.0
                     r = 0.07
                     
                     iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
                     if not np.isnan(iv):
                         greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
                         st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
-                        c1, c2 = st.columns(2)
-                        c3, c4 = st.columns(2)
-                        c5, _ = st.columns(2)
-                        c1.metric("Delta", f"{greeks['delta']:.4f}"); c2.metric("Gamma", f"{greeks['gamma']:.4f}")
-                        c3.metric("Vega", f"{greeks['vega']:.4f}"); c4.metric("Theta", f"{greeks['theta']:.4f}")
-                        c5.metric("Rho", f"{greeks['rho']:.4f}")
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Delta", f"{greeks['delta']:.4f}"); c2.metric("Gamma", f"{greeks['gamma']:.4f}"); c3.metric("Vega", f"{greeks['vega']:.4f}")
+                        c4, c5, _ = st.columns(3)
+                        c4.metric("Theta", f"{greeks['theta']:.4f}"); c5.metric("Rho", f"{greeks['rho']:.4f}")
                     else: st.warning("Could not calculate Implied Volatility for this option.")
     
     st.subheader(f"{underlying} Options Chain")
@@ -407,7 +501,7 @@ def page_alpha_engine():
                 avg_sentiment = news_df['sentiment'].mean()
                 sentiment_label = "Positive" if avg_sentiment > 0.05 else "Negative" if avg_sentiment < -0.05 else "Neutral"
                 st.metric(f"News Sentiment for '{query}'", sentiment_label, f"{avg_sentiment:.3f}")
-                st.dataframe(news_df, use_container_width=True, hide_index=True)
+                st.dataframe(news_df, use_container_width=True, hide_index=True, column_config={"link": st.column_config.LinkColumn("Link")})
             else: st.info(f"No recent news found for '{query}'.")
 
     with col2:
@@ -475,8 +569,7 @@ def page_forecasting_ml():
                             c2.metric("Model Accuracy", f"{accuracy:.2f}%")
                             c3.metric("RMSE", f"{rmse:.2f}")
                             c4.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
-                            if accuracy < 85: st.warning("Note: Model accuracy is below 85%. Financial markets are highly unpredictable.")
-
+                            
                             st.subheader("Backtest: Predicted vs. Actual Prices")
                             fig = go.Figure()
                             fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
@@ -506,23 +599,25 @@ def page_ai_assistant():
         with st.chat_message("assistant"):
             with st.spinner("Accessing data..."):
                 prompt_lower, response = prompt.lower(), "I can provide information on your holdings, positions, orders, funds, and current stock prices. Please ask a specific question."
-                if "holdings" in prompt_lower:
+                kite = st.session_state.get('kite')
+                if not kite:
+                    response = "I am not connected to your broker. Please log in."
+                elif "holdings" in prompt_lower:
                     _, holdings_df, _, _ = get_portfolio()
                     response = "Here are your current holdings:\n```\n" + tabulate(holdings_df, headers='keys', tablefmt='psql') + "\n```" if not holdings_df.empty else "You have no holdings."
                 elif "positions" in prompt_lower:
                     positions_df, _, total_pnl, _ = get_portfolio()
                     response = f"Here are your current positions. Your total P&L is ₹{total_pnl:,.2f}:\n```\n" + tabulate(positions_df, headers='keys', tablefmt='psql') + "\n```" if not positions_df.empty else "You have no open positions."
                 elif "orders" in prompt_lower:
-                    orders = st.session_state.get('kite').orders()
+                    orders = kite.orders()
                     response = "Here are your orders for the day:\n```\n" + tabulate(pd.DataFrame(orders), headers='keys', tablefmt='psql') + "\n```" if orders else "You have no orders for the day."
                 elif "funds" in prompt_lower or "margin" in prompt_lower:
-                    funds = st.session_state.get('kite').margins()
+                    funds = kite.margins()
                     response = f"Here are your available funds:\n- Equity: ₹{funds['equity']['available']['live_balance']:,.2f}\n- Commodity: ₹{funds['commodity']['available']['live_balance']:,.2f}"
                 elif "price of" in prompt_lower or "ltp of" in prompt_lower:
                     try:
                         ticker = prompt.split(" of ")[-1].strip().upper()
-                        # Use get_instrument_token to check if symbol exists before fetching data
-                        instrument_df = get_instrument_df(st.session_state.kite)
+                        instrument_df = get_instrument_df(kite)
                         token = get_instrument_token(ticker, instrument_df)
                         if token:
                             ltp_data = get_watchlist_data([{'symbol': ticker, 'token': token}])
@@ -549,8 +644,8 @@ def main():
     if 'kite' in st.session_state:
         st.sidebar.title(f"Welcome {st.session_state.profile['user_name']}")
         st.sidebar.header("Terminal Controls")
-        st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"])
-        st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"])
+        st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], key='theme_selector')
+        st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], key='mode_selector')
 
         st.sidebar.header("Live Data")
         auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
@@ -567,13 +662,12 @@ def main():
         else: # Options Mode
             pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
         st.sidebar.header("Navigation")
-        selection = st.sidebar.radio("Go to", list(pages.keys()))
+        selection = st.sidebar.radio("Go to", list(pages.keys()), key='nav_selector')
         
-        # FIX: Call the selected page function without any arguments
         pages[selection]()
         
         if st.sidebar.button("Logout"):
-            for key in ['access_token', 'kite', 'profile']:
+            for key in ['access_token', 'kite', 'profile', 'messages', 'journal']:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
     else:
@@ -588,7 +682,10 @@ def main():
         if request_token:
             try:
                 data = kite.generate_session(request_token, api_secret=api_secret)
-                st.session_state.access_token, st.session_state.kite, st.session_state.profile = data["access_token"], kite, kite.profile()
+                st.session_state.access_token = data["access_token"]
+                kite.set_access_token(st.session_state.access_token)
+                st.session_state.kite = kite
+                st.session_state.profile = kite.profile()
                 st.query_params.clear(); st.rerun()
             except Exception as e: st.error(f"Authentication failed: {e}")
         else: st.link_button("Login with Kite", kite.login_url())
