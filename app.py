@@ -28,12 +28,14 @@ st.set_page_config(page_title="BlockVista Terminal", layout="wide")
 
 def set_blockvista_style(theme='Dark'):
     """ Sets the dark or light theme for the BlockVista Terminal """
+    light_text_color = "#FFFFFF" if theme == 'Dark' else "#000000"
     if theme == 'Dark':
-        st.markdown("""
+        st.markdown(f"""
             <style>
-                .main .block-container { background-color: #0d1117; color: #c9d1d9; }
-                .stSidebar { background-color: #010409; }
-                .stMetric { border-left: 3px solid #58a6ff; padding-left: 10px; }
+                .main .block-container {{ background-color: #0d1117; color: #c9d1d9; }}
+                .stSidebar {{ background-color: #010409; }}
+                .stSidebar * {{ color: {light_text_color}; }}
+                .stMetric {{ border-left: 3px solid #58a6ff; padding-left: 10px; }}
             </style>
         """, unsafe_allow_html=True)
     else: # Light Theme
@@ -41,7 +43,7 @@ def set_blockvista_style(theme='Dark'):
             <style>
                 .main .block-container { background-color: #ffffff; color: #000000; }
                 .stSidebar { background-color: #f0f2f6; }
-                .stMetric { border-left: 3px solid #1c64f2; padding-left: 10px; }
+                .stMetric {{ border-left: 3px solid #1c64f2; padding-left: 10px; }}
                 h1, h2, h3, h4, h5, h6 { color: #1c64f2; }
             </style>
         """, unsafe_allow_html=True)
@@ -268,11 +270,9 @@ def implied_volatility(S, K, T, r, market_price, option_type):
 
 def interpret_indicators(df):
     latest, interpretation = df.iloc[-1], {}
-    # Oscillators
     if (rsi := latest.get('RSI_14')) is not None: interpretation['RSI (14)'] = "Overbought (Bearish)" if rsi > 70 else "Oversold (Bullish)" if rsi < 30 else "Neutral"
     if (stoch_k := latest.get('STOK_14_3_3')) is not None and stoch_k > 80: interpretation['Stochastic (14,3,3)'] = "Overbought (Bearish)"
     elif stoch_k is not None and stoch_k < 20: interpretation['Stochastic (14,3,3)'] = "Oversold (Bullish)"
-    # Trend
     if (macd := latest.get('MACD_12_26_9')) is not None and (signal := latest.get('MACDs_12_26_9')) is not None: interpretation['MACD (12,26,9)'] = "Bullish Crossover" if macd > signal else "Bearish Crossover"
     if (adx := latest.get('ADX_14')) is not None: interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
     if (supertrend_dir := latest.get('SUPERTd_7_3.0')) is not None: interpretation['Supertrend (7,3)'] = "Bullish" if supertrend_dir == 1 else "Bearish"
@@ -345,6 +345,7 @@ def page_options_hub():
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News & Social Sentiment")
     query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
+    
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("News Sentiment")
@@ -356,6 +357,7 @@ def page_alpha_engine():
                 st.metric(f"News Sentiment for '{query}'", sentiment_label, f"{avg_sentiment:.3f}")
                 st.dataframe(news_df, use_container_width=True, hide_index=True)
             else: st.info(f"No recent news found for '{query}'.")
+
     with col2:
         st.subheader("Social Media Sentiment")
         with st.spinner("Fetching and analyzing social media..."):
@@ -443,16 +445,12 @@ def page_ai_assistant():
 # ==============================================================================
 
 def main():
-    # Initialize session state keys
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
-
     set_blockvista_style(st.session_state.theme)
 
     if 'kite' in st.session_state:
         st.sidebar.title(f"Welcome {st.session_state.profile['user_name']}")
-        
-        # --- Sidebar Controls ---
         st.sidebar.header("Terminal Controls")
         st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"])
         st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"])
@@ -461,29 +459,26 @@ def main():
         auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
         refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=5, disabled=not auto_refresh)
         if auto_refresh: st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
-        
         with st.sidebar.expander("🚀 Place Order", expanded=False):
             with st.form("order_form"):
                 symbol, qty, order_type = st.text_input("Symbol"), st.number_input("Quantity", min_value=1, step=1), st.radio("Order Type", ["MARKET", "LIMIT"])
                 price, product, transaction_type = st.number_input("Price", min_value=0.01) if order_type == "LIMIT" else 0, st.radio("Product", ["MIS", "CNC"]), st.radio("Transaction", ["BUY", "SELL"])
                 if st.form_submit_button("Submit Order") and symbol: place_zerodha_order(symbol, qty, order_type, transaction_type, product, price if price > 0 else None)
         
-        # --- Page Navigation based on Terminal Mode ---
         if st.session_state.terminal_mode == "Intraday":
             pages = {"Dashboard": page_dashboard, "Advanced Charting": page_advanced_charting, "Alpha Engine": page_alpha_engine, "Portfolio & Risk": page_portfolio_and_risk, "Forecasting & ML": page_forecasting_ml, "AI Assistant": page_ai_assistant}
         else: # Options Mode
             pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
-
         st.sidebar.header("Navigation")
         selection = st.sidebar.radio("Go to", list(pages.keys()))
-        pages[selection]()
+        if selection == "Dashboard": pages[selection](st.session_state.terminal_mode)
+        else: pages[selection]()
         
         if st.sidebar.button("Logout"):
             for key in ['access_token', 'kite', 'profile']:
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
     else:
-        # --- LOGIN STATE ---
         st.title("BlockVista Terminal")
         st.subheader("Zerodha Kite Authentication")
         try:
