@@ -5,10 +5,12 @@ import pandas_ta as ta
 import plotly.graph_objects as go
 from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
+import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 import xgboost as xgb
 import numpy as np
@@ -39,14 +41,58 @@ def set_blockvista_style():
 set_blockvista_style()
 
 # ==============================================================================
-# 2. HELPER FUNCTIONS (CHARTS, KITE API, ML, NEWS, AI, GREEKS)
+# 2. HELPER FUNCTIONS (CHARTS, KITE API, ML, NEWS, AI, GREEKS, MARKET STATUS)
 # ==============================================================================
+
+# --- Market Status and Header ---
+@st.cache_data(ttl=3600) # Cache holidays for 1 hour
+def get_market_holidays(year):
+    """Returns a list of NSE market holidays for the given year."""
+    if year == 2025:
+        # Source: NSE Website (Illustrative list)
+        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', 
+                '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', 
+                '2025-12-25']
+    if year == 2026:
+        # Placeholder for 2026 holidays
+        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', 
+                '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
+    return []
+
+def get_market_status():
+    """Checks if the Indian stock market is open."""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    market_open_time = time(9, 15)
+    market_close_time = time(15, 30)
+    
+    holidays = get_market_holidays(now.year)
+    
+    if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays:
+        return {"status": "Closed", "color": "red"}
+    if market_open_time <= now.time() <= market_close_time:
+        return {"status": "Open", "color": "lightgreen"}
+    return {"status": "Closed", "color": "red"}
+
+def display_header():
+    """Displays the header on every page."""
+    status_info = get_market_status()
+    st.markdown(f"""
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="margin: 0;">BlockVista Terminal</h2>
+            <div style="text-align: right;">
+                <span style="margin: 0;">India | Market Status: 
+                    <span style="color:{status_info['color']}; font-weight: bold;">{status_info['status']}</span>
+                </span>
+            </div>
+        </div>
+        <hr>
+    """, unsafe_allow_html=True)
+
 
 # --- Charting Functions ---
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
     fig = go.Figure()
-
-    # Calculate Heikin-Ashi candles if requested
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(df['open'], df['high'], df['low'], df['close'])
         fig.add_trace(go.Candlestick(x=ha_df.index, open=ha_df['HA_open'], high=ha_df['HA_high'], low=ha_df['HA_low'], close=ha_df['HA_close'], name='Heikin-Ashi'))
@@ -59,17 +105,15 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
 
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBL_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), name='Lower Band'))
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBU_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), fill='tonexty', fillcolor='rgba(135, 206, 250, 0.1)', name='Upper Band'))
-    
     if forecast_df is not None:
         fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
-
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template='plotly_dark', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
 
 # --- Kite Connect API Functions ---
 @st.cache_resource(ttl=3600)
 def get_instrument_df(_kite):
-    kite = st.session_state.get('kite')
+    kite = st.session_state.get('kite');
     if not kite: return pd.DataFrame()
     return pd.DataFrame(kite.instruments())
 
@@ -82,64 +126,50 @@ def get_instrument_token(symbol, instrument_df, exchange='NSE'):
 def get_historical_data(instrument_token, interval, period):
     kite = st.session_state.get('kite')
     if not kite or not instrument_token: return pd.DataFrame()
-    to_date = datetime.now().date()
-    days_to_subtract = {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
+    to_date, days_to_subtract = datetime.now().date(), {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
     from_date = to_date - timedelta(days=days_to_subtract.get(period, 365))
     try:
         records = kite.historical_data(instrument_token, from_date, to_date, interval)
         df = pd.DataFrame(records)
         if df.empty: return df
-        df.set_index('date', inplace=True)
-        df.index = pd.to_datetime(df.index)
-        df.ta.rsi(append=True)
-        df.ta.macd(append=True)
-        df.ta.bbands(length=20, append=True)
-        df.ta.adx(append=True)
+        df.set_index('date', inplace=True); df.index = pd.to_datetime(df.index)
+        df.ta.rsi(append=True); df.ta.macd(append=True); df.ta.bbands(length=20, append=True); df.ta.adx(append=True)
         return df
     except Exception as e:
-        st.error(f"Kite API Error (Historical): {e}")
-        return pd.DataFrame()
+        st.error(f"Kite API Error (Historical): {e}"); return pd.DataFrame()
 
 @st.cache_data(ttl=5)
-def get_ltp(symbols_with_tokens, exchange="NSE"):
+def get_watchlist_data(symbols_with_tokens, exchange="NSE"):
     kite = st.session_state.get('kite')
     if not kite or not symbols_with_tokens: return pd.DataFrame()
     instrument_names = [f"{exchange}:{item['symbol']}" for item in symbols_with_tokens]
     try:
-        ltp_data = kite.ltp(instrument_names)
-        quotes = kite.quote(instrument_names)
-        watchlist = []
+        ltp_data, quotes, watchlist = kite.ltp(instrument_names), kite.quote(instrument_names), []
         for item in symbols_with_tokens:
             instrument = f"{exchange}:{item['symbol']}"
             if instrument in ltp_data and instrument in quotes:
-                last_price = ltp_data[instrument]['last_price']
-                prev_close = quotes[instrument]['ohlc']['close']
-                change = last_price - prev_close
-                pct_change = (change / prev_close) * 100 if prev_close != 0 else 0
+                last_price, prev_close = ltp_data[instrument]['last_price'], quotes[instrument]['ohlc']['close']
+                change, pct_change = last_price - prev_close, (last_price - prev_close) / prev_close * 100 if prev_close != 0 else 0
                 watchlist.append({'Ticker': item['symbol'], 'Price': f"₹{last_price:,.2f}", 'Change': f"{change:,.2f}", '% Change': f"{pct_change:.2f}%"})
         return pd.DataFrame(watchlist)
     except Exception as e:
-        st.toast(f"Error fetching LTP: {e}", icon="⚠️")
-        return pd.DataFrame()
+        st.toast(f"Error fetching LTP: {e}", icon="⚠️"); return pd.DataFrame()
 
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df):
     kite = st.session_state.get('kite')
     if not kite: return pd.DataFrame(), None, 0.0
-    exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'NFO'
-    underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' else f"{exchange}:{underlying}"
+    exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS", "USDINR"] else 'NFO'
+    underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY", "USDINR"] else (f"CDS:{underlying}" if underlying == "USDINR" else f"{exchange}:{underlying}")
     try:
         underlying_ltp = kite.ltp(underlying_instrument_name)[underlying_instrument_name]['last_price']
-    except Exception:
-        underlying_ltp = 0.0 # Fallback
-
+    except Exception: underlying_ltp = 0.0
     options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
     if options.empty: return pd.DataFrame(), None, underlying_ltp
     expiries = sorted(options['expiry'].unique())
     nearest_expiry = expiries[0]
     chain_df = options[options['expiry'] == nearest_expiry].sort_values(by='strike')
-    ce_df = chain_df[chain_df['instrument_type'] == 'CE'].copy()
-    pe_df = chain_df[chain_df['instrument_type'] == 'PE'].copy()
+    ce_df, pe_df = chain_df[chain_df['instrument_type'] == 'CE'].copy(), chain_df[chain_df['instrument_type'] == 'PE'].copy()
     instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
     if not instruments_to_fetch: return pd.DataFrame(), nearest_expiry, underlying_ltp
     quotes = kite.quote(instruments_to_fetch)
@@ -154,14 +184,11 @@ def get_portfolio():
     if not kite: return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
     try:
         positions, holdings = kite.positions()['net'], kite.holdings()
-        positions_df = pd.DataFrame(positions)[['tradingsymbol', 'quantity', 'average_price', 'last_price', 'pnl']] if positions else pd.DataFrame()
-        total_pnl = positions_df['pnl'].sum() if not positions_df.empty else 0.0
-        holdings_df = pd.DataFrame(holdings)[['tradingsymbol', 'quantity', 'average_price', 'last_price', 'pnl']] if holdings else pd.DataFrame()
-        total_investment = (holdings_df['quantity'] * holdings_df['average_price']).sum() if not holdings_df.empty else 0.0
+        positions_df, total_pnl = (pd.DataFrame(positions)[['tradingsymbol', 'quantity', 'average_price', 'last_price', 'pnl']], pd.DataFrame(positions)['pnl'].sum()) if positions else (pd.DataFrame(), 0.0)
+        holdings_df, total_investment = (pd.DataFrame(holdings)[['tradingsymbol', 'quantity', 'average_price', 'last_price', 'pnl']], (pd.DataFrame(holdings)['quantity'] * pd.DataFrame(holdings)['average_price']).sum()) if holdings else (pd.DataFrame(), 0.0)
         return positions_df, holdings_df, total_pnl, total_investment
     except Exception as e:
-        st.error(f"Kite API Error (Portfolio): {e}")
-        return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
+        st.error(f"Kite API Error (Portfolio): {e}"); return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
 
 def place_zerodha_order(symbol, quantity, order_type, transaction_type, product, price=None):
     kite = st.session_state.get('kite')
@@ -171,157 +198,118 @@ def place_zerodha_order(symbol, quantity, order_type, transaction_type, product,
         if 'order_history' not in st.session_state: st.session_state.order_history = []
         st.session_state.order_history.insert(0, {"id": order_id, "symbol": symbol, "qty": quantity, "type": transaction_type, "status": "Success"})
     except Exception as e:
-        st.toast(f"❌ Order placement failed: {e}", icon="🔥")
+        st.toast(f"❌ Order failed: {e}", icon="🔥")
         if 'order_history' not in st.session_state: st.session_state.order_history = []
         st.session_state.order_history.insert(0, {"id": "N/A", "symbol": symbol, "qty": quantity, "type": transaction_type, "status": f"Failed: {e}"})
 
-# --- ML, News & Greeks Functions ---
+# --- Analytics, ML, News & Greeks Functions ---
 @st.cache_data(ttl=900)
 def fetch_and_analyze_news():
-    analyzer = SentimentIntensityAnalyzer()
-    news_sources = {"Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml", "Business Standard": "https://www.business-standard.com/rss/markets-102.cms"}
-    all_news = []
+    analyzer, news_sources, all_news = SentimentIntensityAnalyzer(), {"Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml", "Business Standard": "https://www.business-standard.com/rss/markets-102.cms"}, []
     for source, url in news_sources.items():
         feed = feedparser.parse(url)
         for entry in feed.entries:
-            sentiment = analyzer.polarity_scores(entry.title)['compound']
-            all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": sentiment})
+            all_news.append({"source": source, "title": entry.title, "link": entry.link, "sentiment": analyzer.polarity_scores(entry.title)['compound']})
     return pd.DataFrame(all_news)
 
 def create_features(df):
-    df['dayofweek'] = df.index.dayofweek
-    df['quarter'] = df.index.quarter
-    df['month'] = df.index.month
-    df['year'] = df.index.year
-    df['dayofyear'] = df.index.dayofyear
-    for lag in range(1, 6):
-        df[f'lag_{lag}'] = df['close'].shift(lag)
-    df['rolling_mean_5'] = df['close'].rolling(window=5).mean()
-    df.dropna(inplace=True)
+    df['dayofweek'], df['quarter'], df['month'], df['year'], df['dayofyear'] = df.index.dayofweek, df.index.quarter, df.index.month, df.index.year, df.index.dayofyear
+    for lag in range(1, 6): df[f'lag_{lag}'] = df['close'].shift(lag)
+    df['rolling_mean_5'] = df['close'].rolling(window=5).mean(); df.dropna(inplace=True)
     return df
 
 @st.cache_data
 def train_xgboost_model(_data):
     df = create_features(_data.copy())
-    features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']]
-    target = 'close'
+    features, target = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']], 'close'
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
     reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse')
     reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
-    df['prediction'] = reg.predict(df[features])
-    mse = mean_squared_error(df[target], df['prediction'])
+    df['prediction'], mse = reg.predict(df[features]), mean_squared_error(df[target], df['prediction'])
     return reg, mse
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
-    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
+    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T)) if sigma > 0 and T > 0 else 0
+    d2 = d1 - sigma * np.sqrt(T) if sigma > 0 and T > 0 else 0
     if option_type == "call":
-        price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-        delta = norm.cdf(d1)
-    elif option_type == "put":
-        price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
-        delta = norm.cdf(d1) - 1
-    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T))
-    vega = S * norm.pdf(d1) * np.sqrt(T)
-    theta = (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2)) if option_type == "call" else (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * norm.cdf(-d2))
+        price, delta = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2), norm.cdf(d1)
+        theta = (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2)) if T > 0 else 0
+    else: # put
+        price, delta = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1), norm.cdf(d1) - 1
+        theta = (- (S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * norm.cdf(-d2)) if T > 0 else 0
+    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T)) if sigma > 0 and T > 0 else 0
+    vega = S * norm.pdf(d1) * np.sqrt(T) if T > 0 else 0
     return {"price": price, "delta": delta, "gamma": gamma, "vega": vega / 100, "theta": theta / 365}
 
 def implied_volatility(S, K, T, r, market_price, option_type):
-    def equation(sigma):
-        return black_scholes(S, K, T, r, sigma, option_type)['price'] - market_price
-    try:
-        return newton(equation, 0.5, tol=1e-5, maxiter=100)
-    except RuntimeError:
-        return np.nan
+    if T <= 0: return np.nan
+    def equation(sigma): return black_scholes(S, K, T, r, sigma, option_type)['price'] - market_price
+    try: return newton(equation, 0.5, tol=1e-5, maxiter=100)
+    except RuntimeError: return np.nan
 
 def interpret_indicators(df):
-    latest = df.iloc[-1]
-    interpretation = {}
-    rsi = latest.get('RSI_14')
-    if rsi > 70: interpretation['RSI (14)'] = "Overbought (Bearish)"
-    elif rsi < 30: interpretation['RSI (14)'] = "Oversold (Bullish)"
-    else: interpretation['RSI (14)'] = "Neutral"
-
-    macd = latest.get('MACD_12_26_9')
-    signal = latest.get('MACDs_12_26_9')
-    if macd > signal: interpretation['MACD (12,26,9)'] = "Bullish Crossover"
-    elif macd < signal: interpretation['MACD (12,26,9)'] = "Bearish Crossover"
-    else: interpretation['MACD (12,26,9)'] = "Neutral"
-
-    adx = latest.get('ADX_14')
-    if adx > 25: interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})"
-    else: interpretation['ADX (14)'] = f"Weak/No Trend ({adx:.1f})"
+    latest, interpretation = df.iloc[-1], {}
+    if (rsi := latest.get('RSI_14')) is not None: interpretation['RSI (14)'] = "Overbought (Bearish)" if rsi > 70 else "Oversold (Bullish)" if rsi < 30 else "Neutral"
+    if (macd := latest.get('MACD_12_26_9')) is not None and (signal := latest.get('MACDs_12_26_9')) is not None: interpretation['MACD (12,26,9)'] = "Bullish Crossover" if macd > signal else "Bearish Crossover"
+    if (adx := latest.get('ADX_14')) is not None: interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
     return interpretation
 
 # ==============================================================================
 # 3. PAGE DEFINITIONS
 # ==============================================================================
-
 def page_dashboard():
-    st.title("Main Dashboard")
+    display_header(); st.title("Dashboard")
     instrument_df, watchlist_symbols = get_instrument_df(st.session_state.kite), ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY', 'ICICIBANK']
-    watchlist_tokens = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols]
-    watchlist_data, nifty_token = get_watchlist_data(watchlist_tokens), get_instrument_token('NIFTY 50', instrument_df, 'NFO')
-    nifty_data, (_, _, total_pnl, total_investment) = get_historical_data(nifty_token, "5minute", "1d"), get_portfolio()
+    watchlist_tokens, nifty_token = [{'symbol': s, 'token': get_instrument_token(s, instrument_df)} for s in watchlist_symbols], get_instrument_token('NIFTY 50', instrument_df, 'NFO')
+    watchlist_data, nifty_data, (_, _, total_pnl, total_investment) = get_watchlist_data(watchlist_tokens), get_historical_data(nifty_token, "5minute", "1d"), get_portfolio()
     col1, col2 = st.columns([1, 2])
     with col1:
         st.subheader("Live Watchlist"); st.dataframe(watchlist_data, use_container_width=True, hide_index=True)
         st.subheader("Portfolio Overview"); st.metric("Total Investment", f"₹{total_investment:,.2f}"); st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}")
     with col2:
-        st.subheader("NIFTY 50 Live Chart (5-min)")
+        st.subheader("NIFTY 50 Live Chart (5-min)");
         if not nifty_data.empty: st.plotly_chart(create_chart(nifty_data.tail(75), "NIFTY 50"), use_container_width=True)
 
 def page_advanced_charting():
-    st.title("Advanced Charting")
+    display_header(); st.title("Advanced Charting")
     instrument_df, st.sidebar.header("Chart Controls") = get_instrument_df(st.session_state.kite), None
-    ticker = st.sidebar.text_input("Select Ticker", "RELIANCE")
-    period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4)
-    interval = st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2)
-    chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
+    ticker, period, interval, chart_type = st.sidebar.text_input("Select Ticker", "RELIANCE"), st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4), st.sidebar.selectbox("Interval", ["5minute", "15minute", "day", "week"], index=2), st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
     token = get_instrument_token(ticker, instrument_df)
     if token:
         data = get_historical_data(token, interval, period)
         if not data.empty:
             st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True)
-            st.subheader("Technical Indicator Analysis")
-            interp_df = pd.DataFrame([interpret_indicators(data)], index=["Interpretation"]).T
-            st.dataframe(interp_df, use_container_width=True)
+            st.subheader("Technical Indicator Analysis"); st.dataframe(pd.DataFrame([interpret_indicators(data)], index=["Interpretation"]).T, use_container_width=True)
         else: st.warning(f"No chart data for {ticker}.")
     else: st.error(f"Ticker '{ticker}' not found.")
 
 def page_options_hub():
-    st.title("Options Hub")
+    display_header(); st.title("Options Hub")
     instrument_df = get_instrument_df(st.session_state.kite)
     underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "GOLDM", "SILVERM", "CRUDEOIL", "NATURALGAS", "USDINR"])
     chain_df, expiry, underlying_ltp = get_options_chain(underlying, instrument_df)
-    tab1, tab2 = st.tabs(["Options Chain", "Greeks Calculator"])
+    tab1, tab2 = st.tabs(["Options Chain", "Greeks Calculator & Analysis"])
     with tab1:
         st.subheader(f"{underlying} Options Chain")
-        if not chain_df.empty:
-            st.caption(f"Displaying nearest expiry: {expiry.strftime('%d %b %Y')}")
-            st.dataframe(chain_df, use_container_width=True, hide_index=True)
+        if not chain_df.empty: st.caption(f"Displaying nearest expiry: {expiry.strftime('%d %b %Y')}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
         else: st.warning(f"Could not fetch options chain for {underlying}.")
     with tab2:
         st.subheader("Option Greeks Calculator (Black-Scholes)")
         if not chain_df.empty:
             option_selection = st.selectbox("Select an option to analyze", chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist())
             option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
-            strike_price, option_type, ltp = option_details['strike'], option_details['instrument_type'].lower(), option_details['LTP']
-            days_to_expiry = (expiry - datetime.now().date()).days
-            T, r = days_to_expiry / 365, 0.07 # Time in years, Risk-free rate (approx)
+            strike_price, option_type, ltp = option_details['strike'], option_details['instrument_type'].lower(), option_details['LTP'] if 'LTP' in option_details else chain_df[chain_df['CALL']==option_selection]['CALL LTP'].iloc[0] if option_type=='ce' else chain_df[chain_df['PUT']==option_selection]['PUT LTP'].iloc[0]
+            days_to_expiry, T, r = (expiry - datetime.now().date()).days, (expiry - datetime.now().date()).days / 365, 0.07
             iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
             if not np.isnan(iv):
                 greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
                 st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Delta", f"{greeks['delta']:.4f}")
-                col2.metric("Gamma", f"{greeks['gamma']:.4f}")
-                col3.metric("Vega", f"{greeks['vega']:.4f}")
-                col4.metric("Theta", f"{greeks['theta']:.4f}")
-            else: st.warning("Could not calculate Implied Volatility for this option (likely due to low liquidity or price).")
+                col1.metric("Delta", f"{greeks['delta']:.4f}"); col2.metric("Gamma", f"{greeks['gamma']:.4f}"); col3.metric("Vega", f"{greeks['vega']:.4f}"); col4.metric("Theta", f"{greeks['theta']:.4f}")
+            else: st.warning("Could not calculate Implied Volatility for this option.")
 
 def page_alpha_engine():
-    st.title("Alpha Engine: News & Sentiment")
+    display_header(); st.title("Alpha Engine: News & Sentiment")
     news_df = fetch_and_analyze_news()
     avg_sentiment, sentiment_label = news_df['sentiment'].mean(), "Positive" if news_df['sentiment'].mean() > 0.05 else "Negative" if news_df['sentiment'].mean() < -0.05 else "Neutral"
     st.metric("Aggregate News Sentiment", sentiment_label, f"{avg_sentiment:.3f}")
@@ -331,8 +319,8 @@ def page_alpha_engine():
         st.markdown(f"<span style='color:{color};'>●</span> <a href='{row['link']}' target='_blank'>{row['title']}</a> ({row['source']})", unsafe_allow_html=True)
 
 def page_portfolio_and_risk():
-    st.title("Portfolio & Risk Journal")
-    positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
+    display_header(); st.title("Portfolio & Risk Journal")
+    positions_df, holdings_df, total_pnl, _ = get_portfolio()
     tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Trading Journal"])
     with tab1:
         st.subheader("Live Intraday Positions")
@@ -352,7 +340,7 @@ def page_portfolio_and_risk():
             st.info(text); st.caption(f"Logged: {ts.strftime('%d %b %H:%M')}")
 
 def page_forecasting_ml():
-    st.title("📈 Advanced ML Forecasting (XGBoost)")
+    display_header(); st.title("📈 Advanced ML Forecasting (XGBoost)")
     st.info("This tool trains an XGBoost model on historical data to predict the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
     instrument_df, ticker = get_instrument_df(st.session_state.kite), st.text_input("Enter a stock symbol to analyze", "TCS")
     token = get_instrument_token(ticker, instrument_df)
@@ -360,10 +348,9 @@ def page_forecasting_ml():
         data = get_historical_data(token, "day", "5y")
         if not data.empty:
             if st.button(f"Train XGBoost Model & Forecast {ticker}"):
-                with st.spinner("Training advanced model on 5 years of data... This may take a moment."):
+                with st.spinner("Training advanced model on 5 years of data..."):
                     model, mse = train_xgboost_model(data)
                     st.success(f"Model trained. Test Set MSE: {mse:.2f}")
-                    # Create future forecast
                     last_features = create_features(data.tail(10)).iloc[-1]
                     features_for_pred = [col for col in last_features.index if col not in ['open', 'high', 'low', 'close', 'volume', 'target']]
                     future_preds = model.predict(pd.DataFrame([last_features[features_for_pred]]))
@@ -373,9 +360,8 @@ def page_forecasting_ml():
     else: st.error("Ticker not found.")
 
 def page_ai_assistant():
-    st.title("🤖 Portfolio-Aware Assistant")
-    if "messages" not in st.session_state:
-        st.session_state.messages = [{"role": "assistant", "content": "Ask me about your portfolio or stock prices (e.g., 'what are my holdings?' or 'current price of RELIANCE')."}]
+    display_header(); st.title("🤖 Portfolio-Aware Assistant")
+    if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "Ask about your portfolio or stock prices (e.g., 'what are my holdings?' or 'current price of RELIANCE')."}]
     for message in st.session_state.messages:
         with st.chat_message(message["role"]): st.markdown(message["content"])
     if prompt := st.chat_input("Ask a question..."):
@@ -383,27 +369,19 @@ def page_ai_assistant():
         with st.chat_message("user"): st.markdown(prompt)
         with st.chat_message("assistant"):
             with st.spinner("Accessing data..."):
-                # Rule-based intent detection
-                prompt_lower = prompt.lower()
-                response = "Sorry, I can't answer that. I can provide information on your holdings, positions, and current stock prices."
+                prompt_lower, response = prompt.lower(), "Sorry, I can't answer that. I can provide info on holdings, positions, and stock prices."
                 if "holdings" in prompt_lower:
                     _, holdings_df, _, _ = get_portfolio()
-                    if not holdings_df.empty: response = "Here are your current holdings:\n" + holdings_df.to_markdown()
-                    else: response = "You have no holdings."
+                    response = "Here are your current holdings:\n" + holdings_df.to_markdown() if not holdings_df.empty else "You have no holdings."
                 elif "positions" in prompt_lower:
                     positions_df, _, total_pnl, _ = get_portfolio()
-                    if not positions_df.empty: response = f"Here are your current positions. Your total P&L is ₹{total_pnl:,.2f}:\n" + positions_df.to_markdown()
-                    else: response = "You have no open positions."
+                    response = f"Here are your current positions. Your total P&L is ₹{total_pnl:,.2f}:\n" + positions_df.to_markdown() if not positions_df.empty else "You have no open positions."
                 elif "price of" in prompt_lower or "ltp of" in prompt_lower:
-                    words = prompt_lower.split()
                     try:
-                        ticker_index = words.index("of") + 1
-                        ticker = words[ticker_index].upper()
+                        ticker = prompt.split()[-1].upper()
                         ltp_df = get_watchlist_data([{'symbol': ticker}])
-                        if not ltp_df.empty: response = f"The current price of {ticker} is {ltp_df.iloc[0]['Price']}."
-                        else: response = f"Could not fetch the price for {ticker}."
-                    except (ValueError, IndexError):
-                        response = "Please specify a stock ticker, for example: 'price of RELIANCE'."
+                        response = f"The current price of {ticker} is {ltp_df.iloc[0]['Price']}." if not ltp_df.empty else f"Could not fetch price for {ticker}."
+                    except (ValueError, IndexError): response = "Please specify a stock ticker, for example: 'price of RELIANCE'."
                 st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})
 
@@ -413,7 +391,7 @@ def page_ai_assistant():
 
 def main():
     if 'kite' in st.session_state:
-        st.sidebar.success(f"Logged in as {st.session_state.profile['user_name']}")
+        st.sidebar.title(f"Welcome {st.session_state.profile['user_name']}")
         st.sidebar.header("Live Data")
         auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
         refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=5, disabled=not auto_refresh)
@@ -432,6 +410,7 @@ def main():
                 if key in st.session_state: del st.session_state[key]
             st.rerun()
     else:
+        st.title("BlockVista Terminal")
         st.subheader("Zerodha Kite Authentication")
         try:
             api_key, api_secret = st.secrets["ZERODHA_API_KEY"], st.secrets["ZERODHA_API_SECRET"]
