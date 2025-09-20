@@ -5,7 +5,7 @@ import pandas_ta as ta
 import plotly.graph_objects as go
 from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time # Corrected import
 import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
@@ -49,33 +49,53 @@ set_blockvista_style()
 # --- Market Status and Header ---
 @st.cache_data(ttl=3600) # Cache holidays for 1 hour
 def get_market_holidays(year):
+    """Returns a list of NSE market holidays for the given year."""
     if year == 2025:
-        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25']
+        # Source: NSE Website (Illustrative list)
+        return ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18',
+                '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05',
+                '2025-12-25']
     if year == 2026:
-        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
+        # Placeholder for 2026 holidays
+        return ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01',
+                '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
     return []
 
 def get_market_status():
+    """Checks if the Indian stock market is open."""
     ist = pytz.timezone('Asia/Kolkata')
-    now, market_open_time, market_close_time = datetime.now(ist), time(9, 15), time(15, 30)
+    now = datetime.now(ist)
+    market_open_time = time(9, 15)
+    market_close_time = time(15, 30)
+
     holidays = get_market_holidays(now.year)
-    if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays: return {"status": "Closed", "color": "red"}
-    if market_open_time <= now.time() <= market_close_time: return {"status": "Open", "color": "lightgreen"}
+
+    if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays:
+        return {"status": "Closed", "color": "red"}
+    if market_open_time <= now.time() <= market_close_time:
+        return {"status": "Open", "color": "lightgreen"}
     return {"status": "Closed", "color": "red"}
 
 def display_header():
+    """Displays the header on every page."""
     status_info = get_market_status()
     st.markdown(f"""
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h2 style="margin: 0;">BlockVista Terminal</h2>
             <div style="text-align: right;">
-                <span style="margin: 0;">India | Market Status: <span style="color:{status_info['color']}; font-weight: bold;">{status_info['status']}</span></span>
+                <span style="margin: 0;">India | Market Status:
+                    <span style="color:{status_info['color']}; font-weight: bold;">{status_info['status']}</span>
+                </span>
             </div>
-        </div><hr>
+        </div>
+        <hr>
     """, unsafe_allow_html=True)
+
 
 # --- Charting Functions ---
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
+    if df.empty:
+        return go.Figure() # Return empty figure if no data
     fig = go.Figure()
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(df['open'], df['high'], df['low'], df['close'])
@@ -86,9 +106,11 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
         fig.add_trace(go.Ohlc(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Bar'))
     else: # Candlestick
         fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Candlestick'))
+
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBL_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), name='Lower Band'))
     fig.add_trace(go.Scatter(x=df.index, y=df.get('BBU_20_2.0'), line=dict(color='rgba(135, 206, 250, 0.5)', width=1), fill='tonexty', fillcolor='rgba(135, 206, 250, 0.1)', name='Upper Band'))
-    if forecast_df is not None: fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
+    if forecast_df is not None:
+        fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template='plotly_dark', legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
 
@@ -310,7 +332,13 @@ def page_options_hub():
         if not chain_df.empty:
             option_selection = st.selectbox("Select an option to analyze", chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist())
             option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
-            strike_price, option_type, ltp = option_details['strike'], option_details['instrument_type'].lower(), chain_df[chain_df['CALL']==option_selection]['CALL LTP'].iloc[0] if option_type=='ce' and not chain_df[chain_df['CALL']==option_selection].empty else chain_df[chain_df['PUT']==option_selection]['PUT LTP'].iloc[0]
+            strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
+            ltp = 0
+            if option_type == 'ce' and not chain_df[chain_df['CALL'] == option_selection].empty:
+                ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
+            elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty:
+                ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
+
             days_to_expiry, T, r = (expiry.date() - datetime.now().date()).days, (expiry.date() - datetime.now().date()).days / 365, 0.07
             iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
             if not np.isnan(iv):
@@ -411,7 +439,7 @@ def page_ai_assistant():
                     response = f"Here are your current positions. Your total P&L is ₹{total_pnl:,.2f}:\n" + positions_df.to_markdown() if not positions_df.empty else "You have no open positions."
                 elif "price of" in prompt_lower or "ltp of" in prompt_lower:
                     try:
-                        ticker = prompt.split()[-1].upper()
+                        ticker = prompt.split(" of ")[-1].strip().upper()
                         ltp_df = get_watchlist_data([{'symbol': ticker}])
                         response = f"The current price of {ticker} is {ltp_df.iloc[0]['Price']}." if not ltp_df.empty else f"Could not fetch price for {ticker}."
                     except (ValueError, IndexError): response = "Please specify a stock ticker, for example: 'price of RELIANCE'."
