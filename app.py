@@ -892,7 +892,7 @@ def page_ai_assistant():
 # ==============================================================================
 
 def main():
-    if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
+    if 'theme' not in st.session_state: st.session_state.theme = 'Light'
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
     set_blockvista_style(st.session_state.theme)
 
