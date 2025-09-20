@@ -42,10 +42,10 @@ def set_blockvista_style(theme='Dark'):
     else: # Light Theme
         st.markdown("""
             <style>
-                .main .block-container { background-color: #ffffff; color: #000000; }
-                .stSidebar { background-color: #f0f2f6; }
+                .main .block-container {{ background-color: #ffffff; color: #000000; }}
+                .stSidebar {{ background-color: #f0f2f6; }}
                 .stMetric {{ border-left: 3px solid #1c64f2; padding-left: 10px; }}
-                h1, h2, h3, h4, h5, h6 { color: #1c64f2; }
+                h1, h2, h3, h4, h5, h6 {{ color: #1c64f2; }}
             </style>
         """, unsafe_allow_html=True)
 
@@ -146,28 +146,37 @@ def get_watchlist_data(symbols_with_tokens, exchange="NSE"):
         st.toast(f"Error fetching LTP: {e}", icon="⚠️"); return pd.DataFrame()
 
 @st.cache_data(ttl=30)
-def get_options_chain(underlying, instrument_df):
+def get_options_chain(underlying, instrument_df, expiry_date=None):
     kite = st.session_state.get('kite')
-    if not kite: return pd.DataFrame(), None, 0.0
+    if not kite: return pd.DataFrame(), None, 0.0, []
     exchange = 'MCX' if underlying in ["GOLDM", "CRUDEOIL", "SILVERM", "NATURALGAS"] else 'CDS' if underlying == 'USDINR' else 'NFO'
     underlying_instrument_name = f"NSE:{underlying}" if exchange == 'NFO' and underlying not in ["NIFTY", "BANKNIFTY", "FINNIFTY"] else f"{exchange}:{underlying}"
     try:
         underlying_ltp = kite.ltp(underlying_instrument_name)[underlying_instrument_name]['last_price']
     except Exception: underlying_ltp = 0.0
     options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
-    if options.empty: return pd.DataFrame(), None, underlying_ltp
+    if options.empty: return pd.DataFrame(), None, underlying_ltp, []
+    
+    # Expiry logic
     expiries = sorted(options['expiry'].unique())
-    nearest_expiry = expiries[0] if len(expiries) > 0 else None
-    if not nearest_expiry: return pd.DataFrame(), None, underlying_ltp
-    chain_df = options[options['expiry'] == nearest_expiry].sort_values(by='strike')
+    expiries = [pd.to_datetime(e) for e in expiries]
+    three_months_later = datetime.now() + timedelta(days=90)
+    available_expiries = [e for e in expiries if e.date() <= three_months_later.date()]
+    
+    if not expiry_date:
+        expiry_date = available_expiries[0] if available_expiries else None
+    
+    if not expiry_date: return pd.DataFrame(), None, underlying_ltp, available_expiries
+
+    chain_df = options[options['expiry'] == expiry_date].sort_values(by='strike')
     ce_df, pe_df = chain_df[chain_df['instrument_type'] == 'CE'].copy(), chain_df[chain_df['instrument_type'] == 'PE'].copy()
     instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
-    if not instruments_to_fetch: return pd.DataFrame(), nearest_expiry, underlying_ltp
+    if not instruments_to_fetch: return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
     quotes = kite.quote(instruments_to_fetch)
     ce_df['LTP'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
     pe_df['LTP'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
     final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP']], pe_df[['tradingsymbol', 'strike', 'LTP']], on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'})
-    return final_chain[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']], nearest_expiry, underlying_ltp
+    return final_chain[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']], expiry_date, underlying_ltp, available_expiries
 
 @st.cache_data(ttl=10)
 def get_portfolio():
@@ -205,7 +214,6 @@ def fetch_and_analyze_news(query=None):
     return pd.DataFrame(all_news)
 
 def fetch_social_media_sentiment(query):
-    # This function is not cached to avoid issues with non-serializable API clients
     analyzer, results = SentimentIntensityAnalyzer(), []
     try:
         reddit = praw.Reddit(client_id=st.secrets["REDDIT_CLIENT_ID"], client_secret=st.secrets["REDDIT_CLIENT_SECRET"], user_agent=st.secrets["REDDIT_USER_AGENT"])
@@ -227,7 +235,7 @@ def create_features(df):
     df['rolling_mean_5'] = df['close'].rolling(window=5).mean(); df.dropna(inplace=True)
     return df
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def train_xgboost_model(_data):
     df = create_features(_data.copy())
     features, target = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']], 'close'
@@ -247,7 +255,7 @@ def train_xgboost_model(_data):
     last_features, future_pred = df[features].iloc[-1], reg.predict(pd.DataFrame([last_features]))[0]
     return future_pred, accuracy, rmse, max_drawdown, backtest_df
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def train_arima_model(_data):
     df = _data['close']
     if len(df) < 50: return None, None, None, None, None
@@ -332,24 +340,27 @@ def page_advanced_charting():
 def page_options_hub():
     display_header(); st.title("Options Hub")
     instrument_df = get_instrument_df(st.session_state.kite)
-    underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "GOLDM", "SILVERM", "CRUDEOIL", "NATURALGAS", "USDINR"])
-    chain_df, expiry, underlying_ltp = get_options_chain(underlying, instrument_df)
-    tab1, tab2 = st.tabs(["Options Chain", "Greeks Calculator & Analysis"])
-    with tab1:
-        st.subheader(f"{underlying} Options Chain")
-        if not chain_df.empty and expiry: st.caption(f"Displaying nearest expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
-        else: st.warning(f"Could not fetch options chain for {underlying}.")
-    with tab2:
-        st.subheader("Option Greeks Calculator (Black-Scholes)")
+    
+    col1, col2 = st.columns([1,2])
+    with col1:
+        underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "GOLDM", "SILVERM", "CRUDEOIL", "NATURALGAS", "USDINR"])
+        chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
+        
+        if available_expiries:
+            selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
+            chain_df, expiry, underlying_ltp, _ = get_options_chain(underlying, instrument_df, selected_expiry)
+        else:
+            st.warning("No expiries found for this instrument.")
+
+    with col2:
+        st.subheader("Greeks Calculator")
         if not chain_df.empty and underlying_ltp > 0 and expiry:
             option_selection = st.selectbox("Select an option to analyze", chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist())
             option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
             strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
             ltp = 0
-            if option_type == 'ce' and not chain_df[chain_df['CALL'] == option_selection].empty:
-                ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
-            elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty:
-                ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
+            if option_type == 'ce' and not chain_df[chain_df['CALL'] == option_selection].empty: ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
+            elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty: ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
             
             expiry_date = pd.to_datetime(expiry).date()
             days_to_expiry, T, r = (expiry_date - datetime.now().date()).days, (expiry_date - datetime.now().date()).days / 365, 0.07
@@ -358,9 +369,17 @@ def page_options_hub():
             if not np.isnan(iv):
                 greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
                 st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%")
-                col1, col2, col3, col4, col5 = st.columns(5)
-                col1.metric("Delta", f"{greeks['delta']:.4f}"); col2.metric("Gamma", f"{greeks['gamma']:.4f}"); col3.metric("Vega", f"{greeks['vega']:.4f}"); col4.metric("Theta", f"{greeks['theta']:.4f}"); col5.metric("Rho", f"{greeks['rho']:.4f}")
+                c1, c2 = st.columns(2)
+                c3, c4 = st.columns(2)
+                c5, c6 = st.columns(2)
+                c1.metric("Delta", f"{greeks['delta']:.4f}"); c2.metric("Gamma", f"{greeks['gamma']:.4f}")
+                c3.metric("Vega", f"{greeks['vega']:.4f}"); c4.metric("Theta", f"{greeks['theta']:.4f}")
+                c5.metric("Rho", f"{greeks['rho']:.4f}")
             else: st.warning("Could not calculate Implied Volatility for this option.")
+    
+    st.subheader(f"{underlying} Options Chain")
+    if not chain_df.empty and expiry: st.caption(f"Displaying expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
+    else: st.warning(f"Could not fetch options chain for {underlying}.")
 
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News & Social Sentiment")
