@@ -16,6 +16,7 @@ from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
+from tabulate import tabulate
 import os
 import praw
 import tweepy
@@ -49,7 +50,7 @@ def set_blockvista_style(theme='Dark'):
         """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. HELPER FUNCTIONS (CHARTS, KITE API, ML, NEWS, AI, GREEKS, MARKET STATUS)
+# 2. HELPER FUNCTIONS
 # ==============================================================================
 
 # --- Market Status and Header ---
@@ -205,6 +206,7 @@ def fetch_and_analyze_news(query=None):
 @st.cache_data(ttl=900)
 def fetch_social_media_sentiment(query):
     analyzer, results = SentimentIntensityAnalyzer(), []
+    # FIX: Initialize clients inside the function to avoid caching issues
     try:
         reddit = praw.Reddit(client_id=st.secrets["REDDIT_CLIENT_ID"], client_secret=st.secrets["REDDIT_CLIENT_SECRET"], user_agent=st.secrets["REDDIT_USER_AGENT"])
         for submission in reddit.subreddit("wallstreetbets+IndianStockMarket").search(query, limit=25):
@@ -232,9 +234,20 @@ def train_xgboost_model(_data):
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
     reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse')
     reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
-    preds, accuracy = reg.predict(X_test), 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
-    last_features, future_pred = df[features].iloc[-1], reg.predict(pd.DataFrame([last_features]))[0]
-    return future_pred, accuracy
+    preds = reg.predict(X_test)
+    accuracy = 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
+    rmse = np.sqrt(mean_squared_error(y_test, preds))
+    backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds}, index=y_test.index)
+    
+    # Calculate Drawdown
+    cumulative_returns = (1 + (y_test.pct_change().fillna(0))).cumprod()
+    peak = cumulative_returns.cummax()
+    drawdown = (cumulative_returns - peak) / peak
+    max_drawdown = drawdown.min()
+
+    last_features = df[features].iloc[-1]
+    future_pred = reg.predict(pd.DataFrame([last_features]))[0]
+    return future_pred, accuracy, rmse, max_drawdown, backtest_df
 
 @st.cache_data
 def train_arima_model(_data):
@@ -242,10 +255,19 @@ def train_arima_model(_data):
     train_data, test_data = df[:-30], df[-30:]
     model, model_fit = ARIMA(train_data, order=(5,1,0)), None
     try: model_fit = model.fit()
-    except Exception as e: st.warning(f"ARIMA model failed to converge: {e}"); return None, None
-    preds, accuracy = model_fit.forecast(steps=30), 100 - (mean_absolute_percentage_error(test_data, preds) * 100)
+    except Exception as e: st.warning(f"ARIMA model failed to converge: {e}"); return None, None, None, None, None
+    preds = model_fit.forecast(steps=30)
+    accuracy = 100 - (mean_absolute_percentage_error(test_data, preds) * 100)
+    rmse = np.sqrt(mean_squared_error(test_data, preds))
+    backtest_df = pd.DataFrame({'Actual': test_data, 'Predicted': preds})
+    
+    cumulative_returns = (1 + (test_data.pct_change().fillna(0))).cumprod()
+    peak = cumulative_returns.cummax()
+    drawdown = (cumulative_returns - peak) / peak
+    max_drawdown = drawdown.min()
+    
     future_pred = model_fit.forecast(steps=1).iloc[0]
-    return future_pred, accuracy
+    return future_pred, accuracy, rmse, max_drawdown, backtest_df
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
     if sigma <= 0 or T <= 0: return {key: 0 for key in ["price", "delta", "gamma", "vega", "theta", "rho"]}
@@ -320,11 +342,11 @@ def page_options_hub():
     tab1, tab2 = st.tabs(["Options Chain", "Greeks Calculator & Analysis"])
     with tab1:
         st.subheader(f"{underlying} Options Chain")
-        if not chain_df.empty: st.caption(f"Displaying nearest expiry: {expiry.strftime('%d %b %Y')}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
+        if not chain_df.empty and expiry: st.caption(f"Displaying nearest expiry: {expiry.strftime('%d %b %Y')}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
         else: st.warning(f"Could not fetch options chain for {underlying}.")
     with tab2:
         st.subheader("Option Greeks Calculator (Black-Scholes)")
-        if not chain_df.empty and underlying_ltp > 0:
+        if not chain_df.empty and underlying_ltp > 0 and expiry:
             option_selection = st.selectbox("Select an option to analyze", chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist())
             option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
             strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
@@ -333,7 +355,11 @@ def page_options_hub():
                 ltp = chain_df[chain_df['CALL'] == option_selection]['CALL LTP'].iloc[0]
             elif option_type == 'pe' and not chain_df[chain_df['PUT'] == option_selection].empty:
                 ltp = chain_df[chain_df['PUT'] == option_selection]['PUT LTP'].iloc[0]
-            days_to_expiry, T, r = (expiry.date() - datetime.now().date()).days, (expiry.date() - datetime.now().date()).days / 365, 0.07
+            
+            # Convert pandas timestamp to python datetime object
+            expiry_date = pd.to_datetime(expiry).date()
+            days_to_expiry, T, r = (expiry_date - datetime.now().date()).days, (expiry_date - datetime.now().date()).days / 365, 0.07
+            
             iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
             if not np.isnan(iv):
                 greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
@@ -393,24 +419,41 @@ def page_portfolio_and_risk():
 def page_forecasting_ml():
     display_header(); st.title("📈 Advanced ML Forecasting")
     st.info("Train advanced models on historical data to forecast the next closing price. This is for educational purposes and is not financial advice.", icon="ℹ️")
-    instrument_df, ticker = get_instrument_df(st.session_state.kite), st.text_input("Enter a stock symbol to analyze", "TCS")
-    model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
     
+    col1, col2 = st.columns([1,2])
+    with col1:
+        st.subheader("Model Configuration")
+        instrument_df = get_instrument_df(st.session_state.kite)
+        ticker = st.selectbox("Select a Stock for Forecasting", ['TCS', 'RELIANCE', 'INFY', 'HDFCBANK', 'ICICIBANK'])
+        model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
+        
     token = get_instrument_token(ticker, instrument_df)
     if token:
         data = get_historical_data(token, "day", "5y" if model_choice == "XGBoost" else "1y")
         if not data.empty:
-            if st.button(f"Train {model_choice} Model & Forecast {ticker}"):
-                with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                    prediction, accuracy = train_xgboost_model(data) if model_choice == "XGBoost" else train_arima_model(data)
-                    if prediction is not None:
-                        st.success(f"Model trained successfully!")
-                        col1, col2 = st.columns(2)
-                        col1.metric(f"Forecasted Next Day's Close for {ticker}", f"₹{prediction:,.2f}")
-                        col2.metric("Model Accuracy", f"{accuracy:.2f}%")
-                        if accuracy < 85: st.warning("Note: Model accuracy is below 85%. Financial markets are highly unpredictable, and high accuracy is not guaranteed.")
-            
-            st.subheader("Historical Data Used for Training"); st.plotly_chart(create_chart(data.tail(252), ticker), use_container_width=True)
+            with st.spinner(f"Training {model_choice} model automatically..."):
+                prediction, accuracy, rmse, max_drawdown, backtest_df = (train_xgboost_model(data) if model_choice == "XGBoost" else train_arima_model(data))
+
+            with col2:
+                st.subheader("Model Performance")
+                if prediction is not None:
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric(f"Forecasted Next Close", f"₹{prediction:,.2f}")
+                    c2.metric("Model Accuracy", f"{accuracy:.2f}%")
+                    c3.metric("RMSE", f"{rmse:.2f}")
+                    c4.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
+                    if accuracy < 85: st.warning("Note: Model accuracy is below 85%. Financial markets are highly unpredictable.")
+                else:
+                    st.error("Model training failed. Could not generate performance metrics.")
+
+            st.subheader("Backtest: Predicted vs. Actual Prices")
+            if backtest_df is not None:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
+                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
+                template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+                fig.update_layout(title=f'{ticker} Backtest Results', yaxis_title='Price (INR)', template=template)
+                st.plotly_chart(fig, use_container_width=True)
         else: st.warning("Could not fetch sufficient data for training.")
     else: st.error("Ticker not found.")
 
@@ -424,13 +467,19 @@ def page_ai_assistant():
         with st.chat_message("user"): st.markdown(prompt)
         with st.chat_message("assistant"):
             with st.spinner("Accessing data..."):
-                prompt_lower, response = prompt.lower(), "I can provide information on your holdings, positions, and current stock prices. Please ask a specific question."
+                prompt_lower, response = prompt.lower(), "I can provide information on your holdings, positions, orders, funds, and current stock prices. Please ask a specific question."
                 if "holdings" in prompt_lower:
                     _, holdings_df, _, _ = get_portfolio()
-                    response = "Here are your current holdings:\n" + holdings_df.to_markdown() if not holdings_df.empty else "You have no holdings."
+                    response = "Here are your current holdings:\n```\n" + tabulate(holdings_df, headers='keys', tablefmt='psql') + "\n```" if not holdings_df.empty else "You have no holdings."
                 elif "positions" in prompt_lower:
                     positions_df, _, total_pnl, _ = get_portfolio()
-                    response = f"Here are your current positions. Your total P&L is ₹{total_pnl:,.2f}:\n" + positions_df.to_markdown() if not positions_df.empty else "You have no open positions."
+                    response = f"Here are your current positions. Your total P&L is ₹{total_pnl:,.2f}:\n```\n" + tabulate(positions_df, headers='keys', tablefmt='psql') + "\n```" if not positions_df.empty else "You have no open positions."
+                elif "orders" in prompt_lower:
+                    orders = st.session_state.get('kite').orders()
+                    response = "Here are your orders for the day:\n```\n" + tabulate(pd.DataFrame(orders), headers='keys', tablefmt='psql') + "\n```" if orders else "You have no orders for the day."
+                elif "funds" in prompt_lower or "margin" in prompt_lower:
+                    funds = st.session_state.get('kite').margins()
+                    response = f"Here are your available funds:\n- Equity: ₹{funds['equity']['available']['live_balance']:,.2f}\n- Commodity: ₹{funds['commodity']['available']['live_balance']:,.2f}"
                 elif "price of" in prompt_lower or "ltp of" in prompt_lower:
                     try:
                         ticker = prompt.split(" of ")[-1].strip().upper()
