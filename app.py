@@ -237,14 +237,14 @@ def create_features(df):
     return df
 
 @st.cache_data(show_spinner=False)
-def train_xgboost_model(_data):
+def train_random_forest_model(_data):
     df = create_features(_data.copy())
     features, target = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'target']], 'close'
     if len(df) < 50: return None, None, None, None, None
     X_train, X_test, y_train, y_test = train_test_split(df[features], df[target], test_size=0.2, shuffle=False)
-    reg = xgb.XGBRegressor(n_estimators=1000, early_stopping_rounds=50, objective='reg:squarederror', eval_metric='rmse', learning_rate=0.01, max_depth=3, subsample=0.8, colsample_bytree=0.8)
-    reg.fit(X_train, y_train, eval_set=[(X_train, y_train), (X_test, y_test)], verbose=False)
-    preds, accuracy = reg.predict(X_test), 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
+    model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+    model.fit(X_train, y_train)
+    preds, accuracy = model.predict(X_test), 100 - (mean_absolute_percentage_error(y_test, preds) * 100)
     rmse = np.sqrt(mean_squared_error(y_test, preds))
     backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds}, index=y_test.index)
     
@@ -253,7 +253,7 @@ def train_xgboost_model(_data):
     drawdown = (cumulative_returns - peak) / peak
     max_drawdown = drawdown.min()
 
-    last_features, future_pred = df[features].iloc[-1], reg.predict(pd.DataFrame([last_features]))[0]
+    last_features, future_pred = df[features].iloc[-1], model.predict(pd.DataFrame([last_features]))[0]
     return future_pred, accuracy, rmse, max_drawdown, backtest_df
 
 @st.cache_data(show_spinner=False)
@@ -441,40 +441,37 @@ def page_forecasting_ml():
         st.subheader("Model Configuration")
         instrument_df = get_instrument_df(st.session_state.kite)
         ticker = st.selectbox("Select a Stock for Forecasting", ['TCS', 'RELIANCE', 'INFY', 'HDFCBANK', 'ICICIBANK'])
-        model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
+        model_choice = st.selectbox("Select a Forecasting Model", ["Random Forest", "ARIMA"])
         
         token = get_instrument_token(ticker, instrument_df)
         if token:
-            data = get_historical_data(token, "day", "5y" if model_choice == "XGBoost" else "1y")
+            data = get_historical_data(token, "day", "5y" if model_choice == "Random Forest" else "1y")
             if not data.empty:
-                if st.button(f"Train {model_choice} Model & Forecast {ticker}"):
-                    with st.spinner(f"Training {model_choice} model..."):
-                        prediction, accuracy, rmse, max_drawdown, backtest_df = train_xgboost_model(data) if model_choice == "XGBoost" else train_arima_model(data)
-                    
-                    with col2:
-                        st.subheader("Model Performance")
-                        if prediction is not None:
-                            c1, c2, c3, c4 = st.columns(4)
-                            c1.metric(f"Forecasted Next Close", f"₹{prediction:,.2f}")
-                            c2.metric("Model Accuracy", f"{accuracy:.2f}%")
-                            c3.metric("RMSE", f"{rmse:.2f}")
-                            c4.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
-                            if accuracy < 85: st.warning("Note: Model accuracy is below 85%. Financial markets are highly unpredictable.")
-                        else:
-                            st.error("Model training failed. Could not generate performance metrics.")
+                with st.spinner(f"Training {model_choice} model automatically..."):
+                    prediction, accuracy, rmse, max_drawdown, backtest_df = train_random_forest_model(data) if model_choice == "Random Forest" else train_arima_model(data)
+                
+                with col2:
+                    st.subheader("Model Performance")
+                    if prediction is not None:
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric(f"Forecasted Next Close", f"₹{prediction:,.2f}")
+                        c2.metric("Model Accuracy", f"{accuracy:.2f}%")
+                        c3.metric("RMSE", f"{rmse:.2f}")
+                        c4.metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
+                        if accuracy < 85: st.warning("Note: Model accuracy is below 85%. Financial markets are highly unpredictable.")
+                    else:
+                        st.error("Model training failed. Could not generate performance metrics.")
 
-                    st.subheader("Backtest: Predicted vs. Actual Prices")
-                    if backtest_df is not None:
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
-                        fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                        template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
-                        fig.update_layout(title=f'{ticker} Backtest Results', yaxis_title='Price (INR)', template=template)
-                        st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.subheader("Historical Data for Training"); st.plotly_chart(create_chart(data.tail(252), ticker), use_container_width=True)
-        else: st.warning("Could not fetch sufficient data for training.")
-    else: st.error("Ticker not found.")
+                st.subheader("Backtest: Predicted vs. Actual Prices")
+                if backtest_df is not None:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
+                    fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
+                    template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+                    fig.update_layout(title=f'{ticker} Backtest Results', yaxis_title='Price (INR)', template=template)
+                    st.plotly_chart(fig, use_container_width=True)
+            else: st.warning("Could not fetch sufficient data for training.")
+        else: st.error("Ticker not found.")
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
@@ -539,7 +536,12 @@ def main():
             pages = {"Options Hub": page_options_hub, "Portfolio & Risk": page_portfolio_and_risk, "AI Assistant": page_ai_assistant}
         st.sidebar.header("Navigation")
         selection = st.sidebar.radio("Go to", list(pages.keys()))
-        pages[selection]()
+        
+        # FIX: Pass terminal_mode only to the dashboard page
+        if selection == "Dashboard":
+            pages[selection](st.session_state.terminal_mode)
+        else:
+            pages[selection]()
         
         if st.sidebar.button("Logout"):
             for key in ['access_token', 'kite', 'profile']:
