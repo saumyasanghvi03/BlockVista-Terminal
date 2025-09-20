@@ -15,4 +15,3 @@ scipy
 praw
 tweepy
 tabulate
-pmdarima
