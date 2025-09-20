@@ -12,3 +12,5 @@ scikit-learn
 statsmodels
 xgboost
 scipy
+praw
+tweepy
