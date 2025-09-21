@@ -66,8 +66,8 @@ ML_DATA_SOURCES = {
     },
     "SENSEX": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
-        "tradingsymbol": None,
-        "exchange": None
+        "tradingsymbol": "SENSEX",
+        "exchange": "BSE"
     },
     "S&P 500": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
@@ -88,7 +88,6 @@ def get_broker_client():
 def get_market_holidays(year):
     """NSE holidays (update yearly). A more robust solution would use an API or a library."""
     holidays_by_year = {
-        2024: ['2024-01-22', '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29', '2024-04-11', '2024-04-17', '2024-05-01', '2024-05-20', '2024-06-17', '2024-07-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15', '2024-12-25'],
         2025: ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25'],
         2026: ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
     }
@@ -124,14 +123,13 @@ def display_header():
     <hr>
     """, unsafe_allow_html=True)
 
-# ================ 3. CORE DATA & CHARTING FUNCTIONS (No changes here) ================
-# All functions from get_instrument_df to interpret_indicators remain the same as the previous version.
-# To keep this response clean, these functions are omitted but should be copied from the previous complete code block.
+# ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
     fig = go.Figure()
     if df.empty: return fig
     chart_df = df.copy()
     chart_df.columns = [col.lower() for col in chart_df.columns]
+    
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(chart_df['open'], chart_df['high'], chart_df['low'], chart_df['close'])
         fig.add_trace(go.Candlestick(x=ha_df.index, open=ha_df['HA_open'], high=ha_df['HA_high'], low=ha_df['HA_low'], close=ha_df['HA_close'], name='Heikin-Ashi'))
@@ -139,15 +137,18 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['close'], mode='lines', name='Line'))
     elif chart_type == 'Bar':
         fig.add_trace(go.Ohlc(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Bar'))
-    else:
+    else: # Candlestick
         fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Candlestick'))
+    
     bbl_col = next((col for col in chart_df.columns if 'bbl' in col), None)
     bbu_col = next((col for col in chart_df.columns if 'bbu' in col), None)
     if bbl_col and bbu_col:
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbl_col], line=dict(color='rgba(135,206,250,0.5)', width=1), name='Lower Band'))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbu_col], line=dict(color='rgba(135,206,250,0.5)', width=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
+        
     if forecast_df is not None:
         fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
+        
     template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
@@ -418,6 +419,7 @@ def load_and_combine_data(instrument_name):
     except Exception as e:
         st.error(f"Failed to load historical data: {e}")
         return pd.DataFrame()
+    
     live_df = pd.DataFrame()
     if get_broker_client() and source_info.get('tradingsymbol'):
         instrument_df = get_instrument_df()
@@ -426,6 +428,7 @@ def load_and_combine_data(instrument_name):
             from_date = hist_df.index.max().date() if not hist_df.empty else datetime.now().date() - timedelta(days=365)
             live_df = get_historical_data(token, 'day', from_date=from_date)
             if not live_df.empty: live_df.columns = [col.lower() for col in live_df.columns]
+            
     if not live_df.empty:
         combined_df = pd.concat([hist_df, live_df])
         combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
@@ -440,7 +443,7 @@ def black_scholes(S, K, T, r, sigma, option_type="call"):
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T)); d2 = d1 - sigma * np.sqrt(T)
     if option_type == "call":
         price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2); delta = norm.cdf(d1); theta = (-(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2)); rho = K * T * np.exp(-r * T) * norm.cdf(d2)
-    else:
+    else: # put
         price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1); delta = norm.cdf(d1) - 1; theta = (-(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * norm.cdf(-d2)); rho = -K * T * np.exp(-r * T) * norm.cdf(-d2)
     gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T)); vega = S * norm.pdf(d1) * np.sqrt(T)
     return {"price": price, "delta": delta, "gamma": gamma, "vega": vega / 100, "theta": theta / 365, "rho": rho / 100}
@@ -465,6 +468,7 @@ def interpret_indicators(df):
     adx = latest.get('adx_14')
     if adx is not None: interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
     return interpretation
+
 # ================ 6. PAGE DEFINITIONS (with Dashboard Redesign) ============
 
 def page_dashboard():
@@ -476,11 +480,11 @@ def page_dashboard():
         st.info("Please connect to a broker to view the dashboard.")
         return
 
-    # --- Top Row: Key Market Metrics ---
+    # --- Top Row: Key Market Metrics (FIXED) ---
     index_symbols = [
         {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
-        {'symbol': 'NIFTY BANK', 'exchange': 'NSE'},
-        # You can add more indices if they are available in your instrument list
+        {'symbol': 'SENSEX', 'exchange': 'BSE'},
+        {'symbol': 'INDIA VIX', 'exchange': 'NSE'},
     ]
     index_data = get_watchlist_data(index_symbols)
     
@@ -543,27 +547,32 @@ def page_dashboard():
     
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- Bottom Row: Live Ticker Tape ---
+    # --- Bottom Row: Live Ticker Tape (FIXED) ---
     ticker_symbols = [
         {'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'TCS', 'exchange': 'NSE'},
         {'symbol': 'HDFCBANK', 'exchange': 'NSE'}, {'symbol': 'ICICIBANK', 'exchange': 'NSE'},
         {'symbol': 'INFY', 'exchange': 'NSE'}, {'symbol': 'BHARTIARTL', 'exchange': 'NSE'},
-        {'symbol': 'SBIN', 'exchange': 'NSE'}, {'symbol': 'ITC', 'exchange': 'NSE'}
+        {'symbol': 'SBIN', 'exchange': 'NSE'}, {'symbol': 'ITC', 'exchange': 'NSE'},
+        {'symbol': 'HINDUNILVR', 'exchange': 'NSE'}, {'symbol': 'LT', 'exchange': 'NSE'},
+        {'symbol': 'BAJFINANCE', 'exchange': 'NSE'}, {'symbol': 'KOTAKBANK', 'exchange': 'NSE'},
+        {'symbol': 'AXISBANK', 'exchange': 'NSE'}, {'symbol': 'M&M', 'exchange': 'NSE'}
     ]
     ticker_data = get_watchlist_data(ticker_symbols)
     
     if not ticker_data.empty:
         ticker_html = ""
-        for i in range(len(ticker_data)):
-            item = ticker_data.iloc[i]
+        # Duplicate the list to ensure smooth scrolling
+        ticker_items = pd.concat([ticker_data, ticker_data], ignore_index=True)
+        for i in range(len(ticker_items)):
+            item = ticker_items.iloc[i]
             color = '#28a745' if item['Change'] > 0 else '#FF4B4B'
             ticker_html += f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} <span style='color: {color};'>{item['Price']:,.2f} ({item['% Change']:.2f}%)</span></span>"
         
         st.markdown(f"""
         <style>
             @keyframes marquee {{
-                0%   {{ transform: translate(100%, 0); }}
-                100% {{ transform: translate(-100%, 0); }}
+                0%   {{ transform: translate(0, 0); }}
+                100% {{ transform: translate(-50%, 0); }}
             }}
             .marquee-container {{
                 width: 100%;
@@ -578,8 +587,8 @@ def page_dashboard():
             }}
             .marquee-content {{
                 display: inline-block;
-                padding-left: 100%;
-                animation: marquee 25s linear infinite;
+                width: 200%;
+                animation: marquee 45s linear infinite;
             }}
         </style>
         <div class="marquee-container">
@@ -589,8 +598,6 @@ def page_dashboard():
         </div>
         """, unsafe_allow_html=True)
         
-# The other page functions (page_advanced_charting, page_options_hub, etc.) remain unchanged.
-# They should be copied from the previous complete code block.
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting"); instrument_df = get_instrument_df()
     st.sidebar.header("Chart Controls"); ticker = st.sidebar.text_input("Select Ticker", "RELIANCE").upper(); period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4); interval = st.sidebar.selectbox("Interval", ["5minute", "day", "week"], index=1); chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
@@ -697,7 +704,7 @@ def page_forecasting_ml():
                 else:
                     predictions, accuracy, mape, max_drawdown, backtest_df = train_arima_model(data)
                 st.session_state.update({'ml_predictions': predictions, 'ml_accuracy': accuracy, 'ml_mape': mape, 'ml_max_drawdown': max_drawdown, 'ml_backtest_df': backtest_df, 'ml_instrument_name': instrument_name, 'ml_model_choice': model_choice})
-                st.rerun()
+            st.rerun()
     with col2:
         if 'ml_model_choice' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
             model_choice_display = st.session_state.get('ml_model_choice', 'N/A'); st.subheader(f"Forecast Results for {instrument_name} ({model_choice_display})")
@@ -818,7 +825,7 @@ def main_app():
     st.sidebar.divider()
     
     st.sidebar.header("Terminal Controls")
-    st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
+    st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], index=0 if st.session_state.theme == "Dark" else 1, horizontal=True)
     st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], horizontal=True)
     st.sidebar.divider()
     
