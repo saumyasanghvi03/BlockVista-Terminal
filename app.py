@@ -830,9 +830,14 @@ def page_forecasting_ml():
                 st.rerun()
 
     with col2:
-        if 'ml_predictions' in st.session_state and st.session_state['ml_instrument_name'] == instrument_name:
-            st.subheader(f"Forecast Results for {instrument_name} ({st.session_state['ml_model_choice']})")
-            if st.session_state['ml_predictions']:
+        # Check for a more specific key to ensure results are ready
+        if 'ml_model_choice' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
+            
+            # Safely get the model choice for display, preventing the KeyError
+            model_choice_display = st.session_state.get('ml_model_choice', 'N/A')
+            st.subheader(f"Forecast Results for {instrument_name} ({model_choice_display})")
+            
+            if st.session_state.get('ml_predictions'):
                 forecast_df = pd.DataFrame.from_dict(st.session_state['ml_predictions'], orient='index', columns=['Predicted Price'])
                 forecast_df.index.name = "Forecast Horizon"
                 st.dataframe(forecast_df.style.format("₹{:.2f}"))
@@ -840,15 +845,15 @@ def page_forecasting_ml():
                 st.error("Model training failed to produce forecasts.")
             
             st.subheader("Model Performance (Backtest on 1-Day Close)")
-            if st.session_state['ml_accuracy'] is not None:
+            if st.session_state.get('ml_accuracy') is not None:
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Model Accuracy", f"{st.session_state['ml_accuracy']:.2f}%")
-                c2.metric("RMSE", f"{st.session_state['ml_rmse']:.2f}")
-                c3.metric("Max Drawdown", f"{st.session_state['ml_max_drawdown']*100:.2f}%")
+                c1.metric("Model Accuracy", f"{st.session_state.get('ml_accuracy', 0):.2f}%")
+                c2.metric("RMSE", f"{st.session_state.get('ml_rmse', 0):.2f}")
+                c3.metric("Max Drawdown", f"{st.session_state.get('ml_max_drawdown', 0)*100:.2f}%")
                 
                 st.subheader("Backtest: Predicted vs. Actual Prices")
-                backtest_df = st.session_state['ml_backtest_df']
-                if not backtest_df.empty:
+                backtest_df = st.session_state.get('ml_backtest_df')
+                if backtest_df is not None and not backtest_df.empty:
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
                     fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
