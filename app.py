@@ -512,7 +512,9 @@ def page_dashboard():
             watchlist_symbols = [
                 {'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'},
                 {'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'INFY', 'exchange': 'NSE'},
-                {'symbol': 'ICICIBANK', 'exchange': 'NSE'}
+                {'symbol': 'ICICIBANK', 'exchange': 'NSE'}, {'symbol': 'SENSEX', 'exchange': 'BSE'},
+                {'symbol': 'GOLDM', 'exchange': 'MCX'}, {'symbol': 'SILVERM', 'exchange': 'MCX'},
+                {'symbol': 'USDINR', 'exchange': 'CDS'}
             ]
             watchlist_data = get_watchlist_data(watchlist_symbols)
             
@@ -553,9 +555,8 @@ def page_dashboard():
         {'symbol': 'HDFCBANK', 'exchange': 'NSE'}, {'symbol': 'ICICIBANK', 'exchange': 'NSE'},
         {'symbol': 'INFY', 'exchange': 'NSE'}, {'symbol': 'BHARTIARTL', 'exchange': 'NSE'},
         {'symbol': 'SBIN', 'exchange': 'NSE'}, {'symbol': 'ITC', 'exchange': 'NSE'},
-        {'symbol': 'HINDUNILVR', 'exchange': 'NSE'}, {'symbol': 'LT', 'exchange': 'NSE'},
-        {'symbol': 'BAJFINANCE', 'exchange': 'NSE'}, {'symbol': 'KOTAKBANK', 'exchange': 'NSE'},
-        {'symbol': 'AXISBANK', 'exchange': 'NSE'}, {'symbol': 'M&M', 'exchange': 'NSE'}
+        {'symbol': 'SENSEX', 'exchange': 'BSE'}, {'symbol': 'GOLDM', 'exchange': 'MCX'},
+        {'symbol': 'SILVERM', 'exchange': 'MCX'}, {'symbol': 'USDINR', 'exchange': 'CDS'}
     ]
     ticker_data = get_watchlist_data(ticker_symbols)
     
@@ -878,3 +879,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
