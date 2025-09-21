@@ -420,7 +420,7 @@ def create_features(df, ticker):
 
 @st.cache_data(show_spinner=False)
 def train_xgboost_model(_data, ticker):
-    """Trains an XGBoost model for multiple forecast horizons."""
+    """Trains an XGBoost model and returns performance including MAPE."""
     if _data.empty or len(_data) < 100:
         st.warning("Not enough data to train XGBoost model.")
         return {}, None, None, None, pd.DataFrame()
@@ -439,10 +439,9 @@ def train_xgboost_model(_data, ticker):
         features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
         X, y = df[features], df[target_name]
         
-        # Ensure all feature columns are numeric
         for col in X.columns: X[col] = pd.to_numeric(X[col], errors='coerce')
-        X.dropna(axis=1, how='any', inplace=True) # Drop columns that couldn't be coerced
-        y = y[X.index] # Align target with features after potential drops
+        X.dropna(axis=1, how='any', inplace=True)
+        y = y[X.index]
 
         if len(X) < 5: continue
 
@@ -459,8 +458,8 @@ def train_xgboost_model(_data, ticker):
 
         if name == "1-Day Close":
             preds_test = model.predict(scaler.transform(X_test))
-            accuracy = 100 - (mean_absolute_percentage_error(y_test, preds_test) * 100)
-            rmse = np.sqrt(mean_squared_error(y_test, preds_test))
+            mape = mean_absolute_percentage_error(y_test, preds_test) * 100
+            accuracy = 100 - mape
             backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds_test}, index=y_test.index)
             
             cumulative_returns = (1 + (y_test.pct_change().fillna(0))).cumprod()
@@ -468,20 +467,20 @@ def train_xgboost_model(_data, ticker):
             drawdown = (cumulative_returns - peak) / peak
             max_drawdown = drawdown.min()
             
-            backtest_results = {"accuracy": accuracy, "rmse": rmse, "max_drawdown": max_drawdown, "backtest_df": backtest_df}
+            backtest_results = {"accuracy": accuracy, "mape": mape, "max_drawdown": max_drawdown, "backtest_df": backtest_df}
             
-    return predictions, backtest_results.get("accuracy"), backtest_results.get("rmse"), backtest_results.get("max_drawdown"), backtest_results.get("backtest_df", pd.DataFrame())
+    return predictions, backtest_results.get("accuracy"), backtest_results.get("mape"), backtest_results.get("max_drawdown"), backtest_results.get("backtest_df", pd.DataFrame())
 
 @st.cache_data(show_spinner=False)
 def train_arima_model(_data):
-    """Trains an ARIMA model for different horizons."""
+    """Trains an ARIMA model and returns performance including MAPE."""
     if _data.empty or len(_data) < 50:
         st.warning("Not enough data to train ARIMA model.")
         return {}, None, None, None, pd.DataFrame()
         
     df = _data.copy()
     df.columns = [col.lower() for col in df.columns]
-    predictions, accuracy, rmse, max_drawdown, backtest_df = {}, None, None, None, pd.DataFrame()
+    predictions, accuracy, mape, max_drawdown, backtest_df = {}, None, None, None, pd.DataFrame()
     
     try:
         # Close price forecast
@@ -495,8 +494,8 @@ def train_arima_model(_data):
         })
         
         preds_test = model_close.forecast(steps=len(test_data_close))
-        accuracy = 100 - (mean_absolute_percentage_error(test_data_close, preds_test) * 100)
-        rmse = np.sqrt(mean_squared_error(test_data_close, preds_test))
+        mape = mean_absolute_percentage_error(test_data_close, preds_test) * 100
+        accuracy = 100 - mape
         backtest_df = pd.DataFrame({'Actual': test_data_close, 'Predicted': preds_test}, index=test_data_close.index)
         cum_returns = (1 + (test_data_close.pct_change().fillna(0))).cumprod()
         max_drawdown = (cum_returns / cum_returns.cummax() - 1).min()
@@ -508,7 +507,7 @@ def train_arima_model(_data):
         st.error(f"ARIMA model training failed: {e}")
         return {}, None, None, None, pd.DataFrame()
         
-    return predictions, accuracy, rmse, max_drawdown, backtest_df
+    return predictions, accuracy, mape, max_drawdown, backtest_df
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
@@ -817,23 +816,20 @@ def page_forecasting_ml():
         if st.button(f"Train {model_choice} Model & Forecast"):
             with st.spinner(f"Training {model_choice} model... This may take a moment."):
                 if model_choice == "XGBoost":
-                    predictions, accuracy, rmse, max_drawdown, backtest_df = train_xgboost_model(data, instrument_name)
+                    predictions, accuracy, mape, max_drawdown, backtest_df = train_xgboost_model(data, instrument_name)
                 else: # ARIMA
-                    predictions, accuracy, rmse, max_drawdown, backtest_df = train_arima_model(data)
+                    predictions, accuracy, mape, max_drawdown, backtest_df = train_arima_model(data)
                 
                 # Store results in session state
                 st.session_state.update({
-                    'ml_predictions': predictions, 'ml_accuracy': accuracy, 'ml_rmse': rmse,
+                    'ml_predictions': predictions, 'ml_accuracy': accuracy, 'ml_mape': mape,
                     'ml_max_drawdown': max_drawdown, 'ml_backtest_df': backtest_df,
                     'ml_instrument_name': instrument_name, 'ml_model_choice': model_choice
                 })
                 st.rerun()
 
     with col2:
-        # Check for a more specific key to ensure results are ready
         if 'ml_model_choice' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
-            
-            # Safely get the model choice for display, preventing the KeyError
             model_choice_display = st.session_state.get('ml_model_choice', 'N/A')
             st.subheader(f"Forecast Results for {instrument_name} ({model_choice_display})")
             
@@ -848,7 +844,8 @@ def page_forecasting_ml():
             if st.session_state.get('ml_accuracy') is not None:
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Model Accuracy", f"{st.session_state.get('ml_accuracy', 0):.2f}%")
-                c2.metric("RMSE", f"{st.session_state.get('ml_rmse', 0):.2f}")
+                # --- THIS IS THE KEY CHANGE ---
+                c2.metric("Mean Error (MAPE)", f"{st.session_state.get('ml_mape', 0):.2f}%")
                 c3.metric("Max Drawdown", f"{st.session_state.get('ml_max_drawdown', 0)*100:.2f}%")
                 
                 st.subheader("Backtest: Predicted vs. Actual Prices")
