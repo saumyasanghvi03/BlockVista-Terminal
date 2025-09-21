@@ -971,9 +971,7 @@ def page_ai_assistant():
                 elif "holdings" in prompt_lower:
                     _, holdings_df, _, _ = get_portfolio()
                     response = (
-                        "Here are your current holdings:\n```
-                        + tabulate(holdings_df, headers='keys', tablefmt='psql')
-                        + "\n```"
+                        "Here are your current holdings:\n```+ tabulate(holdings_df, headers='keys', tablefmt='psql')+ "\n```"
                         if not holdings_df.empty else
                         "You have no holdings."
                     )
