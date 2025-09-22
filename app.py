@@ -12,7 +12,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from sklearn.preprocessing import MinMaxScaler
-import xgboost as xgb
+from sklearn.ensemble import GradientBoostingRegressor
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
 from scipy.stats import norm
@@ -371,9 +371,9 @@ def create_features(df, ticker):
     return df_feat
 
 @st.cache_data(show_spinner=False)
-def train_xgboost_model(_data, ticker):
+def train_gradient_boosting_model(_data, ticker):
     if _data.empty or len(_data) < 100:
-        st.warning("Not enough data to train XGBoost model.")
+        st.warning("Not enough data to train Gradient Boosting model.")
         return {}, pd.DataFrame()
     df_features = create_features(_data, ticker)
     horizons = {"1-Day Open": ("open", 1), "1-Day Close": ("close", 1), "5-Day Close": ("close", 5), "15-Day Close": ("close", 15), "30-Day Close": ("close", 30)}
@@ -397,8 +397,8 @@ def train_xgboost_model(_data, ticker):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
     scaler = MinMaxScaler()
     X_train_scaled = scaler.fit_transform(X_train)
-    model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
-    model.fit(X_train_scaled, y_train, eval_set=[(scaler.transform(X_test), y_test)], verbose=False)
+    model = GradientBoostingRegressor(n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, subsample=0.8)
+    model.fit(X_train_scaled, y_train)
 
     # Generate predictions for the entire dataset for backtesting
     full_preds = model.predict(scaler.transform(X))
@@ -406,23 +406,8 @@ def train_xgboost_model(_data, ticker):
 
     # Generate future forecasts for all horizons
     for name, (t_col, s_val) in horizons.items():
-        if name != "1-Day Close":  # We already trained this one
-            df_h = df_features.copy()
-            t_name = f"target_{name.replace(' ', '_').lower()}"
-            df_h[t_name] = df_h[t_col].shift(-s_val)
-            df_h.dropna(subset=[t_name], inplace=True)
-            X_h, y_h = df_h[features], df_h[t_name]
-            X_h = X_h[X.columns] # Ensure feature consistency
-            X_train_h, X_test_h, y_train_h, _ = train_test_split(X_h, y_h, test_size=0.2, shuffle=False)
-            scaler_h = MinMaxScaler()
-            X_train_scaled_h = scaler_h.fit_transform(X_train_h)
-            model_h = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
-            model_h.fit(X_train_scaled_h, y_train_h, eval_set=[(scaler_h.transform(X_test_h), _)], verbose=False)
-            last_features_scaled_h = scaler_h.transform(X.iloc[-1].values.reshape(1, -1))
-            predictions[name] = float(model_h.predict(last_features_scaled_h)[0])
-        else:
-            last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
-            predictions[name] = float(model.predict(last_features_scaled)[0])
+        last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
+        predictions[name] = float(model.predict(last_features_scaled)[0])
 
     return predictions, full_backtest_df
 
@@ -622,10 +607,26 @@ def page_dashboard():
                         st.session_state.watchlist_symbols.append({'symbol': new_symbol.upper(), 'exchange': new_exchange})
                         st.rerun()
 
+            # --- Remove from Watchlist Dropdown ---
+            if st.session_state.watchlist_symbols:
+                with st.form(key="remove_stock_form"):
+                    remove_col1, remove_col2 = st.columns([3, 1])
+                    symbol_to_remove = remove_col1.selectbox(
+                        "Select to remove",
+                        options=[item['symbol'] for item in st.session_state.watchlist_symbols],
+                        label_visibility="collapsed"
+                    )
+                    if remove_col2.form_submit_button("Remove"):
+                        st.session_state.watchlist_symbols = [
+                            item for item in st.session_state.watchlist_symbols
+                            if item['symbol'] != symbol_to_remove
+                        ]
+                        st.rerun()
+
             watchlist_data = get_watchlist_data(st.session_state.watchlist_symbols)
             if not watchlist_data.empty:
                 for index, row in watchlist_data.iterrows():
-                    w_cols = st.columns([3, 2, 1, 1, 1])
+                    w_cols = st.columns([3, 2, 1, 1, 1, 1])
                     color = '#28a745' if row['Change'] > 0 else '#FF4B4B'
                     w_cols[0].markdown(f"**{row['Ticker']}**<br><small style='color:gray;'>{row['Exchange']}</small>", unsafe_allow_html=True)
                     w_cols[1].markdown(f"**{row['Price']:,.2f}**<br><small style='color:{color};'>{row['Change']:,.2f} ({row['% Change']:.2f}%)</small>", unsafe_allow_html=True)
@@ -636,6 +637,12 @@ def page_dashboard():
                         place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'BUY', 'MIS')
                     if w_cols[4].button("S", key=f"sell_{row['Ticker']}", use_container_width=True):
                         place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'SELL', 'MIS')
+                    if w_cols[5].button("🗑️", key=f"del_{row['Ticker']}", use_container_width=True):
+                        st.session_state.watchlist_symbols = [
+                            item for item in st.session_state.watchlist_symbols 
+                            if item['symbol'] != row['Ticker']
+                        ]
+                        st.rerun()
                     st.markdown("---")
 
         with tab2:
@@ -656,6 +663,49 @@ def page_dashboard():
             else:
                 st.warning("Could not load NIFTY 50 chart. Market might be closed.")
     
+    # --- Bottom Row: Live Ticker Tape ---
+    ticker_symbols = st.session_state.get('watchlist_symbols', [])
+    
+    if ticker_symbols:
+        ticker_data = get_watchlist_data(ticker_symbols)
+        
+        if not ticker_data.empty:
+            ticker_html = ""
+            for i in range(len(ticker_data)):
+                item = ticker_data.iloc[i]
+                color = '#28a745' if item['Change'] > 0 else '#FF4B4B'
+                ticker_html += f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} <span style='color: {color};'>{item['Price']:,.2f} ({item['% Change']:.2f}%)</span></span>"
+            
+            st.markdown(f"""
+            <style>
+                @keyframes marquee {{
+                    0%   {{ transform: translate(100%, 0); }}
+                    100% {{ transform: translate(-100%, 0); }}
+                }}
+                .marquee-container {{
+                    width: 100%;
+                    overflow: hidden;
+                    position: fixed;
+                    bottom: 0;
+                    left: 0;
+                    background-color: #1a1a1a;
+                    border-top: 1px solid #333;
+                    padding: 5px 0;
+                    white-space: nowrap;
+                }}
+                .marquee-content {{
+                    display: inline-block;
+                    padding-left: 100%;
+                    animation: marquee 35s linear infinite;
+                }}
+            </style>
+            <div class="marquee-container">
+                <div class="marquee-content">
+                    {ticker_html}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting"); instrument_df = get_instrument_df()
     st.sidebar.header("Chart Controls"); ticker = st.sidebar.text_input("Select Ticker", "RELIANCE").upper(); period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4); interval = st.sidebar.selectbox("Interval", ["5minute", "day", "week"], index=1); chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
@@ -740,9 +790,10 @@ def page_alpha_engine():
             st.info(f"No recent news found for '{query}'.")
 
 def page_portfolio_and_risk():
-    display_header(); st.title("Portfolio & Risk Journal")
+    display_header(); st.title("Portfolio & Risk")
     if not get_broker_client(): st.info("Connect to a broker to view your portfolio and positions."); return
-    positions_df, holdings_df, total_pnl, _ = get_portfolio(); tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Trading Journal"])
+    positions_df, holdings_df, total_pnl, _ = get_portfolio()
+    tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Live Order Book"])
     with tab1:
         st.subheader("Live Intraday Positions")
         if not positions_df.empty:
@@ -756,14 +807,23 @@ def page_portfolio_and_risk():
         else:
             st.info("No holdings found.")
     with tab3:
-        st.subheader("Trading Journal")
-        if 'journal' not in st.session_state: st.session_state.journal = []
-        with st.form("journal_form"):
-            entry = st.text_area("Log your thoughts or trade ideas:")
-            if st.form_submit_button("Add Entry") and entry:
-                st.session_state.journal.insert(0, (datetime.now(), entry))
-        for ts, text in st.session_state.journal:
-            st.info(text); st.caption(f"Logged: {ts.strftime('%d %b %Y, %H:%M')}")
+        st.subheader("Today's Order Book")
+        client = get_broker_client()
+        if client:
+            try:
+                orders = client.orders()
+                if orders:
+                    orders_df = pd.DataFrame(orders)
+                    st.dataframe(orders_df[[
+                        'order_timestamp', 'tradingsymbol', 'transaction_type', 
+                        'order_type', 'quantity', 'average_price', 'status'
+                    ]], use_container_width=True, hide_index=True)
+                else:
+                    st.info("No orders placed today.")
+            except Exception as e:
+                st.error(f"Failed to fetch order book: {e}")
+        else:
+            st.info("Broker not connected.")
 
 def page_forecasting_ml():
     display_header()
@@ -775,7 +835,7 @@ def page_forecasting_ml():
     with col1:
         st.subheader("Model Configuration")
         instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()))
-        model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
+        model_choice = st.selectbox("Select a Forecasting Model", ["Gradient Boosting", "ARIMA"])
         
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
@@ -786,8 +846,8 @@ def page_forecasting_ml():
             
         if st.button(f"Train {model_choice} Model & Forecast"):
             with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                if model_choice == "XGBoost":
-                    predictions, backtest_df = train_xgboost_model(data, instrument_name)
+                if model_choice == "Gradient Boosting":
+                    predictions, backtest_df = train_gradient_boosting_model(data, instrument_name)
                 else:  # ARIMA
                     predictions, backtest_df = train_arima_model(data)
                 
@@ -1226,3 +1286,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
