@@ -84,6 +84,27 @@ def get_broker_client():
         return st.session_state.get('kite')
     return None
 
+@st.dialog("Quick Trade")
+def quick_trade_dialog(symbol=None, exchange=None):
+    instrument_df = get_instrument_df()
+    st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
+    
+    if symbol is None:
+        symbol = st.text_input("Symbol").upper()
+    
+    transaction_type = st.radio("Transaction", ["BUY", "SELL"], horizontal=True, key="diag_trans_type")
+    product = st.radio("Product", ["MIS", "CNC"], horizontal=True, key="diag_prod_type")
+    order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="diag_order_type")
+    quantity = st.number_input("Quantity", min_value=1, step=1, key="diag_qty")
+    price = st.number_input("Price", min_value=0.01, key="diag_price") if order_type == "LIMIT" else 0
+
+    if st.button("Submit Order", use_container_width=True):
+        if symbol and quantity > 0:
+            place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price if price > 0 else None)
+            st.rerun()
+        else:
+            st.warning("Please fill in all fields.")
+
 @st.cache_data(ttl=3600)
 def get_market_holidays(year):
     """NSE holidays (update yearly). A more robust solution would use an API or a library."""
@@ -108,21 +129,33 @@ def get_market_status():
     return {"status": "CLOSED", "color": "#FF4B4B"}
 
 def display_header():
-    """Displays the main header with market status and a live clock."""
+    """Displays the main header with market status, a live clock, and trade buttons."""
     status_info = get_market_status()
     ist = pytz.timezone('Asia/Kolkata')
     current_time = datetime.now(ist).strftime("%H:%M:%S IST")
     
-    st.markdown(f"""
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h1 style="margin: 0;">BlockVista Terminal</h1>
-        <div>
-            <h5 style="margin: 0; text-align: right;">{current_time}</h5>
-            <h5 style="margin: 0; text-align: right;">Market Status: <span style='color:{status_info["color"]}; font-weight: bold;'>{status_info["status"]}</span></h5>
-        </div>
-    </div>
-    <hr>
-    """, unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    with col1:
+        st.markdown('<h1 style="margin: 0; line-height: 1.2;">BlockVista Terminal</h1>', unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+            <div style="text-align: right;">
+                <h5 style="margin: 0;">{current_time}</h5>
+                <h5 style="margin: 0;">Market: <span style='color:{status_info["color"]}; font-weight: bold;'>{status_info["status"]}</span></h5>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        b_col1, b_col2 = st.columns(2)
+        if b_col1.button("Buy", use_container_width=True, key="header_buy"):
+            quick_trade_dialog()
+        if b_col2.button("Sell", use_container_width=True, key="header_sell"):
+            quick_trade_dialog()
+
+    st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+
 
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
@@ -208,7 +241,7 @@ def get_watchlist_data(symbols_with_exchange):
                     prev_close = quote['ohlc']['close']
                     change = last_price - prev_close
                     pct_change = (change / prev_close * 100) if prev_close != 0 else 0
-                    watchlist.append({'Ticker': item['symbol'], 'Price': last_price, 'Change': change, '% Change': pct_change})
+                    watchlist.append({'Ticker': item['symbol'], 'Exchange': item['exchange'], 'Price': last_price, 'Change': change, '% Change': pct_change})
             return pd.DataFrame(watchlist)
         except Exception as e:
             st.toast(f"Error fetching watchlist data: {e}", icon="⚠️")
@@ -279,11 +312,17 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
         return
     if st.session_state.broker == "Zerodha":
         try:
-            instrument = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
-            if instrument.empty:
-                st.error(f"Symbol '{symbol}' not found.")
-                return
-            exchange = instrument.iloc[0]['exchange']
+            # For options, the exchange is NFO, not derived from instrument_df
+            is_option = any(char.isdigit() for char in symbol)
+            if is_option:
+                 exchange = 'NFO'
+            else:
+                instrument = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
+                if instrument.empty:
+                    st.error(f"Symbol '{symbol}' not found.")
+                    return
+                exchange = instrument.iloc[0]['exchange']
+
             order_id = client.place_order(tradingsymbol=symbol.upper(), exchange=exchange, transaction_type=transaction_type, quantity=quantity, order_type=order_type, product=product, variety=client.VARIETY_REGULAR, price=price)
             st.toast(f"✅ Order placed successfully! ID: {order_id}", icon="🎉")
             st.session_state.order_history.insert(0, {"id": order_id, "symbol": symbol, "qty": quantity, "type": transaction_type, "status": "Success"})
@@ -494,12 +533,18 @@ def get_sector_data():
     except FileNotFoundError:
         return None
 
+def style_option_chain(df, ltp):
+    """Applies conditional styling to the options chain dataframe."""
+    atm_strike = abs(df['STRIKE'] - ltp).idxmin()
+    df_styled = df.style.apply(lambda x: ['background-color: #2c3e50' if x.name < atm_strike else '' for i in x], subset=pd.IndexSlice[:, ['CALL', 'CALL LTP']], axis=1)\
+                         .apply(lambda x: ['background-color: #2c3e50' if x.name > atm_strike else '' for i in x], subset=pd.IndexSlice[:, ['PUT', 'PUT LTP']], axis=1)
+    return df_styled
+
 # ================ 5. PAGE DEFINITIONS ============
 
 def page_dashboard():
     """--- UI ENHANCEMENT: A completely redesigned 'Trader UI' Dashboard ---"""
     display_header()
-    
     instrument_df = get_instrument_df()
     if instrument_df.empty:
         st.info("Please connect to a broker to view the dashboard.")
@@ -513,88 +558,58 @@ def page_dashboard():
     ]
     index_data = get_watchlist_data(index_symbols)
     
-    if not index_data.empty:
-        cols = st.columns(len(index_data))
-        for i, col in enumerate(cols):
-            index_name = index_data.iloc[i]['Ticker']
-            price = index_data.iloc[i]['Price']
-            change = index_data.iloc[i]['Change']
-            pct_change_val = index_data.iloc[i]['% Change']
-            pct_change_str = f"{pct_change_val:.2f}%"
-            col.metric(label=index_name, value=f"{price:,.2f}", delta=f"{change:,.2f} ({pct_change_str})")
+    cols = st.columns(len(index_data))
+    for i, col in enumerate(cols):
+        with col:
+            st.markdown(f"""
+            <div class="metric-card">
+                <h4>{index_data.iloc[i]['Ticker']}</h4>
+                <h2>{index_data.iloc[i]['Price']:,.2f}</h2>
+                <p style="color: {'#28a745' if index_data.iloc[i]['Change'] > 0 else '#FF4B4B'}; margin: 0;">
+                    {index_data.iloc[i]['Change']:,.2f} ({index_data.iloc[i]['% Change']:.2f}%)
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
     st.markdown("---")
 
     # --- Middle Row: Main Content Area ---
-    col1, col2 = st.columns([1, 2], gap="large")
+    col1, col2 = st.columns([1, 1], gap="large")
     
     with col1:
-        # --- Tabbed Workspace for Watchlist & Portfolio ---
         tab1, tab2 = st.tabs(["Watchlist", "Portfolio Overview"])
 
         with tab1:
-            st.subheader("My Watchlist")
-
-            # Initialize watchlist in session state if it doesn't exist
             if 'watchlist_symbols' not in st.session_state:
                 st.session_state.watchlist_symbols = [
                     {'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'},
-                    {'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'SENSEX', 'exchange': 'BSE'},
-                    {'symbol': 'GOLDM', 'exchange': 'MCX'}, {'symbol': 'SILVERM', 'exchange': 'MCX'},
-                    {'symbol': 'USDINR', 'exchange': 'CDS'}
+                    {'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'SENSEX', 'exchange': 'BSE'}
                 ]
 
-            # --- UI for adding a new symbol ---
             with st.form(key="add_stock_form"):
                 add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
-                with add_col1:
-                    new_symbol = st.text_input("Symbol", placeholder="Enter symbol...", label_visibility="collapsed")
-                with add_col2:
-                    new_exchange = st.selectbox("Exchange", ["NSE", "BSE", "MCX", "CDS"], label_visibility="collapsed")
-                with add_col3:
-                    add_button = st.form_submit_button(label="Add")
-            
-            if add_button:
-                if new_symbol:
-                    is_duplicate = any(d['symbol'] == new_symbol.upper() for d in st.session_state.watchlist_symbols)
-                    if not is_duplicate:
+                new_symbol = add_col1.text_input("Symbol", placeholder="Add symbol...", label_visibility="collapsed")
+                new_exchange = add_col2.selectbox("Exchange", ["NSE", "BSE", "MCX", "CDS"], label_visibility="collapsed")
+                if add_col3.form_submit_button("Add"):
+                    if new_symbol and not any(d['symbol'] == new_symbol.upper() for d in st.session_state.watchlist_symbols):
                         st.session_state.watchlist_symbols.append({'symbol': new_symbol.upper(), 'exchange': new_exchange})
                         st.rerun()
-                    else:
-                        st.toast(f"{new_symbol.upper()} is already in the watchlist.", icon="⚠️")
-                else:
-                    st.toast("Please enter a symbol.", icon="⚠️")
 
-            # --- Display and manage the watchlist ---
             watchlist_data = get_watchlist_data(st.session_state.watchlist_symbols)
-            
             if not watchlist_data.empty:
-                # --- Header Row ---
-                h_cols = st.columns((3, 2, 2, 1))
-                h_cols[0].markdown("**Ticker**")
-                h_cols[1].markdown("**Price**")
-                h_cols[2].markdown("**Change**")
-                h_cols[3].markdown("**Remove**")
-
-                st.markdown("---",)
-                
-                # --- Data Rows ---
                 for index, row in watchlist_data.iterrows():
-                    d_cols = st.columns((3, 2, 2, 1))
-                    change_color = 'green' if row['Change'] > 0 else 'red' if row['Change'] < 0 else 'gray'
+                    w_cols = st.columns([3, 2, 1, 1, 1])
+                    color = '#28a745' if row['Change'] > 0 else '#FF4B4B'
+                    w_cols[0].markdown(f"**{row['Ticker']}**<br><small style='color:gray;'>{row['Exchange']}</small>", unsafe_allow_html=True)
+                    w_cols[1].markdown(f"**{row['Price']:,.2f}**<br><small style='color:{color};'>{row['Change']:,.2f} ({row['% Change']:.2f}%)</small>", unsafe_allow_html=True)
                     
-                    d_cols[0].markdown(f"**{row['Ticker']}**")
-                    d_cols[1].markdown(f"₹{row['Price']:,.2f}")
-                    d_cols[2].markdown(f"<span style='color:{change_color};'>{row['Change']:,.2f} ({row['% Change']:.2f}%)</span>", unsafe_allow_html=True)
-
-                    if d_cols[3].button("🗑️", key=f"del_{row['Ticker']}", use_container_width=True):
-                        st.session_state.watchlist_symbols = [
-                            item for item in st.session_state.watchlist_symbols 
-                            if item['symbol'] != row['Ticker']
-                        ]
-                        st.rerun()
-            else:
-                 st.info("Your watchlist is empty. Add a symbol to get started.")
+                    quantity = w_cols[2].number_input("Qty", min_value=1, step=1, key=f"qty_{row['Ticker']}", label_visibility="collapsed")
+                    
+                    if w_cols[3].button("B", key=f"buy_{row['Ticker']}", use_container_width=True):
+                        place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'BUY', 'MIS')
+                    if w_cols[4].button("S", key=f"sell_{row['Ticker']}", use_container_width=True):
+                        place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'SELL', 'MIS')
+                    st.markdown("---")
 
         with tab2:
             st.subheader("My Portfolio")
@@ -614,51 +629,6 @@ def page_dashboard():
             else:
                 st.warning("Could not load NIFTY 50 chart. Market might be closed.")
     
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # --- Bottom Row: Live Ticker Tape ---
-    ticker_symbols = st.session_state.get('watchlist_symbols', [])
-    
-    if ticker_symbols:
-        ticker_data = get_watchlist_data(ticker_symbols)
-        
-        if not ticker_data.empty:
-            ticker_html = ""
-            for i in range(len(ticker_data)):
-                item = ticker_data.iloc[i]
-                color = '#28a745' if item['Change'] > 0 else '#FF4B4B'
-                ticker_html += f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} <span style='color: {color};'>{item['Price']:,.2f} ({item['% Change']:.2f}%)</span></span>"
-            
-            st.markdown(f"""
-            <style>
-                @keyframes marquee {{
-                    0%   {{ transform: translate(100%, 0); }}
-                    100% {{ transform: translate(-100%, 0); }}
-                }}
-                .marquee-container {{
-                    width: 100%;
-                    overflow: hidden;
-                    position: fixed;
-                    bottom: 0;
-                    left: 0;
-                    background-color: #1a1a1a;
-                    border-top: 1px solid #333;
-                    padding: 5px 0;
-                    white-space: nowrap;
-                }}
-                .marquee-content {{
-                    display: inline-block;
-                    padding-left: 100%;
-                    animation: marquee 35s linear infinite;
-                }}
-            </style>
-            <div class="marquee-container">
-                <div class="marquee-content">
-                    {ticker_html}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting"); instrument_df = get_instrument_df()
     st.sidebar.header("Chart Controls"); ticker = st.sidebar.text_input("Select Ticker", "RELIANCE").upper(); period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4); interval = st.sidebar.selectbox("Interval", ["5minute", "day", "week"], index=1); chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
@@ -677,46 +647,59 @@ def page_advanced_charting():
 def page_options_hub():
     display_header(); st.title("Options Hub"); instrument_df = get_instrument_df()
     if instrument_df.empty: st.info("Please connect to a broker to use the Options Hub."); return
+    
     col1, col2 = st.columns([1, 2]);
+    
     with col1:
         underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "SBIN", "GOLDM", "CRUDEOIL", "USDINR"])
         chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
+        
         if available_expiries:
             selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
             if selected_expiry != expiry:
                 chain_df, expiry, underlying_ltp, _ = get_options_chain(underlying, instrument_df, selected_expiry)
         else:
             st.warning(f"No upcoming expiries found for {underlying}.")
-    with col2:
-        st.subheader("Greeks Calculator")
+
         if not chain_df.empty and underlying_ltp > 0 and expiry:
-            option_list = chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist()
-            if option_list:
-                option_selection = st.selectbox("Select an option to analyze", option_list)
-                if option_selection:
-                    option_details_df = instrument_df[instrument_df['tradingsymbol'] == option_selection]
-                    if not option_details_df.empty:
-                        option_details = option_details_df.iloc[0]; strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
-                        ltp_col = 'CALL LTP' if option_type == 'ce' else 'PUT LTP'; symbol_col = 'CALL' if option_type == 'ce' else 'PUT'; ltp = chain_df[chain_df[symbol_col] == option_selection][ltp_col].iloc[0]
-                        T = max((pd.to_datetime(expiry).date() - datetime.now().date()).days, 0) / 365.0; r = 0.07
-                        iv = implied_volatility(underlying_ltp, strike_price, T, r, ltp, option_type)
-                        if not np.isnan(iv) and iv > 0:
-                            greeks = black_scholes(underlying_ltp, strike_price, T, r, iv, option_type)
-                            st.metric("Implied Volatility (IV)", f"{iv*100:.2f}%"); c1, c2, c3 = st.columns(3); c1.metric("Delta", f"{greeks['delta']:.4f}"); c2.metric("Gamma", f"{greeks['gamma']:.4f}"); c3.metric("Vega", f"{greeks['vega']:.4f}"); c4, c5, _ = st.columns(3); c4.metric("Theta", f"{greeks['theta']:.4f}"); c5.metric("Rho", f"{greeks['rho']:.4f}")
-                        else:
-                            st.warning("Could not calculate Implied Volatility for this option (LTP might be zero or expiry too close).")
-            else:
-                st.warning(f"No options available for {underlying} on the selected expiry.")
+            st.subheader("Greeks & Quick Trade")
+            option_list = ["-Select-"] + chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist()
+            option_selection = st.selectbox("Analyze or Trade an Option", option_list)
+
+            if option_selection and option_selection != "-Select-":
+                # Greeks calculation
+                option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
+                strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
+                ltp_col = 'CALL LTP' if option_type == 'ce' else 'PUT LTP'
+                symbol_col = 'CALL' if option_type == 'ce' else 'PUT'
+                ltp = chain_df[chain_df[symbol_col] == option_selection][ltp_col].iloc[0]
+                T = max((pd.to_datetime(expiry).date() - datetime.now().date()).days, 0) / 365.0
+                iv = implied_volatility(underlying_ltp, strike_price, T, 0.07, ltp, option_type)
                 
-    st.subheader(f"{underlying} Options Chain")
-    if not chain_df.empty and expiry:
-        st.caption(f"Displaying expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')} | Underlying LTP: {underlying_ltp:,.2f}")
-        st.dataframe(chain_df, use_container_width=True, hide_index=True)
-    else:
-        if underlying_ltp == 0.0:
-            st.warning(f"Could not fetch options chain for {underlying}. The underlying LTP is zero, which usually means the market is closed or there is a temporary data feed issue.")
+                if not np.isnan(iv) and iv > 0:
+                    greeks = black_scholes(underlying_ltp, strike_price, T, 0.07, iv, option_type)
+                    c1, c2, c3 = st.columns(3); c1.metric("Delta", f"{greeks['delta']:.3f}"); c2.metric("IV", f"{iv*100:.2f}%"); c3.metric("Vega", f"{greeks['vega']:.3f}");
+                
+                # Quick Trade Form
+                with st.form(key="option_trade_form"):
+                    q_cols = st.columns([1,1,1])
+                    quantity = q_cols[0].number_input("Lots", min_value=1, step=1, key="opt_qty")
+                    buy_btn = q_cols[1].form_submit_button("Buy")
+                    sell_btn = q_cols[2].form_submit_button("Sell")
+
+                    if buy_btn:
+                        place_order(instrument_df, option_selection, quantity * option_details['lot_size'], 'MARKET', 'BUY', 'MIS')
+                    if sell_btn:
+                        place_order(instrument_df, option_selection, quantity * option_details['lot_size'], 'MARKET', 'SELL', 'MIS')
+
+    with col2:
+        st.subheader(f"{underlying} Options Chain")
+        if not chain_df.empty and expiry:
+            st.caption(f"Expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')} | Spot: {underlying_ltp:,.2f}")
+            st.dataframe(style_option_chain(chain_df, underlying_ltp), use_container_width=True, hide_index=True)
         else:
-            st.warning(f"Could not fetch the options chain for {underlying} on the selected expiry. Please try another date.")
+            st.warning("Could not fetch options chain.")
+
 
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News Sentiment"); query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
@@ -1127,20 +1110,20 @@ def main_app():
     st.sidebar.header("Navigation")
     pages = {
         "Intraday": {
-            "Dashboard": page_dashboard, 
-            "Advanced Charting": page_advanced_charting, 
-            "Basket Orders": page_basket_orders,
-            "Portfolio Analytics": page_portfolio_analytics,
-            "Alpha Engine": page_alpha_engine, 
-            "Portfolio & Risk": page_portfolio_and_risk, 
-            "Forecasting & ML": page_forecasting_ml, 
-            "AI Assistant": page_ai_assistant
+            "📈 Dashboard": page_dashboard, 
+            "📊 Advanced Charting": page_advanced_charting, 
+            "🧺 Basket Orders": page_basket_orders,
+            "🔬 Portfolio Analytics": page_portfolio_analytics,
+            "📰 Alpha Engine": page_alpha_engine, 
+            "📓 Portfolio & Risk": page_portfolio_and_risk, 
+            "🧠 Forecasting & ML": page_forecasting_ml, 
+            "🤖 AI Assistant": page_ai_assistant
         },
         "Options": {
-            "Options Hub": page_options_hub, 
-            "Strategy Builder": page_option_strategy_builder,
-            "Portfolio & Risk": page_portfolio_and_risk, 
-            "AI Assistant": page_ai_assistant
+            "⛓️ Options Hub": page_options_hub, 
+            "♟️ Strategy Builder": page_option_strategy_builder,
+            "📓 Portfolio & Risk": page_portfolio_and_risk, 
+            "🤖 AI Assistant": page_ai_assistant
         }
     }
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
@@ -1165,3 +1148,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
