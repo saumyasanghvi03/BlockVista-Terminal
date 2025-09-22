@@ -429,34 +429,41 @@ def train_gradient_boosting_model(_data, ticker):
         return {}, pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
-def train_prophet_model(_data):
+def train_seasonal_arima_model(_data):
     if _data.empty or len(_data) < 100:
         return {}, pd.DataFrame()
 
-    df = _data.copy().reset_index()
-    df.rename(columns={'date': 'ds', 'close': 'y'}, inplace=True)
-    df_prophet = df[['ds', 'y']]
-
+    df = _data.copy()
+    df.index = pd.to_datetime(df.index)
+    
     predictions = {}
 
     try:
-        model = Prophet(daily_seasonality=True)
-        model.fit(df_prophet)
+        decomposed = seasonal_decompose(df['close'], model='additive', period=7)
+        seasonally_adjusted = df['close'] - decomposed.seasonal
 
-        future = model.make_future_dataframe(periods=30)
-        forecast = model.predict(future)
+        model = ARIMA(seasonally_adjusted, order=(5, 1, 0)).fit()
+        
+        forecast_steps = 30
+        forecast_adjusted = model.forecast(steps=forecast_steps)
+        
+        last_season_cycle = decomposed.seasonal.iloc[-7:]
+        future_seasonal = pd.concat([last_season_cycle] * (forecast_steps // 7 + 1))[:forecast_steps]
+        future_seasonal.index = forecast_adjusted.index
+        
+        forecast_final = forecast_adjusted + future_seasonal
+        
+        predictions["1-Day Close"] = forecast_final.iloc[0]
+        predictions["5-Day Close"] = forecast_final.iloc[4]
+        predictions["15-Day Close"] = forecast_final.iloc[14]
+        predictions["30-Day Close"] = forecast_final.iloc[29]
 
-        predictions["1-Day Close"] = forecast.iloc[-30]['yhat']
-        predictions["5-Day Close"] = forecast.iloc[-26]['yhat']
-        predictions["15-Day Close"] = forecast.iloc[-16]['yhat']
-        predictions["30-Day Close"] = forecast.iloc[-1]['yhat']
-
-        backtest_df = forecast.set_index('ds')[['yhat']].join(df_prophet.set_index('ds'))
-        backtest_df.rename(columns={'y': 'Actual', 'yhat': 'Predicted'}, inplace=True)
+        fitted_values = model.fittedvalues + decomposed.seasonal
+        backtest_df = pd.DataFrame({'Actual': df['close'], 'Predicted': fitted_values})
         backtest_df.dropna(inplace=True)
 
     except Exception as e:
-        st.error(f"Prophet model training failed: {e}")
+        st.error(f"Seasonal ARIMA model training failed: {e}")
         return {}, pd.DataFrame()
 
     return predictions, backtest_df
@@ -800,7 +807,7 @@ def page_advanced_charting():
     num_charts = st.radio("Select Chart Layout", [1, 2, 4], index=0, horizontal=True)
 
     def display_chart_widget(index):
-        st.subheader(f"Chart {index + 1}")
+        
         c1, c2, c3, c4 = st.columns(4)
         ticker = c1.text_input("Symbol", "RELIANCE", key=f"ticker_{index}").upper()
         period = c2.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key=f"period_{index}")
@@ -811,7 +818,7 @@ def page_advanced_charting():
         if token:
             data = get_historical_data(token, interval, period=period)
             if not data.empty:
-                st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True)
+                st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True, key=f"chart_{index}")
             else:
                 st.warning(f"No chart data for {ticker}.")
         else:
@@ -1464,3 +1471,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
