@@ -24,6 +24,7 @@ import requests
 import io
 import time as a_time # Renaming to avoid conflict with datetime.time
 import re
+import yfinance as yf
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -158,6 +159,31 @@ def display_header():
 
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
 
+@st.cache_data(ttl=60)
+def get_global_indices_data():
+    """Fetches live data for major world indices using yfinance."""
+    indices = {
+        'S&P 500': '^GSPC',
+        'NASDAQ': '^IXIC',
+        'DOW JONES': '^DJI',
+        'FTSE 100': '^FTSE',
+        'DAX': '^GDAXI',
+        'NIKKEI 225': '^N225'
+    }
+    data = []
+    for name, ticker in indices.items():
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="2d")
+            if not hist.empty:
+                last_price = hist['Close'].iloc[-1]
+                prev_close = hist['Close'].iloc[-2]
+                change = last_price - prev_close
+                pct_change = (change / prev_close) * 100
+                data.append({'Name': name, 'Price': last_price, 'Change': change, '% Change': pct_change})
+        except Exception:
+            continue
+    return pd.DataFrame(data)
 
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
@@ -317,7 +343,7 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
             # For options, the exchange is NFO, not derived from instrument_df
             is_option = any(char.isdigit() for char in symbol)
             if is_option:
-                 exchange = 'NFO'
+                exchange = 'NFO'
             else:
                 instrument = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
                 if instrument.empty:
@@ -429,41 +455,34 @@ def train_gradient_boosting_model(_data, ticker):
         return {}, pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
-def train_seasonal_arima_model(_data):
+def train_prophet_model(_data):
     if _data.empty or len(_data) < 100:
         return {}, pd.DataFrame()
 
-    df = _data.copy()
-    df.index = pd.to_datetime(df.index)
-    
+    df = _data.copy().reset_index()
+    df.rename(columns={'date': 'ds', 'close': 'y'}, inplace=True)
+    df_prophet = df[['ds', 'y']]
+
     predictions = {}
 
     try:
-        decomposed = seasonal_decompose(df['close'], model='additive', period=7)
-        seasonally_adjusted = df['close'] - decomposed.seasonal
+        model = Prophet(daily_seasonality=True)
+        model.fit(df_prophet)
 
-        model = ARIMA(seasonally_adjusted, order=(5, 1, 0)).fit()
-        
-        forecast_steps = 30
-        forecast_adjusted = model.forecast(steps=forecast_steps)
-        
-        last_season_cycle = decomposed.seasonal.iloc[-7:]
-        future_seasonal = pd.concat([last_season_cycle] * (forecast_steps // 7 + 1))[:forecast_steps]
-        future_seasonal.index = forecast_adjusted.index
-        
-        forecast_final = forecast_adjusted + future_seasonal
-        
-        predictions["1-Day Close"] = forecast_final.iloc[0]
-        predictions["5-Day Close"] = forecast_final.iloc[4]
-        predictions["15-Day Close"] = forecast_final.iloc[14]
-        predictions["30-Day Close"] = forecast_final.iloc[29]
+        future = model.make_future_dataframe(periods=30)
+        forecast = model.predict(future)
 
-        fitted_values = model.fittedvalues + decomposed.seasonal
-        backtest_df = pd.DataFrame({'Actual': df['close'], 'Predicted': fitted_values})
+        predictions["1-Day Close"] = forecast.iloc[-30]['yhat']
+        predictions["5-Day Close"] = forecast.iloc[-26]['yhat']
+        predictions["15-Day Close"] = forecast.iloc[-16]['yhat']
+        predictions["30-Day Close"] = forecast.iloc[-1]['yhat']
+
+        backtest_df = forecast.set_index('ds')[['yhat']].join(df_prophet.set_index('ds'))
+        backtest_df.rename(columns={'y': 'Actual', 'yhat': 'Predicted'}, inplace=True)
         backtest_df.dropna(inplace=True)
 
     except Exception as e:
-        st.error(f"Seasonal ARIMA model training failed: {e}")
+        st.error(f"Prophet model training failed: {e}")
         return {}, pd.DataFrame()
 
     return predictions, backtest_df
@@ -630,6 +649,157 @@ def get_most_active_options(underlying, instrument_df):
         return pd.DataFrame()
 
 # ================ 5. PAGE DEFINITIONS ============
+def page_pulse():
+    display_header()
+    st.title("☀️ Pulse: Premarket Dashboard")
+
+    # --- Global Market Cues ---
+    st.subheader("Global Market Cues")
+    with st.spinner("Fetching live global indices..."):
+        indices_df = get_global_indices_data()
+        if not indices_df.empty:
+            cols = st.columns(len(indices_df))
+            for i, col in enumerate(cols):
+                with col:
+                    row = indices_df.iloc[i]
+                    change = row['Change']
+                    st.metric(
+                        label=row['Name'],
+                        value=f"{row['Price']:,.2f}",
+                        delta=f"{change:,.2f} ({row['% Change']:.2f}%)"
+                    )
+        else:
+            st.warning("Could not fetch global market data.")
+
+    st.markdown("---")
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        # --- GIFT Nifty Tracker ---
+        st.subheader("GIFT Nifty Live Chart")
+        try:
+            # Using a common futures ticker for Nifty, adjust if necessary
+            gift_nifty = yf.Ticker("NIFTY=F") 
+            nifty_data = gift_nifty.history(period="1d", interval="5m")
+            if not nifty_data.empty:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=nifty_data.index, y=nifty_data['Close'], mode='lines', name='GIFT Nifty'))
+                template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
+                fig.update_layout(
+                    title="GIFT Nifty Real-time Price",
+                    yaxis_title='Price',
+                    xaxis_title='Time',
+                    template=template,
+                    height=400
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Could not fetch live GIFT Nifty data. It may be outside trading hours.")
+        except Exception as e:
+            st.error(f"Error fetching GIFT Nifty chart: {e}")
+
+    with col2:
+        # --- Top Financial News ---
+        st.subheader("Top Financial News")
+        with st.spinner("Fetching latest headlines..."):
+            news_df = fetch_and_analyze_news()
+            if not news_df.empty:
+                for _, row in news_df.head(10).iterrows():
+                    st.markdown(f"**[{row['title']}]({row['link']})** <br> <small>*{row['source']}*</small>", unsafe_allow_html=True)
+                    st.divider()
+            else:
+                st.info("No news articles found.")
+
+
+def page_ai_discovery():
+    display_header()
+    st.title("🤖 AI Discovery Engine")
+    instrument_df = get_instrument_df()
+
+    if 'watchlists' not in st.session_state or not st.session_state.watchlists.get(st.session_state.get('active_watchlist')):
+        st.info("Please add stocks to your watchlist on the Dashboard page to use the AI Discovery Engine.")
+        return
+
+    active_watchlist = st.session_state.watchlists.get(st.session_state.get('active_watchlist', 'Watchlist 1'), [])
+    watchlist_symbols = [item['symbol'] for item in active_watchlist]
+
+    col1, col2 = st.columns([1, 1], gap="large")
+
+    with col1:
+        st.subheader("Automated Pattern Scan")
+        with st.spinner(f"Scanning {len(watchlist_symbols)} stocks in your watchlist..."):
+            all_signals = []
+            for symbol in watchlist_symbols:
+                token = get_instrument_token(symbol, instrument_df)
+                if token:
+                    data = get_historical_data(token, 'day', period='6mo')
+                    if not data.empty and 'RSI_14' in data.columns:
+                        latest_rsi = data['RSI_14'].iloc[-1]
+                        if latest_rsi > 70:
+                            all_signals.append({'symbol': symbol, 'signal': 'RSI Overbought', 'type': 'Bearish', 'value': f'RSI: {latest_rsi:.2f}'})
+                        elif latest_rsi < 30:
+                            all_signals.append({'symbol': symbol, 'signal': 'RSI Oversold', 'type': 'Bullish', 'value': f'RSI: {latest_rsi:.2f}'})
+            
+            if all_signals:
+                st.success(f"Found {len(all_signals)} potential signal(s)!")
+                signals_df = pd.DataFrame(all_signals)
+                st.dataframe(signals_df, use_container_width=True, hide_index=True)
+                st.session_state['ai_signals'] = all_signals
+            else:
+                st.info("No strong technical patterns (RSI Overbought/Oversold) found in your watchlist at the moment.")
+                st.session_state['ai_signals'] = []
+
+    with col2:
+        st.subheader("Data-Driven Trade of the Day")
+        if not st.session_state.get('ai_signals'):
+            st.info("Run the pattern scan first to generate a trade suggestion.")
+            return
+
+        with st.spinner("Analyzing signals and news sentiment for confluence..."):
+            best_trade = None
+            highest_confluence_score = 0
+
+            for signal in st.session_state['ai_signals']:
+                symbol = signal['symbol']
+                signal_type = signal['type']
+
+                news_df = fetch_and_analyze_news(symbol)
+                if not news_df.empty:
+                    avg_sentiment = news_df['sentiment'].mean()
+
+                    is_bullish_confluence = signal_type == 'Bullish' and avg_sentiment > 0.1
+                    is_bearish_confluence = signal_type == 'Bearish' and avg_sentiment < -0.1
+
+                    if is_bullish_confluence or is_bearish_confluence:
+                        confluence_score = abs(avg_sentiment)
+                        if confluence_score > highest_confluence_score:
+                            highest_confluence_score = confluence_score
+                            best_trade = {
+                                'symbol': symbol,
+                                'signal_type': "BULLISH" if is_bullish_confluence else "BEARISH",
+                                'technical_reason': signal['signal'],
+                                'sentiment_reason': f"News Sentiment: {avg_sentiment:.2f} ({'Positive' if avg_sentiment > 0 else 'Negative'})",
+                                'combined_reason': f"{signal['signal']} & {'Positive' if avg_sentiment > 0 else 'Negative'} News"
+                            }
+            
+            if best_trade:
+                card_color = "#28a745" if best_trade['signal_type'] == "BULLISH" else "#FF4B4B"
+                with st.container(border=True):
+                    st.markdown(f"#### {best_trade['symbol']} <span style='color:{card_color}; float:right;'>{best_trade['signal_type']}</span>", unsafe_allow_html=True)
+                    st.caption(f"**Reason:** {best_trade['combined_reason']}")
+                    st.markdown(f"- **Technical:** {best_trade['technical_reason']}")
+                    st.markdown(f"- **Sentiment:** {best_trade['sentiment_reason']}")
+                    
+                    st.divider()
+                    
+                    b_col1, b_col2, b_col3 = st.columns([2, 1, 1])
+                    quantity = b_col1.number_input("Quantity", min_value=1, step=1, key=f"trade_card_qty_{best_trade['symbol']}", label_visibility="collapsed")
+                    if b_col2.button("Buy", use_container_width=True, key=f"trade_card_buy_{best_trade['symbol']}"):
+                        place_order(instrument_df, best_trade['symbol'], quantity, 'MARKET', 'BUY', 'MIS')
+                    if b_col3.button("Sell", use_container_width=True, key=f"trade_card_sell_{best_trade['symbol']}"):
+                        place_order(instrument_df, best_trade['symbol'], quantity, 'MARKET', 'SELL', 'MIS')
+            else:
+                st.info("No strong confluence of technical signals and news sentiment found to suggest a high-probability trade.")
 
 def page_dashboard():
     """--- UI ENHANCEMENT: A completely redesigned 'Trader UI' Dashboard ---"""
@@ -1135,7 +1305,7 @@ def page_ai_assistant():
                         else:
                             response = "Please specify a valid option symbol (e.g., NIFTY24SEPWK123000CE)."
                     except (AttributeError, IndexError):
-                         response = "I couldn't find a valid option symbol in your query. Please use the full symbol (e.g., BANKNIFTY24OCT60000CE)."
+                        response = "I couldn't find a valid option symbol in your query. Please use the full symbol (e.g., BANKNIFTY24OCT60000CE)."
                     except Exception as e:
                         response = f"An error occurred: {e}"
 
@@ -1283,11 +1453,11 @@ def page_option_strategy_builder():
             premium1 = st.number_input("Premium 1", min_value=0.0)
         
         if strategy in ["Bull Call Spread", "Bear Put Spread"]:
-             strike2 = st.number_input("Strike Price 2 (K2)", value=int(round(underlying_ltp, -2)) + 100)
-             premium2 = st.number_input("Premium 2", min_value=0.0)
+            strike2 = st.number_input("Strike Price 2 (K2)", value=int(round(underlying_ltp, -2)) + 100)
+            premium2 = st.number_input("Premium 2", min_value=0.0)
 
         if strategy == "Short Straddle":
-             premium2 = st.number_input("Premium 2 (Put)", min_value=0.0)
+            premium2 = st.number_input("Premium 2 (Put)", min_value=0.0)
 
         if strategy == "Iron Condor":
             k1 = st.number_input("K1 (Long Put)", value=int(round(underlying_ltp, -2)) - 200)
@@ -1434,6 +1604,8 @@ def main_app():
     pages = {
         "Intraday": {
             "📈 Dashboard": page_dashboard, 
+            "☀️ Pulse": page_pulse,
+            "🤖 AI Discovery": page_ai_discovery,
             "📊 Advanced Charting": page_advanced_charting, 
             "🧺 Basket Orders": page_basket_orders,
             "🔬 Portfolio Analytics": page_portfolio_analytics,
@@ -1471,4 +1643,3 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-
