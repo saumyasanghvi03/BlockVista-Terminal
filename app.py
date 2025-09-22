@@ -800,7 +800,7 @@ def page_advanced_charting():
     num_charts = st.radio("Select Chart Layout", [1, 2, 4], index=0, horizontal=True)
 
     def display_chart_widget(index):
-        st.subheader(f"Chart {index + 1}")
+        
         c1, c2, c3, c4 = st.columns(4)
         ticker = c1.text_input("Symbol", "RELIANCE", key=f"ticker_{index}").upper()
         period = c2.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key=f"period_{index}")
