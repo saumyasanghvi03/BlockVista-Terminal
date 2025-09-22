@@ -1,18 +1,17 @@
-# Core build dependencies with pinned versions for stability
-numpy==1.26.4
-Cython==3.0.10
+# Core build dependencies - compatible versions
+numpy==2.0.0
+cython==3.0.10
+pandas==2.2.2
 statsmodels==0.14.2
-scipy==1.13.1
-scikit-learn==1.5.0
+scipy==1.14.0
+scikit-learn==1.5.1
 
-# The rest of the packages
+# Application libraries
 feedparser
 kiteconnect
 nselib
-pandas
 pandas-ta
 plotly
-pmdarima
 pytz
 requests
 streamlit
