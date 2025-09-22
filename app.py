@@ -544,54 +544,55 @@ def page_dashboard():
                     {'symbol': 'USDINR', 'exchange': 'CDS'}
                 ]
 
-            # UI for adding a new symbol
-            add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
-            with add_col1:
-                new_symbol = st.text_input("Symbol", placeholder="Enter symbol to add...", label_visibility="collapsed")
-            with add_col2:
-                new_exchange = st.selectbox("Exchange", ["NSE", "BSE", "MCX", "CDS"], label_visibility="collapsed")
-            with add_col3:
-                if st.button("Add", use_container_width=True):
-                    if new_symbol:
-                        # Prevent duplicates
-                        is_duplicate = any(d['symbol'] == new_symbol.upper() for d in st.session_state.watchlist_symbols)
-                        if not is_duplicate:
-                            st.session_state.watchlist_symbols.append({'symbol': new_symbol.upper(), 'exchange': new_exchange})
-                            st.rerun()
-                        else:
-                            st.toast(f"{new_symbol.upper()} is already in the watchlist.", icon="⚠️")
+            # --- UI for adding a new symbol ---
+            with st.form(key="add_stock_form"):
+                add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
+                with add_col1:
+                    new_symbol = st.text_input("Symbol", placeholder="Enter symbol...", label_visibility="collapsed")
+                with add_col2:
+                    new_exchange = st.selectbox("Exchange", ["NSE", "BSE", "MCX", "CDS"], label_visibility="collapsed")
+                with add_col3:
+                    add_button = st.form_submit_button(label="Add")
+            
+            if add_button:
+                if new_symbol:
+                    is_duplicate = any(d['symbol'] == new_symbol.upper() for d in st.session_state.watchlist_symbols)
+                    if not is_duplicate:
+                        st.session_state.watchlist_symbols.append({'symbol': new_symbol.upper(), 'exchange': new_exchange})
+                        st.rerun()
                     else:
-                        st.toast("Please enter a symbol.", icon="⚠️")
+                        st.toast(f"{new_symbol.upper()} is already in the watchlist.", icon="⚠️")
+                else:
+                    st.toast("Please enter a symbol.", icon="⚠️")
 
-            # Display and manage the watchlist
+            # --- Display and manage the watchlist ---
             watchlist_data = get_watchlist_data(st.session_state.watchlist_symbols)
             
             if not watchlist_data.empty:
-                watchlist_data['Delete'] = False
-                
-                edited_df = st.data_editor(
-                    watchlist_data,
-                    column_config={
-                        "Price": st.column_config.NumberColumn(format="₹%.2f"),
-                        "Change": st.column_config.NumberColumn(format="%.2f"),
-                        "% Change": st.column_config.NumberColumn(format="%.2f%%"),
-                        "Delete": st.column_config.CheckboxColumn("Delete?"),
-                    },
-                    use_container_width=True, 
-                    hide_index=True,
-                    key="watchlist_editor"
-                )
+                # --- Header Row ---
+                h_cols = st.columns((3, 2, 2, 1))
+                h_cols[0].markdown("**Ticker**")
+                h_cols[1].markdown("**Price**")
+                h_cols[2].markdown("**Change**")
+                h_cols[3].markdown("**Remove**")
 
-                if st.button("Remove Selected", use_container_width=True):
-                    symbols_to_remove = edited_df[edited_df['Delete']]['Ticker'].tolist()
-                    if symbols_to_remove:
+                st.markdown("---",)
+                
+                # --- Data Rows ---
+                for index, row in watchlist_data.iterrows():
+                    d_cols = st.columns((3, 2, 2, 1))
+                    change_color = 'green' if row['Change'] > 0 else 'red' if row['Change'] < 0 else 'gray'
+                    
+                    d_cols[0].markdown(f"**{row['Ticker']}**")
+                    d_cols[1].markdown(f"₹{row['Price']:,.2f}")
+                    d_cols[2].markdown(f"<span style='color:{change_color};'>{row['Change']:,.2f} ({row['% Change']:.2f}%)</span>", unsafe_allow_html=True)
+
+                    if d_cols[3].button("🗑️", key=f"del_{row['Ticker']}", use_container_width=True):
                         st.session_state.watchlist_symbols = [
                             item for item in st.session_state.watchlist_symbols 
-                            if item['symbol'] not in symbols_to_remove
+                            if item['symbol'] != row['Ticker']
                         ]
                         st.rerun()
-                    else:
-                        st.toast("No stocks selected for removal.", icon="ℹ️")
             else:
                  st.info("Your watchlist is empty. Add a symbol to get started.")
 
@@ -616,54 +617,47 @@ def page_dashboard():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # --- Bottom Row: Live Ticker Tape ---
-    ticker_symbols = [
-        {'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'TCS', 'exchange': 'NSE'},
-        {'symbol': 'HDFCBANK', 'exchange': 'NSE'}, {'symbol': 'ICICIBANK', 'exchange': 'NSE'},
-        {'symbol': 'INFY', 'exchange': 'NSE'}, {'symbol': 'BHARTIARTL', 'exchange': 'NSE'},
-        {'symbol': 'SBIN', 'exchange': 'NSE'}, {'symbol': 'ITC', 'exchange': 'NSE'},
-        {'symbol': 'HINDUNILVR', 'exchange': 'NSE'}, {'symbol': 'LT', 'exchange': 'NSE'},
-        {'symbol': 'BAJFINANCE', 'exchange': 'NSE'}, {'symbol': 'SENSEX', 'exchange': 'BSE'},
-        {'symbol': 'GOLDM', 'exchange': 'MCX'}, {'symbol': 'SILVERM', 'exchange': 'MCX'},
-        {'symbol': 'USDINR', 'exchange': 'CDS'}
-    ]
-    ticker_data = get_watchlist_data(ticker_symbols)
+    ticker_symbols = st.session_state.get('watchlist_symbols', [])
     
-    if not ticker_data.empty:
-        ticker_html = ""
-        for i in range(len(ticker_data)):
-            item = ticker_data.iloc[i]
-            color = '#28a745' if item['Change'] > 0 else '#FF4B4B'
-            ticker_html += f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} <span style='color: {color};'>{item['Price']:,.2f} ({item['% Change']:.2f}%)</span></span>"
+    if ticker_symbols:
+        ticker_data = get_watchlist_data(ticker_symbols)
         
-        st.markdown(f"""
-        <style>
-            @keyframes marquee {{
-                0%   {{ transform: translate(100%, 0); }}
-                100% {{ transform: translate(-100%, 0); }}
-            }}
-            .marquee-container {{
-                width: 100%;
-                overflow: hidden;
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                background-color: #1a1a1a;
-                border-top: 1px solid #333;
-                padding: 5px 0;
-                white-space: nowrap;
-            }}
-            .marquee-content {{
-                display: inline-block;
-                padding-left: 100%;
-                animation: marquee 35s linear infinite;
-            }}
-        </style>
-        <div class="marquee-container">
-            <div class="marquee-content">
-                {ticker_html}
+        if not ticker_data.empty:
+            ticker_html = ""
+            for i in range(len(ticker_data)):
+                item = ticker_data.iloc[i]
+                color = '#28a745' if item['Change'] > 0 else '#FF4B4B'
+                ticker_html += f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} <span style='color: {color};'>{item['Price']:,.2f} ({item['% Change']:.2f}%)</span></span>"
+            
+            st.markdown(f"""
+            <style>
+                @keyframes marquee {{
+                    0%   {{ transform: translate(100%, 0); }}
+                    100% {{ transform: translate(-100%, 0); }}
+                }}
+                .marquee-container {{
+                    width: 100%;
+                    overflow: hidden;
+                    position: fixed;
+                    bottom: 0;
+                    left: 0;
+                    background-color: #1a1a1a;
+                    border-top: 1px solid #333;
+                    padding: 5px 0;
+                    white-space: nowrap;
+                }}
+                .marquee-content {{
+                    display: inline-block;
+                    padding-left: 100%;
+                    animation: marquee 35s linear infinite;
+                }}
+            </style>
+            <div class="marquee-container">
+                <div class="marquee-content">
+                    {ticker_html}
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
         
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting"); instrument_df = get_instrument_df()
@@ -1171,4 +1165,3 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-
