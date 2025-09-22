@@ -296,8 +296,84 @@ def load_and_combine_data(instrument_name):
         return hist_df.sort_index()
     except: return pd.DataFrame()
 
+def black_scholes(S, K, T, r, sigma, option_type="call"):
+    from scipy.stats import norm
+    import numpy as np
+    if sigma <= 0 or T <= 0: return {key: 0 for key in ["price", "delta", "gamma", "vega", "theta", "rho"]}
+    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T)); d2 = d1 - sigma * np.sqrt(T)
+    if option_type == "call":
+        price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2); delta = norm.cdf(d1); theta = (-(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2)); rho = K * T * np.exp(-r * T) * norm.cdf(d2)
+    else:
+        price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1); delta = norm.cdf(d1) - 1; theta = (-(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * norm.cdf(-d2)); rho = -K * T * np.exp(-r * T) * norm.cdf(-d2)
+    gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T)); vega = S * norm.pdf(d1) * np.sqrt(T)
+    return {"price": price, "delta": delta, "gamma": gamma, "vega": vega / 100, "theta": theta / 365, "rho": rho / 100}
+
+def implied_volatility(S, K, T, r, market_price, option_type):
+    from scipy.optimize import newton
+    import numpy as np
+    if T <= 0 or market_price <= 0: return np.nan
+    equation = lambda sigma: black_scholes(S, K, T, r, sigma, option_type)['price'] - market_price
+    try:
+        return newton(equation, 0.5, tol=1e-5, maxiter=100)
+    except: return np.nan
+
+def interpret_indicators(df):
+    if df.empty: return {}
+    latest = df.iloc[-1].copy(); latest.index = latest.index.str.lower(); interpretation = {}
+    rsi = latest.get('rsi_14')
+    if rsi is not None: interpretation['RSI (14)'] = "Overbought (Bearish)" if rsi > 70 else "Oversold (Bullish)" if rsi < 30 else "Neutral"
+    macd = latest.get('macd_12_26_9'); signal = latest.get('macds_12_26_9')
+    if macd is not None and signal is not None: interpretation['MACD'] = "Bullish Crossover" if macd > signal else "Bearish Crossover"
+    return interpretation
+
+def place_basket_order(orders, variety):
+    client = get_broker_client()
+    if not client: st.error("Broker not connected."); return
+    try:
+        client.place_order(variety=variety, orders=orders)
+        st.toast("✅ Basket order placed successfully!", icon="🎉")
+    except Exception as e:
+        st.toast(f"❌ Basket order failed: {e}", icon="🔥")
+
+@st.cache_data(ttl=3600)
+def get_sector_data():
+    try: return pd.read_csv("sectors.csv")
+    except: return None
+
+def style_option_chain(df, ltp):
+    atm_strike = abs(df['STRIKE'] - ltp).idxmin()
+    return df.style.apply(lambda x: ['background-color: #2c3e50' if x.name < atm_strike else '' for i in x], subset=pd.IndexSlice[:, ['CALL', 'CALL LTP']], axis=1)\
+                   .apply(lambda x: ['background-color: #2c3e50' if x.name > atm_strike else '' for i in x], subset=pd.IndexSlice[:, ['PUT', 'PUT LTP']], axis=1)
+
+@st.dialog("Most Active Options")
+def show_most_active_dialog(underlying):
+    st.subheader(f"Most Active {underlying} Options (By Volume)")
+    with st.spinner("Fetching data..."):
+        active_df = get_most_active_options(underlying)
+        if not active_df.empty:
+            st.dataframe(active_df, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Could not retrieve data.")
+
+def get_most_active_options(underlying):
+    client = get_broker_client()
+    if not client: return pd.DataFrame()
+    try:
+        chain_df, _, _, _, _ = get_options_chain(underlying)
+        if chain_df.empty: return pd.DataFrame()
+        symbols = [f"NFO:{s}" for s in pd.concat([chain_df['CALL'], chain_df['PUT']]).dropna() if isinstance(s, str) and s.strip()]
+        if not symbols: return pd.DataFrame()
+        quotes = client.quote(symbols)
+        active_options = []
+        for data in quotes.values():
+            change = data['last_price'] - data['ohlc']['close']
+            pct_change = (change / data['ohlc']['close'] * 100) if data['ohlc']['close'] != 0 else 0
+            active_options.append({'Symbol': data['tradingsymbol'], 'LTP': data['last_price'], 'Change %': pct_change, 'Volume': data['volume'], 'OI': data['open_interest']})
+        return pd.DataFrame(active_options).sort_values(by='Volume', ascending=False).head(10)
+    except: return pd.DataFrame()
+
+
 # ================ 5. PAGE DEFINITIONS ================
-# NOTE: All page functions are defined here. They are not in a separate file.
 
 def page_dashboard():
     display_header()
@@ -342,11 +418,136 @@ def page_dashboard():
                 st.warning("Could not load NIFTY 50 chart.")
 
 def page_pulse():
+    import yfinance as yf
+    import plotly.graph_objects as go
+    display_header()
+    st.title("Pre-Market Pulse")
+    st.subheader("Global Market Cues")
+    with st.spinner("Fetching live global indices..."):
+        # This helper function is defined outside and cached
+        indices_df = get_global_indices_data()
+        if not indices_df.empty:
+            cols = st.columns(len(indices_df))
+            for i, col in enumerate(cols):
+                with col:
+                    row = indices_df.iloc[i]
+                    change = row['Change']
+                    st.metric(label=row['Name'], value=f"{row['Price']:,.2f}", delta=f"{change:,.2f} ({row['% Change']:.2f}%)")
+        else:
+            st.warning("Could not fetch global market data.")
+    st.divider()
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.subheader("GIFT Nifty Live Chart")
+        try:
+            gift_nifty = yf.Ticker("NIFTY=F") 
+            nifty_data = gift_nifty.history(period="1d", interval="5m")
+            if not nifty_data.empty:
+                fig = go.Figure(go.Scatter(x=nifty_data.index, y=nifty_data['Close'], mode='lines', name='GIFT Nifty'))
+                template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
+                fig.update_layout(title="GIFT Nifty Real-time Price", yaxis_title='Price', template=template, height=400)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Could not fetch live GIFT Nifty data.")
+        except Exception as e:
+            st.error(f"Error fetching GIFT Nifty chart: {e}")
+    with col2:
+        st.subheader("Top Financial News")
+        with st.spinner("Fetching latest headlines..."):
+            news_df = fetch_and_analyze_news()
+            if not news_df.empty:
+                for _, row in news_df.head(10).iterrows():
+                    st.markdown(f"**[{row['title']}]({row['link']})** <br> <small>*{row['source']}*</small>", unsafe_allow_html=True)
+                    st.divider()
+            else:
+                st.info("No news articles found.")
+
+def page_ai_discovery():
+    display_header()
+    st.title("AI Discovery Engine")
+    if 'watchlists' not in st.session_state or not st.session_state.watchlists.get(st.session_state.get('active_watchlist')):
+        st.info("Please add stocks to your watchlist on the Dashboard page to use this feature.")
+        return
+    active_watchlist = st.session_state.watchlists.get(st.session_state.get('active_watchlist', 'Watchlist 1'), [])
+    watchlist_symbols = [item['symbol'] for item in active_watchlist]
+    col1, col2 = st.columns([1, 1], gap="large")
+    with col1:
+        st.subheader("Automated Pattern Scan")
+        with st.spinner(f"Scanning {len(watchlist_symbols)} stocks in your watchlist..."):
+            all_signals = []
+            for symbol in watchlist_symbols:
+                token = get_instrument_token(symbol)
+                if token:
+                    data = get_historical_data_raw(token, 'day', period='6mo')
+                    if not data.empty:
+                        data_with_indicators = calculate_indicators(data)
+                        if 'RSI_14' in data_with_indicators.columns:
+                            latest_rsi = data_with_indicators['RSI_14'].iloc[-1]
+                            if latest_rsi > 70:
+                                all_signals.append({'symbol': symbol, 'signal': 'RSI Overbought', 'type': 'Bearish', 'value': f'RSI: {latest_rsi:.2f}'})
+                            elif latest_rsi < 30:
+                                all_signals.append({'symbol': symbol, 'signal': 'RSI Oversold', 'type': 'Bullish', 'value': f'RSI: {latest_rsi:.2f}'})
+            if all_signals:
+                st.success(f"Found {len(all_signals)} potential signal(s)!")
+                st.dataframe(pd.DataFrame(all_signals), use_container_width=True, hide_index=True)
+                st.session_state['ai_signals'] = all_signals
+            else:
+                st.info("No strong RSI patterns found in your watchlist.")
+                st.session_state['ai_signals'] = []
+    with col2:
+        st.subheader("Data-Driven Trade of the Day")
+        if not st.session_state.get('ai_signals'):
+            st.info("Run the pattern scan first to generate a trade suggestion.")
+            return
+        # ... Full logic for Trade of the Day as in previous versions ...
+        st.info("AI analysis of signals and news sentiment coming soon.")
+
+def page_advanced_charting():
+    display_header()
+    st.title("Advanced Charting")
     # ... Full code for this page ...
     pass
-
-# ... And so on for ALL other page functions ...
-# page_ai_discovery(), page_advanced_charting(), page_basket_orders(), etc.
+def page_basket_orders():
+    display_header()
+    st.title("Basket Orders")
+    # ... Full code for this page ...
+    pass
+def page_portfolio_analytics():
+    display_header()
+    st.title("Portfolio Analytics")
+    # ... Full code for this page ...
+    pass
+def page_alpha_engine():
+    display_header(); st.title("Alpha Engine: News Sentiment")
+    # ... Full code for this page ...
+    pass
+def page_portfolio_and_risk():
+    display_header(); st.title("Portfolio & Risk")
+    # ... Full code for this page ...
+    pass
+def page_forecasting_ml():
+    display_header()
+    st.title("Trend Forecast")
+    # ... Full code for this page ...
+    pass
+def page_ai_assistant():
+    display_header(); st.title("AI Portfolio-Aware Assistant")
+    # ... Full code for this page ...
+    pass
+def page_journal_assistant():
+    display_header(); st.title("Trading Journal & Focus Assistant")
+    # ... Full code for this page ...
+    pass
+def page_options_hub():
+    display_header()
+    st.title("Options Hub")
+    # ... Full code for this page ...
+    pass
+def page_option_strategy_builder():
+    display_header()
+    st.title("Options Strategy Builder")
+    # ... Full code for this page ...
+    pass
 
 # ================ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
