@@ -466,6 +466,7 @@ def train_prophet_model(_data):
     predictions = {}
 
     try:
+        from prophet import Prophet
         model = Prophet(daily_seasonality=True)
         model.fit(df_prophet)
 
@@ -709,7 +710,6 @@ def page_pulse():
                     st.divider()
             else:
                 st.info("No news articles found.")
-
 
 def page_ai_discovery():
     display_header()
@@ -1075,7 +1075,6 @@ def page_options_hub():
         else:
             st.warning("Could not fetch options chain.")
 
-
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News Sentiment"); query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
     with st.spinner("Fetching and analyzing news..."):
@@ -1208,7 +1207,6 @@ def page_forecasting_ml():
         else:
             st.subheader(f"Historical Data for {instrument_name}")
             st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
-
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
@@ -1519,6 +1517,119 @@ def page_option_strategy_builder():
             except NameError:
                 st.info("Enter premiums and strike prices to see the payoff chart.")
 
+@st.dialog("Hourly Check-in")
+def journal_prompt():
+    """The pop-up dialog for the hourly journal entry."""
+    st.write("Let's log your current trading mindset to track performance.")
+    
+    focus = st.text_input("Primary market focus right now?", placeholder="e.g., NIFTY Options, RELIANCE")
+    bias = st.selectbox("Current market bias?", ["Bullish", "Bearish", "Neutral"])
+    emotion_scale = {
+        "1: Disciplined, Calm": 1, 
+        "2: Focused": 2, 
+        "3: Neutral": 3, 
+        "4: Anxious, Hopeful": 4, 
+        "5: Stressed, Fearful": 5
+    }
+    emotion = st.select_slider("Emotional state?", options=emotion_scale.keys())
+    
+    if st.button("Log Entry", use_container_width=True):
+        entry = {
+            "Timestamp": datetime.now(pytz.timezone('Asia/Kolkata')),
+            "Focus": focus,
+            "Bias": bias,
+            "Emotion Score": emotion_scale[emotion]
+        }
+        st.session_state.journal_entries.append(entry)
+        st.session_state.last_journal_prompt = datetime.now(pytz.timezone('Asia/Kolkata'))
+        st.rerun()
+
+def page_journal_assistant():
+    """A page to log and review trading mindset and focus."""
+    display_header()
+    st.title("📓 Trading Journal & Focus Assistant")
+
+    st.info("""
+        This assistant helps you build discipline by prompting you for a quick journal entry every hour during your session. 
+        Over time, this log will reveal powerful insights into how your focus and emotional state impact your trading results.
+    """)
+
+    # --- Pop-up Trigger Logic ---
+    # Initialize session state variables if they don't exist
+    if 'last_journal_prompt' not in st.session_state:
+        st.session_state.last_journal_prompt = datetime.now(pytz.timezone('Asia/Kolkata')) - timedelta(hours=1) # Ensure first prompt
+    if 'journal_entries' not in st.session_state:
+        st.session_state.journal_entries = []
+
+    # Check if an hour has passed since the last prompt
+    now = datetime.now(pytz.timezone('Asia/Kolkata'))
+    if now - st.session_state.last_journal_prompt > timedelta(hours=1):
+        journal_prompt()
+        
+    st.divider()
+    
+    # --- Performance Review Dashboard ---
+    st.subheader("Performance Review Dashboard")
+
+    if not st.session_state.journal_entries:
+        st.write("Your journal is empty. The first hourly prompt will appear soon. You can also add a manual entry below.")
+    else:
+        journal_df = pd.DataFrame(st.session_state.journal_entries)
+        journal_df['Timestamp'] = pd.to_datetime(journal_df['Timestamp'])
+
+        st.subheader("Your Emotional State Over Time")
+        st.caption("Track when you feel stressed or disciplined. Are there patterns?")
+        st.bar_chart(journal_df, x="Timestamp", y="Emotion Score", color="#ff4b4b")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Market Bias Distribution")
+            bias_counts = journal_df['Bias'].value_counts()
+            fig = go.Figure(data=[go.Pie(labels=bias_counts.index, values=bias_counts.values, hole=.3)])
+            fig.update_layout(
+                showlegend=True, 
+                template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white',
+                annotations=[dict(text='Bias', x=0.5, y=0.5, font_size=20, showarrow=False)]
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            st.subheader("Primary Focus Distribution")
+            focus_counts = journal_df['Focus'].value_counts()
+            fig2 = go.Figure(data=[go.Pie(labels=focus_counts.index, values=focus_counts.values, hole=.3)])
+            fig2.update_layout(
+                showlegend=True, 
+                template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white',
+                annotations=[dict(text='Focus', x=0.5, y=0.5, font_size=20, showarrow=False)]
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+            
+    st.divider()
+    st.subheader("Journal Log")
+    if st.session_state.journal_entries:
+        st.dataframe(
+            pd.DataFrame(st.session_state.journal_entries).sort_values(by="Timestamp", ascending=False),
+            use_container_width=True
+        )
+
+    with st.expander("Add a Manual Journal Entry"):
+        with st.form("manual_journal_form"):
+            focus = st.text_input("Primary market focus?", key="manual_focus")
+            bias = st.selectbox("Market bias?", ["Bullish", "Bearish", "Neutral"], key="manual_bias")
+            emotion_scale = {"1: Disciplined": 1, "2: Focused": 2, "3: Neutral": 3, "4: Anxious": 4, "5: Stressed": 5}
+            emotion = st.select_slider("Emotional state?", options=emotion_scale.keys(), key="manual_emotion")
+            
+            if st.form_submit_button("Add Manual Entry"):
+                entry = {
+                    "Timestamp": datetime.now(pytz.timezone('Asia/Kolkata')),
+                    "Focus": focus,
+                    "Bias": bias,
+                    "Emotion Score": emotion_scale[emotion]
+                }
+                st.session_state.journal_entries.append(entry)
+                st.success("Manual entry added!")
+                st.rerun()
+
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
 def show_login_animation():
@@ -1612,7 +1723,8 @@ def main_app():
             "📰 Alpha Engine": page_alpha_engine, 
             "📓 Portfolio & Risk": page_portfolio_and_risk, 
             "🧠 Forecasting & ML": page_forecasting_ml, 
-            "🤖 AI Assistant": page_ai_assistant
+            "🤖 AI Assistant": page_ai_assistant,
+            "📓 Journal Assistant": page_journal_assistant,
         },
         "Options": {
             "⛓️ Options Hub": page_options_hub, 
