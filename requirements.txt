@@ -1,6 +1,9 @@
-# Core build dependencies first
-numpy
-cython
+# Core build dependencies with pinned versions for stability
+numpy==1.26.4
+Cython==3.0.10
+statsmodels==0.14.2
+scipy==1.13.1
+scikit-learn==1.5.0
 
 # The rest of the packages
 feedparser
@@ -8,12 +11,9 @@ kiteconnect
 pandas
 pandas-ta
 plotly
-pmdarima
+pmdarima==2.0.4
 pytz
 requests
-scikit-learn
-scipy
-statsmodels
 streamlit
 streamlit-autorefresh
 tabulate
