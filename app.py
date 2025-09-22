@@ -13,7 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import GradientBoostingRegressor
-from prophet import Prophet
+from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -412,42 +412,40 @@ def train_gradient_boosting_model(_data, ticker):
     return predictions, full_backtest_df
 
 @st.cache_data(show_spinner=False)
-def train_prophet_model(_data):
+def train_arima_model(_data):
     if _data.empty or len(_data) < 50:
-        st.warning("Not enough data to train Prophet model.")
+        st.warning("Not enough data to train ARIMA model.")
         return {}, pd.DataFrame()
-
-    df = _data.copy().reset_index()
-    df.rename(columns={'Date': 'ds', 'close': 'y'}, inplace=True)
-    df_prophet = df[['ds', 'y']]
-
+        
+    df = _data.copy()
+    df.columns = [col.lower() for col in df.columns]
     predictions = {}
-
+    
     try:
-        # Train model on all data
-        model = Prophet(daily_seasonality=True)
-        model.fit(df_prophet)
+        df_close = df['close']
+        train_data_close, test_data_close = df_close[:-30], df_close[-30:]
+        model_close = ARIMA(train_data_close, order=(5, 1, 0)).fit()
+        
+        # Future forecasts
+        forecasts_close = model_close.forecast(steps=30)
+        predictions.update({"1-Day Close": forecasts_close.iloc[0], "5-Day Close": forecasts_close.iloc[4], "15-Day Close": forecasts_close.iloc[14], "30-Day Close": forecasts_close.iloc[29]})
+        
+        # Full backtest data
+        in_sample_preds = model_close.predict(start=train_data_close.index[1], end=train_data_close.index[-1])
+        out_of_sample_preds = model_close.forecast(steps=len(test_data_close))
+        all_preds = pd.concat([in_sample_preds, out_of_sample_preds])
+        full_backtest_df = pd.DataFrame({'Actual': df_close, 'Predicted': all_preds})
+        full_backtest_df.dropna(inplace=True)
 
-        # Create future dataframe
-        future = model.make_future_dataframe(periods=30)
-        forecast = model.predict(future)
-
-        # Extract future forecasts
-        predictions["1-Day Close"] = forecast.iloc[-30]['yhat']
-        predictions["5-Day Close"] = forecast.iloc[-26]['yhat']
-        predictions["15-Day Close"] = forecast.iloc[-16]['yhat']
-        predictions["30-Day Close"] = forecast.iloc[-1]['yhat']
-
-        # Create backtest dataframe
-        backtest_df = forecast.set_index('ds')[['yhat']].join(df_prophet.set_index('ds'))
-        backtest_df.rename(columns={'y': 'Actual', 'yhat': 'Predicted'}, inplace=True)
-        backtest_df.dropna(inplace=True)
-
+        # Forecast for 1-day Open
+        model_open = ARIMA(df['open'], order=(5, 1, 0)).fit()
+        predictions["1-Day Open"] = model_open.forecast(steps=1).iloc[0]
+        
     except Exception as e:
-        st.error(f"Prophet model training failed: {e}")
+        st.error(f"ARIMA model training failed: {e}")
         return {}, pd.DataFrame()
-
-    return predictions, backtest_df
+        
+    return predictions, full_backtest_df
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
@@ -847,7 +845,7 @@ def page_forecasting_ml():
     with col1:
         st.subheader("Model Configuration")
         instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()))
-        model_choice = st.selectbox("Select a Forecasting Model", ["Gradient Boosting", "Prophet"])
+        model_choice = st.selectbox("Select a Forecasting Model", ["Gradient Boosting", "ARIMA"])
         
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
@@ -860,8 +858,8 @@ def page_forecasting_ml():
             with st.spinner(f"Training {model_choice} model... This may take a moment."):
                 if model_choice == "Gradient Boosting":
                     predictions, backtest_df = train_gradient_boosting_model(data, instrument_name)
-                else:  # Prophet
-                    predictions, backtest_df = train_prophet_model(data)
+                else:  # ARIMA
+                    predictions, backtest_df = train_arima_model(data)
                 
                 st.session_state.update({
                     'ml_predictions': predictions, 
@@ -1239,6 +1237,22 @@ def main_app():
     auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
     refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
     
+    instrument_df = get_instrument_df()
+    with st.sidebar.expander("🚀 Place Order", expanded=False):
+        with st.form("order_form"):
+            symbol = st.text_input("Symbol").upper()
+            c1, c2 = st.columns(2)
+            transaction_type = c1.radio("Transaction", ["BUY", "SELL"])
+            product = c2.radio("Product", ["MIS", "CNC"])
+            order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True)
+            qty = st.number_input("Quantity", min_value=1, step=1)
+            price = st.number_input("Price", min_value=0.01) if order_type == "LIMIT" else 0
+            
+            if st.form_submit_button("Submit Order"):
+                if symbol and not instrument_df.empty:
+                    place_order(instrument_df, symbol, qty, order_type, transaction_type, product, price if price > 0 else None)
+                elif not symbol:
+                    st.warning("Please enter a symbol.")
     st.sidebar.divider()
     
     st.sidebar.header("Navigation")
@@ -1282,4 +1296,3 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-
