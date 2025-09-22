@@ -13,6 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import GradientBoostingRegressor
+from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
 from scipy.stats import norm
@@ -22,6 +23,7 @@ from time import mktime
 import requests
 import io
 import time as a_time # Renaming to avoid conflict with datetime.time
+import re
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -178,7 +180,7 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbl_col], line=dict(color='rgba(135,206,250,0.5)', width=1), name='Lower Band'))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbu_col], line=dict(color='rgba(135,206,250,0.5)', width=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
     if forecast_df is not None:
-        fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
+        fig.add_trace(go.Scatter(x=forecast_df['ds'], y=forecast_df['yhat'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
     template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
@@ -412,40 +414,51 @@ def train_gradient_boosting_model(_data, ticker):
     return predictions, full_backtest_df
 
 @st.cache_data(show_spinner=False)
-def train_arima_model(_data):
-    if _data.empty or len(_data) < 50:
-        st.warning("Not enough data to train ARIMA model.")
+def train_seasonal_arima_model(_data):
+    if _data.empty or len(_data) < 100:
+        st.warning("Not enough data to train Seasonal ARIMA model.")
         return {}, pd.DataFrame()
-        
-    df = _data.copy()
-    df.columns = [col.lower() for col in df.columns]
-    predictions = {}
-    
-    try:
-        df_close = df['close']
-        train_data_close, test_data_close = df_close[:-30], df_close[-30:]
-        model_close = ARIMA(train_data_close, order=(5, 1, 0)).fit()
-        
-        # Future forecasts
-        forecasts_close = model_close.forecast(steps=30)
-        predictions.update({"1-Day Close": forecasts_close.iloc[0], "5-Day Close": forecasts_close.iloc[4], "15-Day Close": forecasts_close.iloc[14], "30-Day Close": forecasts_close.iloc[29]})
-        
-        # Full backtest data
-        in_sample_preds = model_close.predict(start=train_data_close.index[1], end=train_data_close.index[-1])
-        out_of_sample_preds = model_close.forecast(steps=len(test_data_close))
-        all_preds = pd.concat([in_sample_preds, out_of_sample_preds])
-        full_backtest_df = pd.DataFrame({'Actual': df_close, 'Predicted': all_preds})
-        full_backtest_df.dropna(inplace=True)
 
-        # Forecast for 1-day Open
-        model_open = ARIMA(df['open'], order=(5, 1, 0)).fit()
-        predictions["1-Day Open"] = model_open.forecast(steps=1).iloc[0]
+    df = _data.copy()
+    df.index = pd.to_datetime(df.index)
+    
+    predictions = {}
+
+    try:
+        # Decompose the time series to handle seasonality
+        # Assuming a weekly seasonality (period=7). This might need adjustment based on data characteristics.
+        decomposed = seasonal_decompose(df['close'], model='additive', period=7)
+        seasonally_adjusted = df['close'] - decomposed.seasonal
+
+        # Fit ARIMA on the adjusted series
+        model = ARIMA(seasonally_adjusted, order=(5, 1, 0)).fit()
         
+        # Forecast the adjusted series and add back the seasonal component
+        forecast_steps = 30
+        forecast_adjusted = model.forecast(steps=forecast_steps)
+        
+        # Reconstruct the seasonal component for the forecast period
+        last_season_cycle = decomposed.seasonal.iloc[-7:]
+        future_seasonal = pd.concat([last_season_cycle] * (forecast_steps // 7 + 1))[:forecast_steps]
+        future_seasonal.index = forecast_adjusted.index
+        
+        forecast_final = forecast_adjusted + future_seasonal
+        
+        predictions["1-Day Close"] = forecast_final.iloc[0]
+        predictions["5-Day Close"] = forecast_final.iloc[4]
+        predictions["15-Day Close"] = forecast_final.iloc[14]
+        predictions["30-Day Close"] = forecast_final.iloc[29]
+
+        # Create backtest dataframe
+        fitted_values = model.fittedvalues + decomposed.seasonal
+        backtest_df = pd.DataFrame({'Actual': df['close'], 'Predicted': fitted_values})
+        backtest_df.dropna(inplace=True)
+
     except Exception as e:
-        st.error(f"ARIMA model training failed: {e}")
+        st.error(f"Seasonal ARIMA model training failed: {e}")
         return {}, pd.DataFrame()
-        
-    return predictions, full_backtest_df
+
+    return predictions, backtest_df
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
@@ -845,7 +858,7 @@ def page_forecasting_ml():
     with col1:
         st.subheader("Model Configuration")
         instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()))
-        model_choice = st.selectbox("Select a Forecasting Model", ["Gradient Boosting", "ARIMA"])
+        model_choice = st.selectbox("Select a Forecasting Model", ["Gradient Boosting", "Seasonal ARIMA"])
         
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
@@ -858,8 +871,8 @@ def page_forecasting_ml():
             with st.spinner(f"Training {model_choice} model... This may take a moment."):
                 if model_choice == "Gradient Boosting":
                     predictions, backtest_df = train_gradient_boosting_model(data, instrument_name)
-                else:  # ARIMA
-                    predictions, backtest_df = train_arima_model(data)
+                else:  # Seasonal ARIMA
+                    predictions, backtest_df = train_seasonal_arima_model(data)
                 
                 st.session_state.update({
                     'ml_predictions': predictions, 
@@ -924,16 +937,26 @@ def page_forecasting_ml():
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
-    if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "Ask me about your portfolio or stock prices (e.g., 'what are my holdings?' or 'current price of RELIANCE')."}]
+    instrument_df = get_instrument_df()
+
+    if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "How can I help you with your portfolio or the markets today?"}]
     for message in st.session_state.messages:
         with st.chat_message(message["role"]): st.markdown(message["content"])
+    
     if prompt := st.chat_input("Ask a question..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.markdown(prompt)
+        
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                prompt_lower = prompt.lower(); response = "I can provide information on your holdings, positions, orders, funds, and current stock prices. Please ask a specific question."; client = get_broker_client()
-                if not client: response = "I am not connected to your broker. Please log in first."
+                prompt_lower = prompt.lower()
+                response = "Sorry, I can only provide information related to your portfolio, orders, funds, market prices, and options data. Please try another question."
+                client = get_broker_client()
+
+                if not client:
+                    response = "I am not connected to your broker. Please log in first."
+                
+                # General keywords
                 elif any(word in prompt_lower for word in ["holdings", "investments"]):
                     _, holdings_df, _, _ = get_portfolio(); response = f"Here are your current holdings:\n```\n{tabulate(holdings_df, headers='keys', tablefmt='psql')}\n```" if not holdings_df.empty else "You have no holdings."
                 elif "positions" in prompt_lower:
@@ -944,14 +967,53 @@ def page_ai_assistant():
                     funds = client.margins(); response = f"Available Funds:\n- Equity: ₹{funds['equity']['available']['live_balance']:,.2f}\n- Commodity: ₹{funds['commodity']['available']['live_balance']:,.2f}"
                 elif "price of" in prompt_lower or "ltp of" in prompt_lower:
                     try:
-                        ticker = prompt.split(" of ")[-1].strip().upper(); instrument_df = get_instrument_df(); instrument = instrument_df[instrument_df['tradingsymbol'] == ticker]
+                        ticker = prompt.split(" of ")[-1].strip().upper()
+                        instrument = instrument_df[instrument_df['tradingsymbol'] == ticker]
                         if not instrument.empty:
-                            exchange = instrument.iloc[0]['exchange']; ltp_data = get_watchlist_data([{'symbol': ticker, 'exchange': exchange}]); price = ltp_data.iloc[0]['Price'] if not ltp_data.empty else "N/A"; response = f"The current price of {ticker} is {price}."
+                            exchange = instrument.iloc[0]['exchange']
+                            ltp_data = get_watchlist_data([{'symbol': ticker, 'exchange': exchange}])
+                            price = ltp_data.iloc[0]['Price'] if not ltp_data.empty else "N/A"
+                            response = f"The current price of {ticker} is {price}."
                         else:
                             response = f"I could not find the ticker '{ticker}'. Please check the symbol."
                     except Exception:
                         response = "Please specify a stock ticker, for example: 'price of RELIANCE'."
-                st.markdown(response); st.session_state.messages.append({"role": "assistant", "content": response})
+
+                # Options-specific keywords
+                elif "option chain for" in prompt_lower:
+                    underlying = prompt.split("for")[-1].strip().upper()
+                    chain_df, _, ltp, _ = get_options_chain(underlying, instrument_df)
+                    if not chain_df.empty:
+                        response = f"Here is the current option chain for {underlying} (LTP: {ltp:,.2f}):\n```\n{tabulate(chain_df.head(5), headers='keys', tablefmt='psql')}\n...\n{tabulate(chain_df.tail(5), headers='keys', tablefmt='psql')}\n```"
+                    else:
+                        response = f"Sorry, I could not fetch the option chain for {underlying}."
+                
+                elif "greeks for" in prompt_lower or "iv for" in prompt_lower:
+                    try:
+                        option_symbol = re.search(r'\b([A-Z]+)(\d{2}[A-Z]{3}\d+)\b', prompt.upper()).group(0)
+                        if option_symbol:
+                            option_details = instrument_df[instrument_df['tradingsymbol'] == option_symbol].iloc[0]
+                            _, expiry, underlying_ltp, _ = get_options_chain(option_details['name'], instrument_df, option_details['expiry'].date())
+                            
+                            ltp_data = client.ltp(f"NFO:{option_symbol}")
+                            ltp = ltp_data[f"NFO:{option_symbol}"]['last_price']
+                            T = max((option_details['expiry'].date() - datetime.now().date()).days, 0) / 365.0
+                            iv = implied_volatility(underlying_ltp, option_details['strike'], T, 0.07, ltp, option_details['instrument_type'].lower())
+                            
+                            if not np.isnan(iv):
+                                greeks = black_scholes(underlying_ltp, option_details['strike'], T, 0.07, iv, option_details['instrument_type'].lower())
+                                response = f"Calculated Greeks for **{option_symbol}**:\n- **Implied Volatility (IV):** {iv*100:.2f}%\n- **Delta:** {greeks['delta']:.4f}\n- **Gamma:** {greeks['gamma']:.4f}\n- **Vega:** {greeks['vega']:.4f}\n- **Theta:** {greeks['theta']:.4f}\n- **Rho:** {greeks['rho']:.4f}"
+                            else:
+                                response = f"Could not calculate IV or Greeks for {option_symbol}. The LTP might be zero or the option might be illiquid."
+                        else:
+                            response = "Please specify a valid option symbol (e.g., NIFTY24SEPWK123000CE)."
+                    except (AttributeError, IndexError):
+                         response = "I couldn't find a valid option symbol in your query. Please use the full symbol (e.g., BANKNIFTY24OCT60000CE)."
+                    except Exception as e:
+                        response = f"An error occurred: {e}"
+
+                st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
 
 def page_basket_orders():
     """A page for creating, managing, and executing basket orders."""
@@ -1237,22 +1299,6 @@ def main_app():
     auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
     refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
     
-    instrument_df = get_instrument_df()
-    with st.sidebar.expander("🚀 Place Order", expanded=False):
-        with st.form("order_form"):
-            symbol = st.text_input("Symbol").upper()
-            c1, c2 = st.columns(2)
-            transaction_type = c1.radio("Transaction", ["BUY", "SELL"])
-            product = c2.radio("Product", ["MIS", "CNC"])
-            order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True)
-            qty = st.number_input("Quantity", min_value=1, step=1)
-            price = st.number_input("Price", min_value=0.01) if order_type == "LIMIT" else 0
-            
-            if st.form_submit_button("Submit Order"):
-                if symbol and not instrument_df.empty:
-                    place_order(instrument_df, symbol, qty, order_type, transaction_type, product, price if price > 0 else None)
-                elif not symbol:
-                    st.warning("Please enter a symbol.")
     st.sidebar.divider()
     
     st.sidebar.header("Navigation")
@@ -1296,3 +1342,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
