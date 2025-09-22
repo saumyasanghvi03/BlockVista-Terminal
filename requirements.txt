@@ -8,6 +8,7 @@ pytz
 requests
 scikit-learn
 streamlit
+streamlit-autorefresh
 tabulate
 vaderSentiment
 yfinance
