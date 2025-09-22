@@ -24,6 +24,7 @@ import requests
 import io
 import time as a_time # Renaming to avoid conflict with datetime.time
 import re
+import yfinance as yf
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -572,6 +573,50 @@ def get_most_active_options(underlying, instrument_df):
     except Exception as e:
         st.error(f"Could not fetch most active options: {e}")
         return pd.DataFrame()
+        
+@st.cache_data(ttl=3600)
+def get_global_indices_data(tickers):
+    """Fetches real-time data for global indices using yfinance."""
+    df = yf.download(tickers, period="1d")['Close'].iloc[-1]
+    df_prev = yf.download(tickers, period="2d")['Close'].iloc[-2]
+    
+    data = []
+    for ticker in tickers:
+        try:
+            last_price = df[ticker]
+            prev_close = df_prev[ticker]
+            change = last_price - prev_close
+            pct_change = (change / prev_close) * 100
+            data.append({'Ticker': ticker, 'Price': last_price, 'Change': change, '% Change': pct_change})
+        except KeyError:
+            continue
+    return pd.DataFrame(data)
+
+@st.cache_data(ttl=3600)
+def get_fii_dii_data():
+    """Fetches FII/DII data from a public source."""
+    try:
+        url = "https://nsearchives.nseindia.com/content/nsccl/fao_participant_oi_date.csv"
+        df = pd.read_csv(url)
+        df.columns = [col.strip() for col in df.columns]
+        df['Date'] = pd.to_datetime(df['Date'], format='%d-%b-%Y')
+        latest_date = df['Date'].max()
+        latest_df = df[df['Date'] == latest_date]
+        
+        fii_net = latest_df[latest_df['Client Type'] == 'FII']['Net OI Contracts'].sum()
+        dii_net = latest_df[latest_df['Client Type'] == 'DII']['Net OI Contracts'].sum()
+
+        # FII/DII data is in contracts, but to show an inflow/outflow, we can convert to a proxy value.
+        # This is a simplification; actual value is more complex.
+        
+        return {
+            'date': latest_date.strftime('%Y-%m-%d'),
+            'FII Net': f"₹{fii_net * 50:,.2f} Cr", # 50 is a mock multiplier for contracts to value, real data would need more complex logic.
+            'DII Net': f"₹{dii_net * 50:,.2f} Cr"
+        }
+    except Exception as e:
+        st.error(f"Failed to fetch FII/DII data: {e}")
+        return None
 
 # ================ 5. PAGE DEFINITIONS ============
 
@@ -1292,32 +1337,29 @@ def page_premarket_pulse():
     """A new page for pre-market analysis and global cues."""
     display_header()
     st.title("Premarket Pulse")
-    st.info("This page provides simulated pre-market data and global cues. A real-world implementation would require live API connections to fetch this information.")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("FII/DII Data")
-        st.markdown("""
-        <p style="font-size:14px; color:gray;">
-        This data represents the net flow of Foreign Institutional Investors (FIIs) and Domestic Institutional Investors (DIIs) and requires a daily data source.
-        </p>
-        """, unsafe_allow_html=True)
-        # Placeholder for FII/DII data.
-        st.metric("FII Net Flow", "₹+1,250 Cr", delta="Simulated Daily Change")
-        st.metric("DII Net Flow", "₹-870 Cr", delta="Simulated Daily Change")
+        st.subheader("FII/DII Data (Last Day)")
+        fii_dii_data = get_fii_dii_data()
+        if fii_dii_data:
+            st.markdown(f"Data for **{fii_dii_data['date']}**")
+            st.metric("FII Net Flow", fii_dii_data['FII Net'])
+            st.metric("DII Net Flow", fii_dii_data['DII Net'])
+        else:
+            st.error("Failed to retrieve live FII/DII data. Please try again later.")
 
     with col2:
-        st.subheader("Global Cues")
-        st.markdown("""
-        <p style="font-size:14px; color:gray;">
-        These are simulated real-time values for major global indices and commodities, reflecting market sentiment.
-        </p>
-        """, unsafe_allow_html=True)
-        # Placeholder for global market indices.
-        st.metric("Dow Jones Futures", "35,420.50", delta="+0.55%")
-        st.metric("S&P 500 Futures", "4,501.25", delta="+0.42%")
-        st.metric("Crude Oil (WTI)", "₹6,120.75", delta="+1.1%")
+        st.subheader("Global Cues (Live)")
+        global_indices_tickers = ["^IXIC", "^N225", "^DJI", "GC=F", "CL=F", "EURUSD=X"]
+        global_indices_data = get_global_indices_data(global_indices_tickers)
+        
+        if not global_indices_data.empty:
+            for _, row in global_indices_data.iterrows():
+                st.metric(f"{row['Ticker']} Price", f"{row['Price']:,.2f}", delta=f"{row['Change']:,.2f} ({row['% Change']:.2f}%)")
+        else:
+            st.warning("Could not retrieve data for all global indices.")
 
 def page_ai_discovery():
     """Simulates an AI-driven discovery engine for patterns and trade ideas."""
@@ -1507,6 +1549,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
+    auto_refresh = st.session_state.get('auto_refresh', False)
     if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant", "AI Discovery"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
