@@ -20,6 +20,7 @@ import requests
 import io
 import time as a_time # Renaming to avoid conflict with datetime.time
 import re
+import yfinance as yf
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -425,34 +426,41 @@ def train_gradient_boosting_model(_data, ticker):
         return {}, pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
-def train_prophet_model(_data):
+def train_seasonal_arima_model(_data):
     if _data.empty or len(_data) < 100:
         return {}, pd.DataFrame()
 
-    df = _data.copy().reset_index()
-    df.rename(columns={'date': 'ds', 'close': 'y'}, inplace=True)
-    df_prophet = df[['ds', 'y']]
-
+    df = _data.copy()
+    df.index = pd.to_datetime(df.index)
+    
     predictions = {}
 
     try:
-        model = Prophet(daily_seasonality=True)
-        model.fit(df_prophet)
+        decomposed = seasonal_decompose(df['close'], model='additive', period=7)
+        seasonally_adjusted = df['close'] - decomposed.seasonal
 
-        future = model.make_future_dataframe(periods=30)
-        forecast = model.predict(future)
+        model = ARIMA(seasonally_adjusted, order=(5, 1, 0)).fit()
+        
+        forecast_steps = 30
+        forecast_adjusted = model.forecast(steps=forecast_steps)
+        
+        last_season_cycle = decomposed.seasonal.iloc[-7:]
+        future_seasonal = pd.concat([last_season_cycle] * (forecast_steps // 7 + 1))[:forecast_steps]
+        future_seasonal.index = forecast_adjusted.index
+        
+        forecast_final = forecast_adjusted + future_seasonal
+        
+        predictions["1-Day Close"] = forecast_final.iloc[0]
+        predictions["5-Day Close"] = forecast_final.iloc[4]
+        predictions["15-Day Close"] = forecast_final.iloc[14]
+        predictions["30-Day Close"] = forecast_final.iloc[29]
 
-        predictions["1-Day Close"] = forecast.iloc[-30]['yhat']
-        predictions["5-Day Close"] = forecast.iloc[-26]['yhat']
-        predictions["15-Day Close"] = forecast.iloc[-16]['yhat']
-        predictions["30-Day Close"] = forecast.iloc[-1]['yhat']
-
-        backtest_df = forecast.set_index('ds')[['yhat']].join(df_prophet.set_index('ds'))
-        backtest_df.rename(columns={'y': 'Actual', 'yhat': 'Predicted'}, inplace=True)
+        fitted_values = model.fittedvalues + decomposed.seasonal
+        backtest_df = pd.DataFrame({'Actual': df['close'], 'Predicted': fitted_values})
         backtest_df.dropna(inplace=True)
 
     except Exception as e:
-        st.error(f"Prophet model training failed: {e}")
+        st.error(f"Seasonal ARIMA model training failed: {e}")
         return {}, pd.DataFrame()
 
     return predictions, backtest_df
