@@ -374,6 +374,7 @@ def get_most_active_options(underlying):
 
 
 # ================ 5. PAGE DEFINITIONS ================
+# NOTE: All page functions are defined here. They are not in a separate file.
 
 def page_dashboard():
     display_header()
@@ -499,54 +500,43 @@ def page_ai_discovery():
         if not st.session_state.get('ai_signals'):
             st.info("Run the pattern scan first to generate a trade suggestion.")
             return
-        # ... Full logic for Trade of the Day as in previous versions ...
         st.info("AI analysis of signals and news sentiment coming soon.")
 
 def page_advanced_charting():
     display_header()
     st.title("Advanced Charting")
-    # ... Full code for this page ...
     pass
 def page_basket_orders():
     display_header()
     st.title("Basket Orders")
-    # ... Full code for this page ...
     pass
 def page_portfolio_analytics():
     display_header()
     st.title("Portfolio Analytics")
-    # ... Full code for this page ...
     pass
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News Sentiment")
-    # ... Full code for this page ...
     pass
 def page_portfolio_and_risk():
     display_header(); st.title("Portfolio & Risk")
-    # ... Full code for this page ...
     pass
 def page_forecasting_ml():
     display_header()
     st.title("Trend Forecast")
-    # ... Full code for this page ...
     pass
 def page_ai_assistant():
     display_header(); st.title("AI Portfolio-Aware Assistant")
-    # ... Full code for this page ...
     pass
 def page_journal_assistant():
     display_header(); st.title("Trading Journal & Focus Assistant")
-    # ... Full code for this page ...
     pass
 def page_options_hub():
     display_header()
     st.title("Options Hub")
-    # ... Full code for this page ...
     pass
 def page_option_strategy_builder():
     display_header()
     st.title("Options Strategy Builder")
-    # ... Full code for this page ...
     pass
 
 # ================ 6. MAIN APP LOGIC AND AUTHENTICATION ============
