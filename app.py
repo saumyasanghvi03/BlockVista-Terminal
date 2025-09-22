@@ -180,7 +180,7 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbl_col], line=dict(color='rgba(135,206,250,0.5)', width=1), name='Lower Band'))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbu_col], line=dict(color='rgba(135,206,250,0.5)', width=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
     if forecast_df is not None:
-        fig.add_trace(go.Scatter(x=forecast_df['ds'], y=forecast_df['yhat'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
+        fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
     template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
@@ -375,8 +375,7 @@ def create_features(df, ticker):
 @st.cache_data(show_spinner=False)
 def train_gradient_boosting_model(_data, ticker):
     if _data.empty or len(_data) < 100:
-        st.warning("Not enough data to train Gradient Boosting model.")
-        return {}, pd.DataFrame()
+        return {}, pd.DataFrame() # Return empty dict and DataFrame
     df_features = create_features(_data, ticker)
     horizons = {"1-Day Open": ("open", 1), "1-Day Close": ("close", 1), "5-Day Close": ("close", 5), "15-Day Close": ("close", 15), "30-Day Close": ("close", 30)}
     predictions = {}
@@ -416,7 +415,6 @@ def train_gradient_boosting_model(_data, ticker):
 @st.cache_data(show_spinner=False)
 def train_seasonal_arima_model(_data):
     if _data.empty or len(_data) < 100:
-        st.warning("Not enough data to train Seasonal ARIMA model.")
         return {}, pd.DataFrame()
 
     df = _data.copy()
@@ -425,19 +423,14 @@ def train_seasonal_arima_model(_data):
     predictions = {}
 
     try:
-        # Decompose the time series to handle seasonality
-        # Assuming a weekly seasonality (period=7). This might need adjustment based on data characteristics.
         decomposed = seasonal_decompose(df['close'], model='additive', period=7)
         seasonally_adjusted = df['close'] - decomposed.seasonal
 
-        # Fit ARIMA on the adjusted series
         model = ARIMA(seasonally_adjusted, order=(5, 1, 0)).fit()
         
-        # Forecast the adjusted series and add back the seasonal component
         forecast_steps = 30
         forecast_adjusted = model.forecast(steps=forecast_steps)
         
-        # Reconstruct the seasonal component for the forecast period
         last_season_cycle = decomposed.seasonal.iloc[-7:]
         future_seasonal = pd.concat([last_season_cycle] * (forecast_steps // 7 + 1))[:forecast_steps]
         future_seasonal.index = forecast_adjusted.index
@@ -449,7 +442,6 @@ def train_seasonal_arima_model(_data):
         predictions["15-Day Close"] = forecast_final.iloc[14]
         predictions["30-Day Close"] = forecast_final.iloc[29]
 
-        # Create backtest dataframe
         fitted_values = model.fittedvalues + decomposed.seasonal
         backtest_df = pd.DataFrame({'Actual': df['close'], 'Predicted': fitted_values})
         backtest_df.dropna(inplace=True)
@@ -586,12 +578,14 @@ def page_dashboard():
     cols = st.columns(len(index_data))
     for i, col in enumerate(cols):
         with col:
+            change = index_data.iloc[i]['Change']
+            blink_class = "positive-blink" if change > 0 else "negative-blink" if change < 0 else ""
             st.markdown(f"""
-            <div class="metric-card">
+            <div class="metric-card {blink_class}">
                 <h4>{index_data.iloc[i]['Ticker']}</h4>
                 <h2>{index_data.iloc[i]['Price']:,.2f}</h2>
-                <p style="color: {'#28a745' if index_data.iloc[i]['Change'] > 0 else '#FF4B4B'}; margin: 0;">
-                    {index_data.iloc[i]['Change']:,.2f} ({index_data.iloc[i]['% Change']:.2f}%)
+                <p style="color: {'#28a745' if change > 0 else '#FF4B4B'}; margin: 0;">
+                    {change:,.2f} ({index_data.iloc[i]['% Change']:.2f}%)
                 </p>
             </div>
             """, unsafe_allow_html=True)
@@ -978,6 +972,28 @@ def page_ai_assistant():
                             response = f"I could not find the ticker '{ticker}'. Please check the symbol."
                     except Exception:
                         response = "Please specify a stock ticker, for example: 'price of RELIANCE'."
+                
+                # Advanced Assistant Features
+                elif "technical analysis for" in prompt_lower:
+                    ticker = prompt.split("for")[-1].strip().upper()
+                    token = get_instrument_token(ticker, instrument_df)
+                    if token:
+                        data = get_historical_data(token, 'day', period='6mo')
+                        if not data.empty:
+                            analysis = interpret_indicators(data)
+                            response = f"**Technical Analysis for {ticker}:**\n\n" + "\n".join([f"- **{k}:** {v}" for k, v in analysis.items()])
+                        else:
+                            response = f"Could not retrieve enough data for {ticker} to perform analysis."
+                    else:
+                        response = f"Could not find the ticker '{ticker}'."
+                
+                elif "news for" in prompt_lower:
+                    query = prompt.split("for")[-1].strip()
+                    news_df = fetch_and_analyze_news(query)
+                    if not news_df.empty:
+                        response = f"**Top 3 news headlines for {query}:**\n\n" + "\n".join([f"1. [{row['title']}]({row['link']}) - _{row['source']}_" for _, row in news_df.head(3).iterrows()])
+                    else:
+                        response = f"No recent news found for '{query}'."
 
                 # Options-specific keywords
                 elif "option chain for" in prompt_lower:
@@ -1282,6 +1298,8 @@ def login_page():
 
 def main_app():
     """The main application interface after successful login."""
+    st.markdown(f'<body class="{"light-theme" if st.session_state.get("theme") == "Light" else ""}"></body>', unsafe_allow_html=True)
+
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
     if 'order_history' not in st.session_state: st.session_state.order_history = []
@@ -1328,7 +1346,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    if auto_refresh and selection != "Forecasting & ML":
+    if auto_refresh and selection not in ["🧠 Forecasting & ML", "🤖 AI Assistant"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
     pages[st.session_state.terminal_mode][selection]()
