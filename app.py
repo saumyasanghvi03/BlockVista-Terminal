@@ -9,11 +9,7 @@ from datetime import datetime, timedelta, time
 import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.ensemble import GradientBoostingRegressor
-from statsmodels.tsa.seasonal import seasonal_decompose
+from sklearn.metrics import mean_absolute_percentage_error
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
 from scipy.stats import norm
@@ -376,117 +372,47 @@ def fetch_and_analyze_news(query=None):
             continue
     return pd.DataFrame(all_news)
 
-def create_features(df, ticker):
-    df_feat = df.copy()
-    df_feat.columns = [col.lower() for col in df_feat.columns]
-    df_feat['dayofweek'] = df_feat.index.dayofweek; df_feat['quarter'] = df_feat.index.quarter; df_feat['month'] = df_feat.index.month; df_feat['year'] = df_feat.index.year; df_feat['dayofyear'] = df_feat.index.dayofyear
-    for lag in range(1, 6):
-        df_feat[f'lag_{lag}'] = df_feat['close'].shift(lag)
-    df_feat['rolling_mean_7'] = df_feat['close'].rolling(window=7).mean()
-    df_feat['rolling_std_7'] = df_feat['close'].rolling(window=7).std()
-    df_feat.ta.rsi(length=14, append=True); df_feat.ta.macd(append=True); df_feat.ta.bbands(length=20, append=True); df_feat.ta.atr(length=14, append=True)
-    news_df = fetch_and_analyze_news(ticker)
-    if not news_df.empty:
-        news_df['date'] = pd.to_datetime(news_df['date'])
-        daily_sentiment = news_df.groupby(news_df['date'].dt.date)['sentiment'].mean().to_frame()
-        daily_sentiment.index = pd.to_datetime(daily_sentiment.index)
-        df_feat = df_feat.merge(daily_sentiment, left_index=True, right_index=True, how='left')
-        df_feat['sentiment'] = df_feat['sentiment'].fillna(method='ffill')
-        df_feat['sentiment_rolling_3d'] = df_feat['sentiment'].rolling(window=3, min_periods=1).mean()
-    else:
-        df_feat['sentiment'] = 0; df_feat['sentiment_rolling_3d'] = 0
-    df_feat.bfill(inplace=True); df_feat.ffill(inplace=True); df_feat.dropna(inplace=True)
-    return df_feat
-
 @st.cache_data(show_spinner=False)
-def train_gradient_boosting_model(_data, ticker):
-    if _data.empty or len(_data) < 150: # Increased threshold
-        st.warning("Not enough data to train Gradient Boosting model. A minimum of 150 data points is required after processing.")
-        return {}, pd.DataFrame() 
+def train_arima_model(_data, order, seasonal_order=None):
+    if _data.empty or len(_data) < 50:
+        st.warning("Not enough data to train ARIMA model. A minimum of 50 data points is required.")
+        return {}, pd.DataFrame()
     
     try:
-        df_features = create_features(_data, ticker)
-        horizons = {"1-Day Open": ("open", 1), "1-Day Close": ("close", 1), "5-Day Close": ("close", 5), "15-Day Close": ("close", 15), "30-Day Close": ("close", 30)}
-        predictions = {}
+        ts_data = _data['close']
         
-        # Using 1-Day Close for backtesting visualization
-        target_col, shift_val = "close", 1
-        target_name = "target_1_day_close"
-        df = df_features.copy()
-        df[target_name] = df[target_col].shift(-shift_val)
-        df.dropna(subset=[target_name], inplace=True)
+        if seasonal_order and seasonal_order != (0, 0, 0, 0):
+            model = ARIMA(ts_data, order=order, seasonal_order=seasonal_order)
+        else:
+            model = ARIMA(ts_data, order=order)
+            
+        model_fit = model.fit()
+
+        # --- Forecasting ---
+        forecast_steps = 30
+        forecast_result = model_fit.get_forecast(steps=forecast_steps)
+        forecast_mean = forecast_result.predicted_mean
         
-        features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
-        X, y = df[features], df[target_name]
+        predictions = {
+            "1-Day Close": forecast_mean.iloc[0],
+            "5-Day Close": forecast_mean.iloc[4],
+            "15-Day Close": forecast_mean.iloc[14],
+            "30-Day Close": forecast_mean.iloc[29]
+        }
         
-        # Data validation
-        X.replace([np.inf, -np.inf], np.nan, inplace=True)
-        if X.isnull().values.any():
-            X.fillna(method='ffill', inplace=True)
-            X.fillna(method='bfill', inplace=True)
+        # --- Backtesting ---
+        # Get in-sample predictions
+        start_point = max(1, order[1], seasonal_order[1] * seasonal_order[3] if seasonal_order else 1)
+        in_sample_preds = model_fit.predict(start=start_point, end=len(ts_data)-1)
         
-        X.dropna(axis=1, how='any', inplace=True) # Drop columns that are still all NaN
-        y = y[X.index] # Re-align y after potential row drops in X
-        X.dropna(inplace=True) # Drop rows that might still have NaNs
-        y = y[X.index]
+        backtest_df = pd.DataFrame({'Actual': ts_data, 'Predicted': in_sample_preds})
+        backtest_df.dropna(inplace=True)
 
-        if len(X) < 50: # Check again after cleaning
-            st.warning("Not enough clean data points remaining after feature engineering.")
-            return {}, pd.DataFrame()
+        return predictions, backtest_df
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-        scaler = MinMaxScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        model = GradientBoostingRegressor(n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, subsample=0.8)
-        model.fit(X_train_scaled, y_train)
-
-        # Generate predictions for the entire dataset for backtesting
-        full_preds = model.predict(scaler.transform(X))
-        full_backtest_df = pd.DataFrame({'Actual': y, 'Predicted': full_preds}, index=y.index)
-
-        # Generate future forecasts for all horizons
-        for name, (t_col, s_val) in horizons.items():
-            last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
-            predictions[name] = float(model.predict(last_features_scaled)[0])
-
-        return predictions, full_backtest_df
     except Exception as e:
         st.error(f"An error occurred during model training: {e}")
         return {}, pd.DataFrame()
-
-@st.cache_data(show_spinner=False)
-def train_prophet_model(_data):
-    if _data.empty or len(_data) < 100:
-        return {}, pd.DataFrame()
-
-    df = _data.copy().reset_index()
-    df.rename(columns={'date': 'ds', 'close': 'y'}, inplace=True)
-    df_prophet = df[['ds', 'y']]
-
-    predictions = {}
-
-    try:
-        from prophet import Prophet
-        model = Prophet(daily_seasonality=True)
-        model.fit(df_prophet)
-
-        future = model.make_future_dataframe(periods=30)
-        forecast = model.predict(future)
-
-        predictions["1-Day Close"] = forecast.iloc[-30]['yhat']
-        predictions["5-Day Close"] = forecast.iloc[-26]['yhat']
-        predictions["15-Day Close"] = forecast.iloc[-16]['yhat']
-        predictions["30-Day Close"] = forecast.iloc[-1]['yhat']
-
-        backtest_df = forecast.set_index('ds')[['yhat']].join(df_prophet.set_index('ds'))
-        backtest_df.rename(columns={'y': 'Actual', 'yhat': 'Predicted'}, inplace=True)
-        backtest_df.dropna(inplace=True)
-
-    except Exception as e:
-        st.error(f"Prophet model training failed: {e}")
-        return {}, pd.DataFrame()
-
-    return predictions, backtest_df
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
@@ -1124,29 +1050,42 @@ def page_portfolio_and_risk():
 
 def page_forecasting_ml():
     display_header()
-    st.title("Advanced ML Forecasting")
-    st.info("Train advanced models on historical data to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
+    st.title("ARIMA Time Series Forecasting")
+    st.info("Use ARIMA models to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
     
     col1, col2 = st.columns([1, 2])
     
     with col1:
         st.subheader("Model Configuration")
         instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()))
-        model_choice = st.selectbox("Select a Forecasting Model", ["Gradient Boosting", "Prophet"])
+        model_choice = st.selectbox("Select a Forecasting Model", ["ARIMA", "Seasonal ARIMA"])
+
+        st.write("ARIMA Order (p, d, q)")
+        c1, c2, c3 = st.columns(3)
+        p = c1.number_input("p (AR)", 0, 10, 5, 1)
+        d = c2.number_input("d (diff)", 0, 10, 1, 1)
+        q = c3.number_input("q (MA)", 0, 10, 0, 1)
+        
+        seasonal_order = (0,0,0,0)
+        if model_choice == "Seasonal ARIMA":
+            st.write("Seasonal Order (P, D, Q, s)")
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            P = sc1.number_input("P", 0, 10, 1, 1)
+            D = sc2.number_input("D", 0, 10, 1, 1)
+            Q = sc3.number_input("Q", 0, 10, 1, 1)
+            s = sc4.number_input("s (Season)", 1, 52, 12, 1)
+            seasonal_order = (P, D, Q, s)
         
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
         
-        if data.empty or len(data) < 150:
-            st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 150 data points.")
-            st.stop()
+        if data.empty or len(data) < 50:
+            st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 50 data points.")
+            return
             
         if st.button(f"Train {model_choice} Model & Forecast"):
             with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                if model_choice == "Gradient Boosting":
-                    predictions, backtest_df = train_gradient_boosting_model(data, instrument_name)
-                else:  # Prophet
-                    predictions, backtest_df = train_prophet_model(data)
+                predictions, backtest_df = train_arima_model(data, (p,d,q), seasonal_order)
                 
                 st.session_state.update({
                     'ml_predictions': predictions, 
@@ -1172,41 +1111,21 @@ def page_forecasting_ml():
             backtest_df = st.session_state.get('ml_backtest_df')
 
             if backtest_df is not None and not backtest_df.empty:
-                period_options = ["Full", "90D", "60D", "30D", "5D"]
-                selected_period = st.radio("Select Backtest Period", period_options, horizontal=True, key="backtest_period")
+                mape = mean_absolute_percentage_error(backtest_df['Actual'], backtest_df['Predicted']) * 100
+                accuracy = 100 - mape
+                st.metric("In-Sample Accuracy", f"{accuracy:.2f}%", help="Based on 100 - Mean Absolute Percentage Error (MAPE)")
 
-                if selected_period == "Full":
-                    display_df = backtest_df
-                else:
-                    days = int(selected_period.replace('D', ''))
-                    display_df = backtest_df.tail(days)
-                
-                if not display_df.empty:
-                    mape_period = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted']) * 100
-                    accuracy_period = 100 - mape_period
-                    cum_returns_period = (1 + (display_df['Actual'].pct_change().fillna(0))).cumprod()
-                    peak_period = cum_returns_period.cummax()
-                    drawdown_period = (cum_returns_period - peak_period) / peak_period
-                    max_drawdown_period = drawdown_period.min()
-
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric(f"Accuracy ({selected_period})", f"{accuracy_period:.2f}%")
-                    c2.metric(f"MAPE ({selected_period})", f"{mape_period:.2f}%")
-                    c3.metric(f"Max Drawdown ({selected_period})", f"{max_drawdown_period*100:.2f}%")
-
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Actual'], mode='lines', name='Actual Price'))
-                    fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                    template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
-                    fig.update_layout(title=f"Backtest Results ({selected_period})", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("Not enough data for the selected period.")
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
+                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted (In-Sample)', line=dict(dash='dash')))
+                template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
+                fig.update_layout(title="Backtest Results", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig, use_container_width=True)
             else:
                 st.error("Could not generate performance metrics.")
         else:
             st.subheader(f"Historical Data for {instrument_name}")
-            st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
+            st.plotly_chart(create_chart(data.tail(365), instrument_name), use_container_width=True)
 
 def page_ai_assistant():
     display_header(); st.title("AI Portfolio-Aware Assistant")
@@ -1741,7 +1660,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    if auto_refresh and selection not in ["🧠 Forecasting & ML", "🤖 AI Assistant"]:
+    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
     pages[st.session_state.terminal_mode][selection]()
