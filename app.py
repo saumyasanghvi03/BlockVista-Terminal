@@ -1272,9 +1272,9 @@ def page_option_strategy_builder():
         
         st.metric(f"{underlying} Spot Price", f"{underlying_ltp:,.2f}")
         
-        # Slider for Time to Expiry
+        # Input for Time to Expiry
         total_days_to_expiry = (pd.to_datetime(expiry_date).date() - datetime.now().date()).days
-        days_to_expiry = st.slider("Days to Expiry", min_value=0, max_value=total_days_to_expiry, value=total_days_to_expiry)
+        days_to_expiry = st.number_input("Days to Expiry", min_value=0, max_value=total_days_to_expiry, value=total_days_to_expiry)
 
         # Strategy leg inputs
         strikes_and_premiums = {}
@@ -1384,15 +1384,15 @@ def page_premarket_pulse():
             negative_count = len(global_indices_data[global_indices_data['Change'] < 0])
             if positive_count > negative_count + 1:
                 market_score = "Positive"
-                market_score_color = "#28a745"
+                delta_color = "green"
             elif negative_count > positive_count + 1:
                 market_score = "Negative"
-                market_score_color = "#FF4B4B"
+                delta_color = "red"
             else:
                 market_score = "Neutral"
-                market_score_color = "gray"
+                delta_color = "normal"
             
-            st.metric("India Market Score", market_score, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=market_score_color)
+            st.metric("India Market Score", market_score, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
             
             for _, row in global_indices_data.iterrows():
                 st.metric(f"{row['Ticker']} Price", f"{row['Price']:,.2f}", delta=f"{row['Change']:,.2f} ({row['% Change']:.2f}%)")
@@ -1411,6 +1411,62 @@ def page_premarket_pulse():
         except Exception as e:
             st.error(f"Error fetching GIFT NIFTY data: {e}")
 
+def page_ai_trading_journal():
+    """An AI-powered trading journal for self-reflection and well-being checks."""
+    display_header()
+    st.title("AI Trading Journal")
+    st.info("This journal helps you reflect on your trading psychology throughout the day. It will ask you questions at regular intervals to check your mental state and decision-making process.")
+    
+    if "journal_prompts" not in st.session_state:
+        st.session_state.journal_prompts = [
+            "How are you feeling right now, mentally and emotionally?",
+            "What is your current outlook on the market? Has it changed recently?",
+            "Have you followed your trading plan so far today?",
+            "Are you feeling a strong urge to make an impulsive trade?",
+            "What is the single most important lesson you have learned from today's trades?"
+        ]
+    
+    if "journal_log" not in st.session_state:
+        st.session_state.journal_log = []
+
+    if "current_prompt_index" not in st.session_state:
+        st.session_state.current_prompt_index = 0
+
+    st.subheader("Journal Settings")
+    prompt_interval = st.number_input("Prompt Interval (in minutes)", min_value=1, value=60)
+    
+    # Trigger the prompt using st_autorefresh
+    st_autorefresh(interval=prompt_interval * 60 * 1000, key="journal_refresher")
+
+    st.markdown("---")
+    
+    st.subheader("Journal Entry")
+    
+    current_prompt = st.session_state.journal_prompts[st.session_state.current_prompt_index]
+    st.markdown(f"**Question:** {current_prompt}")
+    
+    user_response = st.text_area("Your thoughts...", key="journal_response")
+    
+    if st.button("Submit Entry"):
+        if user_response:
+            st.session_state.journal_log.append({
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "prompt": current_prompt,
+                "response": user_response
+            })
+            st.success("Entry saved!")
+            st.session_state.current_prompt_index = (st.session_state.current_prompt_index + 1) % len(st.session_state.journal_prompts)
+            st.rerun()
+        else:
+            st.warning("Please write something before submitting.")
+
+    st.markdown("---")
+    st.subheader("Your Past Entries")
+    if st.session_state.journal_log:
+        for entry in reversed(st.session_state.journal_log):
+            st.expander(f"Entry on {entry['timestamp']}").write(f"**Prompt:** {entry['prompt']}\n\n**Response:** {entry['response']}")
+    else:
+        st.info("Your journal is currently empty.")
 
 def page_ai_discovery():
     """Simulates an AI-driven discovery engine for patterns and trade ideas."""
@@ -1569,6 +1625,13 @@ def main_app():
     st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], horizontal=True)
     st.sidebar.divider()
     
+    st.sidebar.header("Live Data")
+    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
+    st.session_state['auto_refresh'] = auto_refresh # Ensure auto_refresh is in session state
+
+    st.sidebar.divider()
+    
     st.sidebar.header("Navigation")
     pages = {
         "Intraday": {
@@ -1580,6 +1643,7 @@ def main_app():
             "Alpha Engine": page_alpha_engine,
             "Portfolio & Risk": page_portfolio_and_risk,
             "Forecasting & ML": page_forecasting_ml,
+            "AI Trading Journal": page_ai_trading_journal,
             "AI Discovery": page_ai_discovery,
             "AI Assistant": page_ai_assistant
         },
@@ -1587,6 +1651,7 @@ def main_app():
             "Options Hub": page_options_hub,
             "Strategy Builder": page_option_strategy_builder,
             "Portfolio & Risk": page_portfolio_and_risk,
+            "AI Trading Journal": page_ai_trading_journal,
             "AI Discovery": page_ai_discovery,
             "AI Assistant": page_ai_assistant
         }
@@ -1599,8 +1664,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    auto_refresh = st.session_state.get('auto_refresh', False)
-    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant", "AI Discovery"]:
+    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant", "AI Discovery", "AI Trading Journal"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
     pages[st.session_state.terminal_mode][selection]()
