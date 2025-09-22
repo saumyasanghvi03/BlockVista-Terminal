@@ -374,66 +374,93 @@ def create_features(df, ticker):
 def train_xgboost_model(_data, ticker):
     if _data.empty or len(_data) < 100:
         st.warning("Not enough data to train XGBoost model.")
-        return {}, None, None, None, pd.DataFrame()
+        return {}, pd.DataFrame()
     df_features = create_features(_data, ticker)
     horizons = {"1-Day Open": ("open", 1), "1-Day Close": ("close", 1), "5-Day Close": ("close", 5), "15-Day Close": ("close", 15), "30-Day Close": ("close", 30)}
-    predictions, backtest_results = {}, {}
-    for name, (target_col, shift_val) in horizons.items():
-        df = df_features.copy()
-        target_name = f"target_{name.replace(' ', '_').lower()}"
-        df[target_name] = df[target_col].shift(-shift_val)
-        df.dropna(subset=[target_name], inplace=True)
-        features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
-        X, y = df[features], df[target_name]
-        for col in X.columns: X[col] = pd.to_numeric(X[col], errors='coerce')
-        X.dropna(axis=1, how='any', inplace=True)
-        y = y[X.index]
-        if len(X) < 5: continue
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-        scaler = MinMaxScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
-        model.fit(X_train_scaled, y_train, eval_set=[(scaler.transform(X_test), y_test)], verbose=False)
-        last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
-        predictions[name] = float(model.predict(last_features_scaled)[0])
-        if name == "1-Day Close":
-            preds_test = model.predict(scaler.transform(X_test))
-            mape = mean_absolute_percentage_error(y_test, preds_test) * 100
-            accuracy = 100 - mape
-            backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds_test}, index=y_test.index)
-            cumulative_returns = (1 + (y_test.pct_change().fillna(0))).cumprod()
-            peak = cumulative_returns.cummax()
-            drawdown = (cumulative_returns - peak) / peak
-            max_drawdown = drawdown.min()
-            backtest_results = {"accuracy": accuracy, "mape": mape, "max_drawdown": max_drawdown, "backtest_df": backtest_df}
-    return predictions, backtest_results.get("accuracy"), backtest_results.get("mape"), backtest_results.get("max_drawdown"), backtest_results.get("backtest_df", pd.DataFrame())
+    predictions = {}
+    
+    # Using 1-Day Close for backtesting visualization
+    target_col, shift_val = "close", 1
+    target_name = "target_1_day_close"
+    df = df_features.copy()
+    df[target_name] = df[target_col].shift(-shift_val)
+    df.dropna(subset=[target_name], inplace=True)
+    
+    features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
+    X, y = df[features], df[target_name]
+    for col in X.columns: X[col] = pd.to_numeric(X[col], errors='coerce')
+    X.dropna(axis=1, how='any', inplace=True)
+    y = y[X.index]
+    
+    if len(X) < 5: return {}, pd.DataFrame()
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+    scaler = MinMaxScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
+    model.fit(X_train_scaled, y_train, eval_set=[(scaler.transform(X_test), y_test)], verbose=False)
+
+    # Generate predictions for the entire dataset for backtesting
+    full_preds = model.predict(scaler.transform(X))
+    full_backtest_df = pd.DataFrame({'Actual': y, 'Predicted': full_preds}, index=y.index)
+
+    # Generate future forecasts for all horizons
+    for name, (t_col, s_val) in horizons.items():
+        if name != "1-Day Close":  # We already trained this one
+            df_h = df_features.copy()
+            t_name = f"target_{name.replace(' ', '_').lower()}"
+            df_h[t_name] = df_h[t_col].shift(-s_val)
+            df_h.dropna(subset=[t_name], inplace=True)
+            X_h, y_h = df_h[features], df_h[t_name]
+            X_h = X_h[X.columns] # Ensure feature consistency
+            X_train_h, X_test_h, y_train_h, _ = train_test_split(X_h, y_h, test_size=0.2, shuffle=False)
+            scaler_h = MinMaxScaler()
+            X_train_scaled_h = scaler_h.fit_transform(X_train_h)
+            model_h = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
+            model_h.fit(X_train_scaled_h, y_train_h, eval_set=[(scaler_h.transform(X_test_h), _)], verbose=False)
+            last_features_scaled_h = scaler_h.transform(X.iloc[-1].values.reshape(1, -1))
+            predictions[name] = float(model_h.predict(last_features_scaled_h)[0])
+        else:
+            last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
+            predictions[name] = float(model.predict(last_features_scaled)[0])
+
+    return predictions, full_backtest_df
 
 @st.cache_data(show_spinner=False)
 def train_arima_model(_data):
     if _data.empty or len(_data) < 50:
         st.warning("Not enough data to train ARIMA model.")
-        return {}, None, None, None, pd.DataFrame()
+        return {}, pd.DataFrame()
+        
     df = _data.copy()
     df.columns = [col.lower() for col in df.columns]
-    predictions, accuracy, mape, max_drawdown, backtest_df = {}, None, None, None, pd.DataFrame()
+    predictions = {}
+    
     try:
         df_close = df['close']
         train_data_close, test_data_close = df_close[:-30], df_close[-30:]
         model_close = ARIMA(train_data_close, order=(5, 1, 0)).fit()
+        
+        # Future forecasts
         forecasts_close = model_close.forecast(steps=30)
         predictions.update({"1-Day Close": forecasts_close.iloc[0], "5-Day Close": forecasts_close.iloc[4], "15-Day Close": forecasts_close.iloc[14], "30-Day Close": forecasts_close.iloc[29]})
-        preds_test = model_close.forecast(steps=len(test_data_close))
-        mape = mean_absolute_percentage_error(test_data_close, preds_test) * 100
-        accuracy = 100 - mape
-        backtest_df = pd.DataFrame({'Actual': test_data_close, 'Predicted': preds_test}, index=test_data_close.index)
-        cum_returns = (1 + (test_data_close.pct_change().fillna(0))).cumprod()
-        max_drawdown = (cum_returns / cum_returns.cummax() - 1).min()
+        
+        # Full backtest data
+        in_sample_preds = model_close.predict(start=train_data_close.index[1], end=train_data_close.index[-1])
+        out_of_sample_preds = model_close.forecast(steps=len(test_data_close))
+        all_preds = pd.concat([in_sample_preds, out_of_sample_preds])
+        full_backtest_df = pd.DataFrame({'Actual': df_close, 'Predicted': all_preds})
+        full_backtest_df.dropna(inplace=True)
+
+        # Forecast for 1-day Open
         model_open = ARIMA(df['open'], order=(5, 1, 0)).fit()
         predictions["1-Day Open"] = model_open.forecast(steps=1).iloc[0]
+        
     except Exception as e:
         st.error(f"ARIMA model training failed: {e}")
-        return {}, None, None, None, pd.DataFrame()
-    return predictions, accuracy, mape, max_drawdown, backtest_df
+        return {}, pd.DataFrame()
+        
+    return predictions, full_backtest_df
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
@@ -739,40 +766,91 @@ def page_portfolio_and_risk():
             st.info(text); st.caption(f"Logged: {ts.strftime('%d %b %Y, %H:%M')}")
 
 def page_forecasting_ml():
-    display_header(); st.title("📈 Advanced ML Forecasting"); st.info("Train advanced models on historical data to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
+    display_header()
+    st.title("📈 Advanced ML Forecasting")
+    st.info("Train advanced models on historical data to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
+    
     col1, col2 = st.columns([1, 2])
+    
     with col1:
-        st.subheader("Model Configuration"); instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys())); model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
+        st.subheader("Model Configuration")
+        instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()))
+        model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
+        
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
-        if data.empty: st.error(f"Could not load data for {instrument_name}. Please check the data source."); st.stop()
+        
+        if data.empty:
+            st.error(f"Could not load data for {instrument_name}. Please check the data source.")
+            st.stop()
+            
         if st.button(f"Train {model_choice} Model & Forecast"):
             with st.spinner(f"Training {model_choice} model... This may take a moment."):
                 if model_choice == "XGBoost":
-                    predictions, accuracy, mape, max_drawdown, backtest_df = train_xgboost_model(data, instrument_name)
-                else:
-                    predictions, accuracy, mape, max_drawdown, backtest_df = train_arima_model(data)
-                st.session_state.update({'ml_predictions': predictions, 'ml_accuracy': accuracy, 'ml_mape': mape, 'ml_max_drawdown': max_drawdown, 'ml_backtest_df': backtest_df, 'ml_instrument_name': instrument_name, 'ml_model_choice': model_choice})
+                    predictions, backtest_df = train_xgboost_model(data, instrument_name)
+                else:  # ARIMA
+                    predictions, backtest_df = train_arima_model(data)
+                
+                st.session_state.update({
+                    'ml_predictions': predictions, 
+                    'ml_backtest_df': backtest_df, 
+                    'ml_instrument_name': instrument_name, 
+                    'ml_model_choice': model_choice
+                })
                 st.rerun()
+
     with col2:
         if 'ml_model_choice' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
-            model_choice_display = st.session_state.get('ml_model_choice', 'N/A'); st.subheader(f"Forecast Results for {instrument_name} ({model_choice_display})")
+            model_choice_display = st.session_state.get('ml_model_choice', 'N/A')
+            st.subheader(f"Forecast Results for {instrument_name} ({model_choice_display})")
+            
             if st.session_state.get('ml_predictions'):
-                forecast_df = pd.DataFrame.from_dict(st.session_state['ml_predictions'], orient='index', columns=['Predicted Price']); forecast_df.index.name = "Forecast Horizon"; st.dataframe(forecast_df.style.format("₹{:.2f}"))
+                forecast_df = pd.DataFrame.from_dict(st.session_state['ml_predictions'], orient='index', columns=['Predicted Price'])
+                forecast_df.index.name = "Forecast Horizon"
+                st.dataframe(forecast_df.style.format("₹{:.2f}"))
             else:
                 st.error("Model training failed to produce forecasts.")
-            st.subheader("Model Performance (Backtest on 1-Day Close)")
-            if st.session_state.get('ml_accuracy') is not None:
-                c1, c2, c3 = st.columns(3); c1.metric("Model Accuracy", f"{st.session_state.get('ml_accuracy', 0):.2f}%"); c2.metric("Mean Error (MAPE)", f"{st.session_state.get('ml_mape', 0):.2f}%"); c3.metric("Max Drawdown", f"{st.session_state.get('ml_max_drawdown', 0)*100:.2f}%")
-                st.subheader("Backtest: Predicted vs. Actual Prices")
-                backtest_df = st.session_state.get('ml_backtest_df')
-                if backtest_df is not None and not backtest_df.empty:
-                    fig = go.Figure(); fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price')); fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                    template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'; fig.update_layout(title=f"Backtest Results", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)); st.plotly_chart(fig, use_container_width=True)
+
+            st.subheader("Model Performance (Backtest)")
+            backtest_df = st.session_state.get('ml_backtest_df')
+
+            if backtest_df is not None and not backtest_df.empty:
+                period_options = ["Full", "90D", "60D", "30D", "5D"]
+                selected_period = st.radio("Select Backtest Period", period_options, horizontal=True, key="backtest_period")
+
+                if selected_period == "Full":
+                    display_df = backtest_df
+                else:
+                    days = int(selected_period.replace('D', ''))
+                    display_df = backtest_df.tail(days)
+                
+                if not display_df.empty:
+                    mape_period = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted']) * 100
+                    accuracy_period = 100 - mape_period
+                    cum_returns_period = (1 + (display_df['Actual'].pct_change().fillna(0))).cumprod()
+                    peak_period = cum_returns_period.cummax()
+                    drawdown_period = (cum_returns_period - peak_period) / peak_period
+                    max_drawdown_period = drawdown_period.min()
+
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric(f"Accuracy ({selected_period})", f"{accuracy_period:.2f}%")
+                    c2.metric(f"MAPE ({selected_period})", f"{mape_period:.2f}%")
+                    c3.metric(f"Max Drawdown ({selected_period})", f"{max_drawdown_period*100:.2f}%")
+
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Actual'], mode='lines', name='Actual Price'))
+                    fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
+                    template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
+                    fig.update_layout(title=f"Backtest Results ({selected_period})", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Not enough data for the selected period.")
             else:
                 st.error("Could not generate performance metrics.")
         else:
-            st.subheader(f"Historical Data for {instrument_name}"); st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
+            st.subheader(f"Historical Data for {instrument_name}")
+            st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
+
 
 def page_ai_assistant():
     display_header(); st.title("🤖 Portfolio-Aware Assistant")
