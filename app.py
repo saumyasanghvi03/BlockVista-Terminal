@@ -373,62 +373,6 @@ def create_features(df, ticker):
     return df_feat
 
 @st.cache_data(show_spinner=False)
-def train_gradient_boosting_model(_data, ticker):
-    if _data.empty or len(_data) < 150: # Increased threshold
-        st.warning("Not enough data to train Gradient Boosting model. A minimum of 150 data points is required after processing.")
-        return {}, pd.DataFrame() 
-    
-    try:
-        df_features = create_features(_data, ticker)
-        horizons = {"1-Day Open": ("open", 1), "1-Day Close": ("close", 1), "5-Day Close": ("close", 5), "15-Day Close": ("close", 15), "30-Day Close": ("close", 30)}
-        predictions = {}
-        
-        # Using 1-Day Close for backtesting visualization
-        target_col, shift_val = "close", 1
-        target_name = "target_1_day_close"
-        df = df_features.copy()
-        df[target_name] = df[target_col].shift(-shift_val)
-        df.dropna(subset=[target_name], inplace=True)
-        
-        features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
-        X, y = df[features], df[target_name]
-        
-        # Data validation
-        X.replace([np.inf, -np.inf], np.nan, inplace=True)
-        if X.isnull().values.any():
-            X.fillna(method='ffill', inplace=True)
-            X.fillna(method='bfill', inplace=True)
-        
-        X.dropna(axis=1, how='any', inplace=True) # Drop columns that are still all NaN
-        y = y[X.index] # Re-align y after potential row drops in X
-        X.dropna(inplace=True) # Drop rows that might still have NaNs
-        y = y[X.index]
-
-        if len(X) < 50: # Check again after cleaning
-            st.warning("Not enough clean data points remaining after feature engineering.")
-            return {}, pd.DataFrame()
-
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-        scaler = MinMaxScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        model = GradientBoostingRegressor(n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, subsample=0.8)
-        model.fit(X_train_scaled, y_train)
-
-        # Generate predictions for the entire dataset for backtesting
-        full_preds = model.predict(scaler.transform(X))
-        full_backtest_df = pd.DataFrame({'Actual': y, 'Predicted': full_preds}, index=y.index)
-
-        # Generate future forecasts for all horizons
-        for name, (t_col, s_val) in horizons.items():
-            last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
-            predictions[name] = float(model.predict(last_features_scaled)[0])
-
-        return predictions, full_backtest_df
-    except Exception as e:
-        st.error(f"An error occurred during model training: {e}")
-        return {}, pd.DataFrame()
-
-@st.cache_data(show_spinner=False)
 def train_seasonal_arima_model(_data):
     if _data.empty or len(_data) < 100:
         return {}, pd.DataFrame()
@@ -976,41 +920,36 @@ def page_portfolio_and_risk():
 def page_forecasting_ml():
     display_header()
     st.title("Advanced ML Forecasting")
-    st.info("Train advanced models on historical data to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
+    st.info("Train an advanced Seasonal ARIMA model to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
     
     col1, col2 = st.columns([1, 2])
     
     with col1:
         st.subheader("Model Configuration")
         instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()))
-        model_choice = st.selectbox("Select a Forecasting Model", ["Gradient Boosting", "Prophet"])
         
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
         
-        if data.empty or len(data) < 150:
-            st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 150 data points.")
+        if data.empty or len(data) < 100:
+            st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 100 data points.")
             st.stop()
             
-        if st.button(f"Train {model_choice} Model & Forecast"):
-            with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                if model_choice == "Gradient Boosting":
-                    predictions, backtest_df = train_gradient_boosting_model(data, instrument_name)
-                else: # Prophet
-                    predictions, backtest_df = train_prophet_model(data)
+        if st.button("Train Seasonal ARIMA Model & Forecast"):
+            with st.spinner("Training Seasonal ARIMA model... This may take a moment."):
+                predictions, backtest_df = train_seasonal_arima_model(data)
                 
                 st.session_state.update({
                     'ml_predictions': predictions, 
                     'ml_backtest_df': backtest_df, 
                     'ml_instrument_name': instrument_name, 
-                    'ml_model_choice': model_choice
+                    'ml_model_choice': "Seasonal ARIMA"
                 })
                 st.rerun()
 
     with col2:
         if 'ml_model_choice' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
-            model_choice_display = st.session_state.get('ml_model_choice', 'N/A')
-            st.subheader(f"Forecast Results for {instrument_name} ({model_choice_display})")
+            st.subheader(f"Forecast Results for {instrument_name} (Seasonal ARIMA)")
             
             if st.session_state.get('ml_predictions'):
                 forecast_df = pd.DataFrame.from_dict(st.session_state['ml_predictions'], orient='index', columns=['Predicted Price'])
@@ -1521,12 +1460,6 @@ def main_app():
     st.sidebar.header("Terminal Controls")
     st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
     st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], horizontal=True)
-    st.sidebar.divider()
-    
-    st.sidebar.header("Live Data")
-    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
-    
     st.sidebar.divider()
     
     st.sidebar.header("Navigation")
