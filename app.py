@@ -1,9 +1,32 @@
-# ================ 0. REQUIRED LIBRARIES (MINIMAL FOR FAST LOGIN) ================
+# ================ 0. REQUIRED LIBRARIES ================
 import streamlit as st
 import pandas as pd
+import pandas_ta as ta
+import plotly.graph_objects as go
+from kiteconnect import KiteConnect
+from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timedelta, time
 import pytz
+import feedparser
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.ensemble import GradientBoostingRegressor
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.arima.model import ARIMA
+import pmdarima as pm
+import numpy as np
+from scipy.stats import norm
+from scipy.optimize import newton
+from tabulate import tabulate
+from time import mktime
+import requests
+import io
 import time as a_time # Renaming to avoid conflict with datetime.time
+import re
+import yfinance as yf
+from nselib import trading_info
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -21,9 +44,41 @@ load_css("style.css")
 
 # Centralized data source configuration for ML models
 ML_DATA_SOURCES = {
-    "NIFTY 50": {"github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY50.csv"},
-    "BANK NIFTY": {"github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANKNIFTY.csv"},
-    "NIFTY Financial Services": {"github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv"},
+    "NIFTY 50": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY50.csv",
+        "tradingsymbol": "NIFTY 50",
+        "exchange": "NFO"
+    },
+    "BANK NIFTY": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANKNIFTY.csv",
+        "tradingsymbol": "BANKNIFTY",
+        "exchange": "NFO"
+    },
+    "NIFTY Financial Services": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
+        "tradingsymbol": "FINNIFTY",
+        "exchange": "NFO"
+    },
+    "GOLD": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/GOLD.csv",
+        "tradingsymbol": "GOLDM",
+        "exchange": "MCX"
+    },
+    "USDINR": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/USDINR.csv",
+        "tradingsymbol": "USDINR",
+        "exchange": "CDS"
+    },
+    "SENSEX": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
+        "tradingsymbol": None,
+        "exchange": None
+    },
+    "S&P 500": {
+        "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
+        "tradingsymbol": None,
+        "exchange": None
+    }
 }
 
 # ================ 2. HELPER FUNCTIONS ================
@@ -100,7 +155,6 @@ def display_header():
 @st.cache_data
 def calculate_indicators(_df):
     """Calculates a minimal set of indicators."""
-    import pandas_ta as ta
     df = _df.copy()
     try:
         df.ta.rsi(append=True)
@@ -128,7 +182,6 @@ def get_historical_data_raw(instrument_token, interval, period=None, from_date=N
 
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 def create_chart(df, ticker, forecast_df=None):
-    import plotly.graph_objects as go
     fig = go.Figure()
     if df.empty: return fig
     fig.add_trace(go.Candlestick(x=df.index, open=df['open'], high=df['high'], low=df['low'], close=df['close'], name='Candlestick'))
@@ -171,7 +224,6 @@ def fetch_dashboard_data(index_symbols, watchlist_symbols):
 @st.cache_data(ttl=60)
 def fetch_option_chain_nse(underlying):
     """Fallback function to get option chain data directly from NSE."""
-    from nselib import trading_info
     try:
         symbol_map = {"NIFTY": "NIFTY", "BANKNIFTY": "BANKNIFTY", "FINNIFTY": "FINNIFTY"}
         chain_data = trading_info.get_option_chain(symbol_map.get(underlying, underlying))
@@ -243,8 +295,8 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
 
 @st.cache_data(ttl=900)
 def fetch_and_analyze_news(query=None):
-    import feedparser
     from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    import feedparser
     analyzer = SentimentIntensityAnalyzer()
     news_sources = {"Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml"}
     all_news = []
@@ -258,24 +310,20 @@ def fetch_and_analyze_news(query=None):
     return pd.DataFrame(all_news)
 
 @st.cache_data(show_spinner=False)
-def train_simple_forecast_model(_data, forecast_horizon):
-    from sklearn.linear_model import LinearRegression
-    import numpy as np
-    if _data.empty or len(_data) < 10: return None, None
+def train_auto_arima_model(_data, forecast_horizon):
+    if _data.empty or len(_data) < 30: return None, None
     try:
-        df = _data[['close']].copy()
-        df['time'] = np.arange(len(df.index))
-        recent_df = df.tail(10)
-        X = recent_df[['time']]
-        y = recent_df['close']
-        model = LinearRegression().fit(X, y)
-        last_time = df['time'].iloc[-1]
-        future_time = np.arange(last_time + 1, last_time + 1 + forecast_horizon).reshape(-1, 1)
-        future_predictions = model.predict(future_time)
-        future_dates = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=forecast_horizon)
-        return pd.DataFrame({'Predicted': future_predictions}, index=future_dates), None
-    except: return None, None
-
+        ts_data = _data['close']
+        auto_arima_model = pm.auto_arima(ts_data, seasonal=False, stepwise=True, suppress_warnings=True, trace=False)
+        model = ARIMA(ts_data, order=auto_arima_model.order).fit()
+        forecast_result = model.get_forecast(steps=forecast_horizon)
+        forecast_df = pd.DataFrame({'Predicted': forecast_result.predicted_mean})
+        in_sample_preds = model.predict(start=ts_data.index[0], end=ts_data.index[-1])
+        backtest_df = pd.DataFrame({'Actual': ts_data, 'Predicted': in_sample_preds}).dropna()
+        return forecast_df, backtest_df
+    except Exception as e:
+        st.error(f"ARIMA Error: {e}")
+        return None, None
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
@@ -374,7 +422,6 @@ def get_most_active_options(underlying):
 
 
 # ================ 5. PAGE DEFINITIONS ================
-# NOTE: All page functions are defined here. They are not in a separate file.
 
 def page_dashboard():
     display_header()
@@ -425,7 +472,6 @@ def page_pulse():
     st.title("Pre-Market Pulse")
     st.subheader("Global Market Cues")
     with st.spinner("Fetching live global indices..."):
-        # This helper function is defined outside and cached
         indices_df = get_global_indices_data()
         if not indices_df.empty:
             cols = st.columns(len(indices_df))
@@ -522,8 +568,77 @@ def page_portfolio_and_risk():
     pass
 def page_forecasting_ml():
     display_header()
-    st.title("Trend Forecast")
-    pass
+    st.title("Auto-ARIMA Forecasting")
+    st.info("Automatically find the best ARIMA model to forecast future prices. This is for educational purposes only.", icon="ℹ️")
+    
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        st.subheader("Forecast Configuration")
+        instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()))
+        
+        horizon_map = {"1 Day": 1, "5 Days": 5, "30 Days": 30, "60 Days": 60, "90 Days": 90}
+        forecast_horizon_str = st.selectbox("Select Forecast Duration", list(horizon_map.keys()))
+        forecast_horizon = horizon_map[forecast_horizon_str]
+
+        with st.spinner(f"Loading 1 year of data for {instrument_name}..."):
+            data = load_and_combine_data(instrument_name).tail(365)
+        
+        if data.empty or len(data) < 30:
+            st.error(f"Could not load sufficient historical data for {instrument_name}.")
+            return
+            
+        if st.button("Generate Forecast"):
+            with st.spinner("Finding best ARIMA model and forecasting..."):
+                forecast_df, backtest_df = train_auto_arima_model(data, forecast_horizon)
+                
+                st.session_state.update({
+                    'ml_forecast_df': forecast_df, 
+                    'ml_backtest_df': backtest_df, 
+                    'ml_instrument_name': instrument_name
+                })
+                st.rerun()
+
+    with col2:
+        if 'ml_instrument_name' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
+            st.subheader(f"Forecast for {instrument_name}")
+            
+            forecast_df = st.session_state.get('ml_forecast_df')
+            if forecast_df is not None and not forecast_df.empty:
+                st.dataframe(forecast_df.style.format("₹{:.2f}"))
+            else:
+                st.error("Model training failed to produce forecasts.")
+
+            st.subheader("Model Performance (Backtest on Training Data)")
+            backtest_df = st.session_state.get('ml_backtest_df')
+
+            if backtest_df is not None and not backtest_df.empty:
+                from sklearn.metrics import mean_absolute_percentage_error
+                mape = mean_absolute_percentage_error(backtest_df['Actual'], backtest_df['Predicted']) * 100
+                accuracy = 100 - mape
+                
+                cum_returns = (1 + backtest_df['Actual'].pct_change().fillna(0)).cumprod()
+                peak = cum_returns.cummax()
+                drawdown = (cum_returns - peak) / peak
+                max_drawdown = 0 if drawdown.empty else drawdown.min() * 100
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Accuracy", f"{accuracy:.2f}%")
+                m2.metric("MAPE", f"{mape:.2f}%")
+                m3.metric("Max Drawdown", f"{max_drawdown:.2f}%")
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=data.index, y=data['close'], mode='lines', name='Historical Price'))
+                fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', name='Forecasted Price', line=dict(color='yellow', dash='dash')))
+                template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
+                fig.update_layout(title="Price Forecast", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.error("Could not generate performance metrics.")
+        else:
+            st.subheader(f"Historical Data for {instrument_name}")
+            st.plotly_chart(create_chart(data, instrument_name), use_container_width=True)
+            
 def page_ai_assistant():
     display_header(); st.title("AI Portfolio-Aware Assistant")
     pass
