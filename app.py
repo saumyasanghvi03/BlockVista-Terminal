@@ -12,6 +12,7 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.linear_model import LinearRegression
 import xgboost as xgb
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
@@ -296,29 +297,21 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
     else:
         st.warning(f"Order placement for {st.session_state.broker} not implemented.")
 
-def place_basket_order(orders, variety):
-    """Places a basket of orders."""
-    client = get_broker_client()
-    if not client:
-        st.error("Broker not connected.")
-        return
-    
-    if st.session_state.broker == "Zerodha":
-        try:
-            order_responses = client.place_order(variety=variety, orders=orders)
-            st.toast("✅ Basket order placed successfully!", icon="🎉")
-            # Log successful orders
-            for i, resp in enumerate(order_responses):
-                if resp.get('status') == 'success':
-                    order = orders[i]
-                    st.session_state.order_history.insert(0, {"id": resp['order_id'], "symbol": order['tradingsymbol'], "qty": order['quantity'], "type": order['transaction_type'], "status": "Success"})
-        except Exception as e:
-            st.toast(f"❌ Basket order failed: {e}", icon="🔥")
-
 @st.cache_data(ttl=900)
 def fetch_and_analyze_news(query=None):
     analyzer = SentimentIntensityAnalyzer()
-    news_sources = {"Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml", "Business Standard": "https://www.business-standard.com/rss/markets-102.cms", "Livemint": "https://www.livemint.com/rss/markets"}
+    news_sources = {
+        # Indian Sources
+        "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", 
+        "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml", 
+        "Business Standard": "https://www.business-standard.com/rss/markets-102.cms", 
+        "Livemint": "https://www.livemint.com/rss/markets",
+        # Global Sources
+        "Reuters (World)": "http://feeds.reuters.com/reuters/worldNews",
+        "Bloomberg (Markets)": "https://feeds.bloomberg.com/markets/news.rss",
+        "Wall Street Journal (World)": "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
+        "Financial Times (World)": "https://www.ft.com/world?format=rss"
+    }
     all_news = []
     for source, url in news_sources.items():
         try:
@@ -354,42 +347,68 @@ def create_features(df, ticker):
     return df_feat
 
 @st.cache_data(show_spinner=False)
-def train_xgboost_model(_data, ticker):
+def train_ensemble_model(_data, ticker):
+    """Trains an ensemble model (XGBoost + Linear Regression) for forecasting."""
     if _data.empty or len(_data) < 100:
-        st.warning("Not enough data to train XGBoost model.")
+        st.warning("Not enough data to train the Ensemble model.")
         return {}, None, None, None, pd.DataFrame()
+
     df_features = create_features(_data, ticker)
     horizons = {"1-Day Open": ("open", 1), "1-Day Close": ("close", 1), "5-Day Close": ("close", 5), "15-Day Close": ("close", 15), "30-Day Close": ("close", 30)}
     predictions, backtest_results = {}, {}
+
     for name, (target_col, shift_val) in horizons.items():
         df = df_features.copy()
         target_name = f"target_{name.replace(' ', '_').lower()}"
         df[target_name] = df[target_col].shift(-shift_val)
         df.dropna(subset=[target_name], inplace=True)
+        
         features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
         X, y = df[features], df[target_name]
         for col in X.columns: X[col] = pd.to_numeric(X[col], errors='coerce')
         X.dropna(axis=1, how='any', inplace=True)
         y = y[X.index]
+        
         if len(X) < 5: continue
+        
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+        
+        # --- Model 1: XGBoost ---
         scaler = MinMaxScaler()
         X_train_scaled = scaler.fit_transform(X_train)
-        model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
-        model.fit(X_train_scaled, y_train, eval_set=[(scaler.transform(X_test), y_test)], verbose=False)
+        X_test_scaled = scaler.transform(X_test)
+        
+        xgb_model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
+        xgb_model.fit(X_train_scaled, y_train, eval_set=[(X_test_scaled, y_test)], verbose=False)
+        
+        # --- Model 2: Linear Regression ---
+        lr_model = LinearRegression()
+        lr_model.fit(X_train_scaled, y_train)
+
+        # --- Ensemble Prediction ---
         last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
-        predictions[name] = float(model.predict(last_features_scaled)[0])
+        xgb_pred_future = xgb_model.predict(last_features_scaled)[0]
+        lr_pred_future = lr_model.predict(last_features_scaled)[0]
+        predictions[name] = float((xgb_pred_future + lr_pred_future) / 2)
+
         if name == "1-Day Close":
-            preds_test = model.predict(scaler.transform(X_test))
-            mape = mean_absolute_percentage_error(y_test, preds_test) * 100
+            xgb_preds_test = xgb_model.predict(X_test_scaled)
+            lr_preds_test = lr_model.predict(X_test_scaled)
+            ensemble_preds_test = (xgb_preds_test + lr_preds_test) / 2
+            
+            mape = mean_absolute_percentage_error(y_test, ensemble_preds_test) * 100
             accuracy = 100 - mape
-            backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds_test}, index=y_test.index)
+            backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': ensemble_preds_test}, index=y_test.index)
+            
             cumulative_returns = (1 + (y_test.pct_change().fillna(0))).cumprod()
             peak = cumulative_returns.cummax()
             drawdown = (cumulative_returns - peak) / peak
             max_drawdown = drawdown.min()
+            
             backtest_results = {"accuracy": accuracy, "mape": mape, "max_drawdown": max_drawdown, "backtest_df": backtest_df}
+            
     return predictions, backtest_results.get("accuracy"), backtest_results.get("mape"), backtest_results.get("max_drawdown"), backtest_results.get("backtest_df", pd.DataFrame())
+
 
 @st.cache_data(show_spinner=False)
 def train_arima_model(_data):
@@ -677,7 +696,9 @@ def page_alpha_engine():
 def page_portfolio_and_risk():
     display_header(); st.title("Portfolio & Risk Journal")
     if not get_broker_client(): st.info("Connect to a broker to view your portfolio and positions."); return
-    positions_df, holdings_df, total_pnl, _ = get_portfolio(); tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Trading Journal"])
+    positions_df, holdings_df, total_pnl, _ = get_portfolio()
+    tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Live Order Book"])
+    
     with tab1:
         st.subheader("Live Intraday Positions")
         if not positions_df.empty:
@@ -691,28 +712,37 @@ def page_portfolio_and_risk():
         else:
             st.info("No holdings found.")
     with tab3:
-        st.subheader("Trading Journal")
-        if 'journal' not in st.session_state: st.session_state.journal = []
-        with st.form("journal_form"):
-            entry = st.text_area("Log your thoughts or trade ideas:")
-            if st.form_submit_button("Add Entry") and entry:
-                st.session_state.journal.insert(0, (datetime.now(), entry))
-        for ts, text in st.session_state.journal:
-            st.info(text); st.caption(f"Logged: {ts.strftime('%d %b %Y, %H:%M')}")
+        st.subheader("Today's Order Book")
+        client = get_broker_client()
+        if client:
+            try:
+                orders = client.orders()
+                if orders:
+                    orders_df = pd.DataFrame(orders)
+                    st.dataframe(orders_df[[
+                        'order_timestamp', 'tradingsymbol', 'transaction_type', 
+                        'order_type', 'quantity', 'average_price', 'status'
+                    ]], use_container_width=True, hide_index=True)
+                else:
+                    st.info("No orders placed today.")
+            except Exception as e:
+                st.error(f"Failed to fetch order book: {e}")
+        else:
+            st.info("Broker not connected.")
 
 def page_forecasting_ml():
     display_header(); st.title("📈 Advanced ML Forecasting"); st.info("Train advanced models on historical data to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.subheader("Model Configuration"); instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys())); model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
+        st.subheader("Model Configuration"); instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys())); model_choice = st.selectbox("Select a Forecasting Model", ["Ensemble Model", "ARIMA"])
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
         if data.empty: st.error(f"Could not load data for {instrument_name}. Please check the data source."); st.stop()
         if st.button(f"Train {model_choice} Model & Forecast"):
             with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                if model_choice == "XGBoost":
-                    predictions, accuracy, mape, max_drawdown, backtest_df = train_xgboost_model(data, instrument_name)
-                else:
+                if model_choice == "Ensemble Model":
+                    predictions, accuracy, mape, max_drawdown, backtest_df = train_ensemble_model(data, instrument_name)
+                else: # ARIMA
                     predictions, accuracy, mape, max_drawdown, backtest_df = train_arima_model(data)
                 st.session_state.update({'ml_predictions': predictions, 'ml_accuracy': accuracy, 'ml_mape': mape, 'ml_max_drawdown': max_drawdown, 'ml_backtest_df': backtest_df, 'ml_instrument_name': instrument_name, 'ml_model_choice': model_choice})
             st.rerun()
@@ -1094,4 +1124,5 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
 
