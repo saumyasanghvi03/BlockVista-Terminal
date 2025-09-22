@@ -9,8 +9,8 @@ from datetime import datetime, timedelta, time
 import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_percentage_error
-from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -373,46 +373,63 @@ def fetch_and_analyze_news(query=None):
     return pd.DataFrame(all_news)
 
 @st.cache_data(show_spinner=False)
-def train_arima_model(_data, order, seasonal_order=None):
-    if _data.empty or len(_data) < 50:
-        st.warning("Not enough data to train ARIMA model. A minimum of 50 data points is required.")
-        return {}, pd.DataFrame()
+def train_rapid_forecast_model(_data, forecast_horizon):
+    """
+    Trains a simple and fast linear regression model for forecasting.
+    """
+    if _data.empty or len(_data) < 20:
+        st.warning("Not enough data for Rapid Forecast. Minimum 20 data points required.")
+        return None, None
     
     try:
-        ts_data = _data['close']
+        # Feature Engineering
+        df = _data[['close']].copy()
+        df['time'] = np.arange(len(df.index)) # Time trend
+        df['lag_1'] = df['close'].shift(1) # Previous day's close
+        df['lag_5'] = df['close'].shift(5) # 5 days ago close
+        df.dropna(inplace=True)
         
-        if seasonal_order and seasonal_order != (0, 0, 0, 0):
-            model = ARIMA(ts_data, order=order, seasonal_order=seasonal_order)
-        else:
-            model = ARIMA(ts_data, order=order)
-            
-        model_fit = model.fit()
-
+        # Define X and y
+        X = df[['time', 'lag_1', 'lag_5']]
+        y = df['close']
+        
+        # Train the model
+        model = LinearRegression()
+        model.fit(X, y)
+        
         # --- Forecasting ---
-        forecast_steps = 30
-        forecast_result = model_fit.get_forecast(steps=forecast_steps)
-        forecast_mean = forecast_result.predicted_mean
+        last_features = X.iloc[-1:].copy()
+        future_predictions = []
         
-        predictions = {
-            "1-Day Close": forecast_mean.iloc[0],
-            "5-Day Close": forecast_mean.iloc[4],
-            "15-Day Close": forecast_mean.iloc[14],
-            "30-Day Close": forecast_mean.iloc[29]
-        }
+        for i in range(forecast_horizon):
+            next_pred = model.predict(last_features)[0]
+            future_predictions.append(next_pred)
+            
+            # Update the features for the next prediction
+            new_row = last_features.iloc[0].copy()
+            new_row['time'] += 1
+            new_row['lag_1'] = next_pred # The new lag_1 is our prediction
+            # To update lag_5, we need more history, so we'll approximate
+            if len(future_predictions) >= 5:
+                new_row['lag_5'] = future_predictions[-5]
+            else: # If we haven't predicted 5 steps yet, use a mix of history and prediction
+                new_row['lag_5'] = y.iloc[-5 + i + 1] if i < 4 else future_predictions[0]
+
+            last_features = pd.DataFrame([new_row])
+
+        future_dates = pd.to_datetime(pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=forecast_horizon))
+        forecast_df = pd.DataFrame({'Predicted': future_predictions}, index=future_dates)
         
         # --- Backtesting ---
-        # Get in-sample predictions
-        start_point = max(1, order[1], seasonal_order[1] * seasonal_order[3] if seasonal_order else 1)
-        in_sample_preds = model_fit.predict(start=start_point, end=len(ts_data)-1)
-        
-        backtest_df = pd.DataFrame({'Actual': ts_data, 'Predicted': in_sample_preds})
-        backtest_df.dropna(inplace=True)
+        in_sample_preds = model.predict(X)
+        backtest_df = pd.DataFrame({'Actual': y, 'Predicted': in_sample_preds})
 
-        return predictions, backtest_df
+        return forecast_df, backtest_df
 
     except Exception as e:
         st.error(f"An error occurred during model training: {e}")
-        return {}, pd.DataFrame()
+        return None, None
+
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
@@ -1050,82 +1067,78 @@ def page_portfolio_and_risk():
 
 def page_forecasting_ml():
     display_header()
-    st.title("ARIMA Time Series Forecasting")
-    st.info("Use ARIMA models to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
+    st.title("Rapid Forecast")
+    st.info("A fast, momentum-based forecast using Linear Regression. Ideal for short-term trend analysis.", icon="ℹ️")
     
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.subheader("Model Configuration")
+        st.subheader("Forecast Configuration")
         instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()))
-        model_choice = st.selectbox("Select a Forecasting Model", ["ARIMA", "Seasonal ARIMA"])
+        
+        horizon_map = {"1 Day": 1, "5 Days": 5, "30 Days": 30, "60 Days": 60, "90 Days": 90}
+        forecast_horizon_str = st.selectbox("Select Forecast Duration", list(horizon_map.keys()))
+        forecast_horizon = horizon_map[forecast_horizon_str]
 
-        st.write("ARIMA Order (p, d, q)")
-        c1, c2, c3 = st.columns(3)
-        p = c1.number_input("p (AR)", 0, 10, 5, 1)
-        d = c2.number_input("d (diff)", 0, 10, 1, 1)
-        q = c3.number_input("q (MA)", 0, 10, 0, 1)
+        with st.spinner(f"Loading 1 year of data for {instrument_name}..."):
+            data = load_and_combine_data(instrument_name).tail(365)
         
-        seasonal_order = (0,0,0,0)
-        if model_choice == "Seasonal ARIMA":
-            st.write("Seasonal Order (P, D, Q, s)")
-            sc1, sc2, sc3, sc4 = st.columns(4)
-            P = sc1.number_input("P", 0, 10, 1, 1)
-            D = sc2.number_input("D", 0, 10, 1, 1)
-            Q = sc3.number_input("Q", 0, 10, 1, 1)
-            s = sc4.number_input("s (Season)", 1, 52, 12, 1)
-            seasonal_order = (P, D, Q, s)
-        
-        with st.spinner(f"Loading data for {instrument_name}..."):
-            data = load_and_combine_data(instrument_name)
-        
-        if data.empty or len(data) < 50:
-            st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 50 data points.")
+        if data.empty or len(data) < 30:
+            st.error(f"Could not load sufficient historical data for {instrument_name}.")
             return
             
-        if st.button(f"Train {model_choice} Model & Forecast"):
-            with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                predictions, backtest_df = train_arima_model(data, (p,d,q), seasonal_order)
+        if st.button("Generate Forecast"):
+            with st.spinner("Training model and forecasting..."):
+                forecast_df, backtest_df = train_rapid_forecast_model(data, forecast_horizon)
                 
                 st.session_state.update({
-                    'ml_predictions': predictions, 
+                    'ml_forecast_df': forecast_df, 
                     'ml_backtest_df': backtest_df, 
-                    'ml_instrument_name': instrument_name, 
-                    'ml_model_choice': model_choice
+                    'ml_instrument_name': instrument_name
                 })
                 st.rerun()
 
     with col2:
-        if 'ml_model_choice' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
-            model_choice_display = st.session_state.get('ml_model_choice', 'N/A')
-            st.subheader(f"Forecast Results for {instrument_name} ({model_choice_display})")
+        if 'ml_instrument_name' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
+            st.subheader(f"Forecast for {instrument_name}")
             
-            if st.session_state.get('ml_predictions'):
-                forecast_df = pd.DataFrame.from_dict(st.session_state['ml_predictions'], orient='index', columns=['Predicted Price'])
-                forecast_df.index.name = "Forecast Horizon"
+            forecast_df = st.session_state.get('ml_forecast_df')
+            if forecast_df is not None and not forecast_df.empty:
                 st.dataframe(forecast_df.style.format("₹{:.2f}"))
             else:
                 st.error("Model training failed to produce forecasts.")
 
-            st.subheader("Model Performance (Backtest)")
+            st.subheader("Model Performance (Backtest on Training Data)")
             backtest_df = st.session_state.get('ml_backtest_df')
 
             if backtest_df is not None and not backtest_df.empty:
+                # --- Calculate Metrics ---
                 mape = mean_absolute_percentage_error(backtest_df['Actual'], backtest_df['Predicted']) * 100
                 accuracy = 100 - mape
-                st.metric("In-Sample Accuracy", f"{accuracy:.2f}%", help="Based on 100 - Mean Absolute Percentage Error (MAPE)")
+                
+                cum_returns = (1 + backtest_df['Actual'].pct_change().fillna(0)).cumprod()
+                peak = cum_returns.cummax()
+                drawdown = (cum_returns - peak) / peak
+                max_drawdown = 0 if drawdown.empty else drawdown.min() * 100
 
+                # --- Display Metrics ---
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Accuracy", f"{accuracy:.2f}%")
+                m2.metric("MAPE", f"{mape:.2f}%")
+                m3.metric("Max Drawdown", f"{max_drawdown:.2f}%")
+                
+                # --- Display Chart ---
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Actual'], mode='lines', name='Actual Price'))
-                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Predicted (In-Sample)', line=dict(dash='dash')))
+                fig.add_trace(go.Scatter(x=data.index, y=data['close'], mode='lines', name='Historical Price'))
+                fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', name='Forecasted Price', line=dict(color='yellow', dash='dash')))
                 template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
-                fig.update_layout(title="Backtest Results", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                fig.update_layout(title="Price Forecast", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.error("Could not generate performance metrics.")
         else:
             st.subheader(f"Historical Data for {instrument_name}")
-            st.plotly_chart(create_chart(data.tail(365), instrument_name), use_container_width=True)
+            st.plotly_chart(create_chart(data, instrument_name), use_container_width=True)
 
 def page_ai_assistant():
     display_header(); st.title("AI Portfolio-Aware Assistant")
