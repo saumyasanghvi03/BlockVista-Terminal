@@ -13,8 +13,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import GradientBoostingRegressor
-from statsmodels.tsa.seasonal import seasonal_decompose
-from statsmodels.tsa.arima.model import ARIMA
+from prophet import Prophet
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -374,43 +373,59 @@ def create_features(df, ticker):
 
 @st.cache_data(show_spinner=False)
 def train_gradient_boosting_model(_data, ticker):
-    if _data.empty or len(_data) < 100:
-        return {}, pd.DataFrame() # Return empty dict and DataFrame
-    df_features = create_features(_data, ticker)
-    horizons = {"1-Day Open": ("open", 1), "1-Day Close": ("close", 1), "5-Day Close": ("close", 5), "15-Day Close": ("close", 15), "30-Day Close": ("close", 30)}
-    predictions = {}
+    if _data.empty or len(_data) < 150: # Increased threshold
+        st.warning("Not enough data to train Gradient Boosting model. A minimum of 150 data points is required after processing.")
+        return {}, pd.DataFrame() 
     
-    # Using 1-Day Close for backtesting visualization
-    target_col, shift_val = "close", 1
-    target_name = "target_1_day_close"
-    df = df_features.copy()
-    df[target_name] = df[target_col].shift(-shift_val)
-    df.dropna(subset=[target_name], inplace=True)
-    
-    features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
-    X, y = df[features], df[target_name]
-    for col in X.columns: X[col] = pd.to_numeric(X[col], errors='coerce')
-    X.dropna(axis=1, how='any', inplace=True)
-    y = y[X.index]
-    
-    if len(X) < 5: return {}, pd.DataFrame()
+    try:
+        df_features = create_features(_data, ticker)
+        horizons = {"1-Day Open": ("open", 1), "1-Day Close": ("close", 1), "5-Day Close": ("close", 5), "15-Day Close": ("close", 15), "30-Day Close": ("close", 30)}
+        predictions = {}
+        
+        # Using 1-Day Close for backtesting visualization
+        target_col, shift_val = "close", 1
+        target_name = "target_1_day_close"
+        df = df_features.copy()
+        df[target_name] = df[target_col].shift(-shift_val)
+        df.dropna(subset=[target_name], inplace=True)
+        
+        features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
+        X, y = df[features], df[target_name]
+        
+        # Data validation
+        X.replace([np.inf, -np.inf], np.nan, inplace=True)
+        if X.isnull().values.any():
+            X.fillna(method='ffill', inplace=True)
+            X.fillna(method='bfill', inplace=True)
+        
+        X.dropna(axis=1, how='any', inplace=True) # Drop columns that are still all NaN
+        y = y[X.index] # Re-align y after potential row drops in X
+        X.dropna(inplace=True) # Drop rows that might still have NaNs
+        y = y[X.index]
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-    scaler = MinMaxScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    model = GradientBoostingRegressor(n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, subsample=0.8)
-    model.fit(X_train_scaled, y_train)
+        if len(X) < 50: # Check again after cleaning
+            st.warning("Not enough clean data points remaining after feature engineering.")
+            return {}, pd.DataFrame()
 
-    # Generate predictions for the entire dataset for backtesting
-    full_preds = model.predict(scaler.transform(X))
-    full_backtest_df = pd.DataFrame({'Actual': y, 'Predicted': full_preds}, index=y.index)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+        scaler = MinMaxScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        model = GradientBoostingRegressor(n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, subsample=0.8)
+        model.fit(X_train_scaled, y_train)
 
-    # Generate future forecasts for all horizons
-    for name, (t_col, s_val) in horizons.items():
-        last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
-        predictions[name] = float(model.predict(last_features_scaled)[0])
+        # Generate predictions for the entire dataset for backtesting
+        full_preds = model.predict(scaler.transform(X))
+        full_backtest_df = pd.DataFrame({'Actual': y, 'Predicted': full_preds}, index=y.index)
 
-    return predictions, full_backtest_df
+        # Generate future forecasts for all horizons
+        for name, (t_col, s_val) in horizons.items():
+            last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
+            predictions[name] = float(model.predict(last_features_scaled)[0])
+
+        return predictions, full_backtest_df
+    except Exception as e:
+        st.error(f"An error occurred during model training: {e}")
+        return {}, pd.DataFrame()
 
 @st.cache_data(show_spinner=False)
 def train_seasonal_arima_model(_data):
@@ -556,6 +571,62 @@ def style_option_chain(df, ltp):
     df_styled = df.style.apply(lambda x: ['background-color: #2c3e50' if x.name < atm_strike else '' for i in x], subset=pd.IndexSlice[:, ['CALL', 'CALL LTP']], axis=1)\
                          .apply(lambda x: ['background-color: #2c3e50' if x.name > atm_strike else '' for i in x], subset=pd.IndexSlice[:, ['PUT', 'PUT LTP']], axis=1)
     return df_styled
+
+@st.dialog("Most Active Options")
+def show_most_active_dialog(underlying, instrument_df):
+    st.subheader(f"Most Active {underlying} Options (By Volume)")
+    with st.spinner("Fetching data..."):
+        active_df = get_most_active_options(underlying, instrument_df)
+        if not active_df.empty:
+            st.dataframe(active_df, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Could not retrieve data for most active options.")
+
+def get_most_active_options(underlying, instrument_df):
+    client = get_broker_client()
+    if not client:
+        st.toast("Broker not connected.", icon="⚠️")
+        return pd.DataFrame()
+    
+    try:
+        # Get chain for nearest expiry
+        chain_df, expiry, _, _ = get_options_chain(underlying, instrument_df)
+        if chain_df.empty or expiry is None:
+            return pd.DataFrame()
+
+        # Get all symbols from the chain
+        ce_symbols = chain_df['CALL'].dropna().tolist()
+        pe_symbols = chain_df['PUT'].dropna().tolist()
+        all_symbols = [f"NFO:{s}" for s in ce_symbols + pe_symbols]
+
+        if not all_symbols:
+            return pd.DataFrame()
+
+        # Get detailed quotes
+        quotes = client.quote(all_symbols)
+        
+        active_options = []
+        for symbol, data in quotes.items():
+            prev_close = data['ohlc']['close']
+            last_price = data['last_price']
+            change = last_price - prev_close
+            pct_change = (change / prev_close * 100) if prev_close != 0 else 0
+            
+            active_options.append({
+                'Symbol': data['tradingsymbol'],
+                'LTP': last_price,
+                'Change %': pct_change,
+                'Volume': data['volume'],
+                'OI': data['open_interest']
+            })
+        
+        df = pd.DataFrame(active_options)
+        df_sorted = df.sort_values(by='Volume', ascending=False)
+        return df_sorted.head(10)
+
+    except Exception as e:
+        st.error(f"Could not fetch most active options: {e}")
+        return pd.DataFrame()
 
 # ================ 5. PAGE DEFINITIONS ============
 
@@ -724,19 +795,54 @@ def page_dashboard():
             """, unsafe_allow_html=True)
         
 def page_advanced_charting():
-    display_header(); st.title("Advanced Charting"); instrument_df = get_instrument_df()
-    st.sidebar.header("Chart Controls"); ticker = st.sidebar.text_input("Select Ticker", "RELIANCE").upper(); period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4); interval = st.sidebar.selectbox("Interval", ["5minute", "day", "week"], index=1); chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
-    if instrument_df.empty: st.info("Please connect to a broker to use the charting tools."); return
-    token = get_instrument_token(ticker, instrument_df)
-    if token:
-        data = get_historical_data(token, interval, period=period)
-        if not data.empty:
-            st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True)
-            st.subheader("Technical Indicator Analysis"); st.dataframe(pd.DataFrame([interpret_indicators(data)], index=["Interpretation"]).T, use_container_width=True)
+    display_header()
+    st.title("📊 Advanced Charting")
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use the charting tools.")
+        return
+
+    # Chart Layout Selector
+    num_charts = st.radio("Select Chart Layout", [1, 2, 4], index=0, horizontal=True)
+
+    def display_chart_widget(index):
+        st.subheader(f"Chart {index + 1}")
+        c1, c2, c3, c4 = st.columns(4)
+        ticker = c1.text_input("Symbol", "RELIANCE", key=f"ticker_{index}").upper()
+        period = c2.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key=f"period_{index}")
+        interval = c3.selectbox("Interval", ["minute", "5minute", "day", "week"], index=2, key=f"interval_{index}")
+        chart_type = c4.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"], key=f"chart_type_{index}")
+
+        token = get_instrument_token(ticker, instrument_df)
+        if token:
+            data = get_historical_data(token, interval, period=period)
+            if not data.empty:
+                st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True)
+            else:
+                st.warning(f"No chart data for {ticker}.")
         else:
-            st.warning(f"No chart data available for {ticker} in the selected period/interval.")
-    else:
-        st.error(f"Ticker '{ticker}' not found. Please check the symbol.")
+            st.error(f"Ticker '{ticker}' not found.")
+
+    if num_charts == 1:
+        display_chart_widget(0)
+    elif num_charts == 2:
+        cols = st.columns(2)
+        with cols[0]:
+            display_chart_widget(0)
+        with cols[1]:
+            display_chart_widget(1)
+    elif num_charts == 4:
+        row1 = st.columns(2)
+        with row1[0]:
+            display_chart_widget(0)
+        with row1[1]:
+            display_chart_widget(1)
+        st.markdown("---")
+        row2 = st.columns(2)
+        with row2[0]:
+            display_chart_widget(2)
+        with row2[1]:
+            display_chart_widget(3)
 
 def page_options_hub():
     display_header(); st.title("Options Hub"); instrument_df = get_instrument_df()
@@ -746,6 +852,10 @@ def page_options_hub():
     
     with col1:
         underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "SBIN", "GOLDM", "CRUDEOIL", "USDINR"])
+        
+        if st.button("Check Most Active Options", use_container_width=True):
+            show_most_active_dialog(underlying, instrument_df)
+
         chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
         
         if available_expiries:
@@ -852,21 +962,21 @@ def page_forecasting_ml():
     with col1:
         st.subheader("Model Configuration")
         instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()))
-        model_choice = st.selectbox("Select a Forecasting Model", ["Gradient Boosting", "Seasonal ARIMA"])
+        model_choice = st.selectbox("Select a Forecasting Model", ["Gradient Boosting", "Prophet"])
         
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
         
-        if data.empty or len(data) < 100:
-            st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 100 data points.")
+        if data.empty or len(data) < 150:
+            st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 150 data points.")
             st.stop()
             
         if st.button(f"Train {model_choice} Model & Forecast"):
             with st.spinner(f"Training {model_choice} model... This may take a moment."):
                 if model_choice == "Gradient Boosting":
                     predictions, backtest_df = train_gradient_boosting_model(data, instrument_name)
-                else:  # Seasonal ARIMA
-                    predictions, backtest_df = train_seasonal_arima_model(data)
+                else:  # Prophet
+                    predictions, backtest_df = train_prophet_model(data)
                 
                 st.session_state.update({
                     'ml_predictions': predictions, 
@@ -1360,3 +1470,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
