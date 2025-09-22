@@ -1,22 +1,13 @@
-# Core build dependencies - compatible versions
-numpy==2.0.0
-cython==3.0.10
-pandas==2.2.2
-statsmodels==0.14.2
-scipy==1.14.0
-scikit-learn==1.5.1
-
-# Application libraries
 feedparser
 kiteconnect
 nselib
+pandas
 pandas-ta
 plotly
-pmdarima==2.0.4
 pytz
 requests
+scikit-learn
 streamlit
-streamlit-autorefresh
 tabulate
 vaderSentiment
 yfinance
