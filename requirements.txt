@@ -1,6 +1,10 @@
+# Core build dependencies first
+numpy
+cython
+
+# The rest of the packages
 feedparser
 kiteconnect
-numpy
 pandas
 pandas-ta
 plotly
