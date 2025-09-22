@@ -12,7 +12,6 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.linear_model import LinearRegression
 import xgboost as xgb
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
@@ -33,7 +32,7 @@ def load_css(file_name):
         with open(file_name) as f:
             st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
     except FileNotFoundError:
-        st.warning(f"CSS file '{file_name}' not found. Please create it for the best UI experience.")
+        st.warning(f"CSS file '{file_name}' not found. For the best UI, please create it.")
 
 load_css("style.css")
 
@@ -67,8 +66,8 @@ ML_DATA_SOURCES = {
     },
     "SENSEX": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
-        "tradingsymbol": "SENSEX",
-        "exchange": "BSE"
+        "tradingsymbol": None,
+        "exchange": None
     },
     "S&P 500": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
@@ -89,6 +88,7 @@ def get_broker_client():
 def get_market_holidays(year):
     """NSE holidays (update yearly). A more robust solution would use an API or a library."""
     holidays_by_year = {
+        2024: ['2024-01-22', '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29', '2024-04-11', '2024-04-17', '2024-05-01', '2024-05-20', '2024-06-17', '2024-07-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15', '2024-12-25'],
         2025: ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25'],
         2026: ['2026-01-26', '2026-02-24', '2026-04-03', '2026-04-14', '2026-05-01', '2026-08-15', '2026-10-02', '2026-11-09', '2026-11-24', '2026-12-25']
     }
@@ -130,7 +130,6 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
     if df.empty: return fig
     chart_df = df.copy()
     chart_df.columns = [col.lower() for col in chart_df.columns]
-    
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(chart_df['open'], chart_df['high'], chart_df['low'], chart_df['close'])
         fig.add_trace(go.Candlestick(x=ha_df.index, open=ha_df['HA_open'], high=ha_df['HA_high'], low=ha_df['HA_low'], close=ha_df['HA_close'], name='Heikin-Ashi'))
@@ -138,18 +137,15 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['close'], mode='lines', name='Line'))
     elif chart_type == 'Bar':
         fig.add_trace(go.Ohlc(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Bar'))
-    else: # Candlestick
+    else:
         fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Candlestick'))
-    
     bbl_col = next((col for col in chart_df.columns if 'bbl' in col), None)
     bbu_col = next((col for col in chart_df.columns if 'bbu' in col), None)
     if bbl_col and bbu_col:
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbl_col], line=dict(color='rgba(135,206,250,0.5)', width=1), name='Lower Band'))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbu_col], line=dict(color='rgba(135,206,250,0.5)', width=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
-        
     if forecast_df is not None:
         fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
-        
     template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
@@ -300,18 +296,7 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
 @st.cache_data(ttl=900)
 def fetch_and_analyze_news(query=None):
     analyzer = SentimentIntensityAnalyzer()
-    news_sources = {
-        # Indian Sources
-        "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", 
-        "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml", 
-        "Business Standard": "https://www.business-standard.com/rss/markets-102.cms", 
-        "Livemint": "https://www.livemint.com/rss/markets",
-        # Global Sources
-        "Reuters (World)": "http://feeds.reuters.com/reuters/worldNews",
-        "Bloomberg (Markets)": "https://feeds.bloomberg.com/markets/news.rss",
-        "Wall Street Journal (World)": "https://feeds.a.dj.com/rss/RSSWorldNews.xml",
-        "Financial Times (World)": "https://www.ft.com/world?format=rss"
-    }
+    news_sources = {"Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml", "Business Standard": "https://www.business-standard.com/rss/markets-102.cms", "Livemint": "https://www.livemint.com/rss/markets"}
     all_news = []
     for source, url in news_sources.items():
         try:
@@ -347,68 +332,42 @@ def create_features(df, ticker):
     return df_feat
 
 @st.cache_data(show_spinner=False)
-def train_ensemble_model(_data, ticker):
-    """Trains an ensemble model (XGBoost + Linear Regression) for forecasting."""
+def train_xgboost_model(_data, ticker):
     if _data.empty or len(_data) < 100:
-        st.warning("Not enough data to train the Ensemble model.")
+        st.warning("Not enough data to train XGBoost model.")
         return {}, None, None, None, pd.DataFrame()
-
     df_features = create_features(_data, ticker)
     horizons = {"1-Day Open": ("open", 1), "1-Day Close": ("close", 1), "5-Day Close": ("close", 5), "15-Day Close": ("close", 15), "30-Day Close": ("close", 30)}
     predictions, backtest_results = {}, {}
-
     for name, (target_col, shift_val) in horizons.items():
         df = df_features.copy()
         target_name = f"target_{name.replace(' ', '_').lower()}"
         df[target_name] = df[target_col].shift(-shift_val)
         df.dropna(subset=[target_name], inplace=True)
-        
         features = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume'] and 'target' not in col]
         X, y = df[features], df[target_name]
         for col in X.columns: X[col] = pd.to_numeric(X[col], errors='coerce')
         X.dropna(axis=1, how='any', inplace=True)
         y = y[X.index]
-        
         if len(X) < 5: continue
-        
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-        
-        # --- Model 1: XGBoost ---
         scaler = MinMaxScaler()
         X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
-        
-        xgb_model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
-        xgb_model.fit(X_train_scaled, y_train, eval_set=[(X_test_scaled, y_test)], verbose=False)
-        
-        # --- Model 2: Linear Regression ---
-        lr_model = LinearRegression()
-        lr_model.fit(X_train_scaled, y_train)
-
-        # --- Ensemble Prediction ---
+        model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=500, learning_rate=0.05, max_depth=4, random_state=42, n_jobs=-1, early_stopping_rounds=20)
+        model.fit(X_train_scaled, y_train, eval_set=[(scaler.transform(X_test), y_test)], verbose=False)
         last_features_scaled = scaler.transform(X.iloc[-1].values.reshape(1, -1))
-        xgb_pred_future = xgb_model.predict(last_features_scaled)[0]
-        lr_pred_future = lr_model.predict(last_features_scaled)[0]
-        predictions[name] = float((xgb_pred_future + lr_pred_future) / 2)
-
+        predictions[name] = float(model.predict(last_features_scaled)[0])
         if name == "1-Day Close":
-            xgb_preds_test = xgb_model.predict(X_test_scaled)
-            lr_preds_test = lr_model.predict(X_test_scaled)
-            ensemble_preds_test = (xgb_preds_test + lr_preds_test) / 2
-            
-            mape = mean_absolute_percentage_error(y_test, ensemble_preds_test) * 100
+            preds_test = model.predict(scaler.transform(X_test))
+            mape = mean_absolute_percentage_error(y_test, preds_test) * 100
             accuracy = 100 - mape
-            backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': ensemble_preds_test}, index=y_test.index)
-            
+            backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': preds_test}, index=y_test.index)
             cumulative_returns = (1 + (y_test.pct_change().fillna(0))).cumprod()
             peak = cumulative_returns.cummax()
             drawdown = (cumulative_returns - peak) / peak
             max_drawdown = drawdown.min()
-            
             backtest_results = {"accuracy": accuracy, "mape": mape, "max_drawdown": max_drawdown, "backtest_df": backtest_df}
-            
     return predictions, backtest_results.get("accuracy"), backtest_results.get("mape"), backtest_results.get("max_drawdown"), backtest_results.get("backtest_df", pd.DataFrame())
-
 
 @st.cache_data(show_spinner=False)
 def train_arima_model(_data):
@@ -457,7 +416,6 @@ def load_and_combine_data(instrument_name):
     except Exception as e:
         st.error(f"Failed to load historical data: {e}")
         return pd.DataFrame()
-    
     live_df = pd.DataFrame()
     if get_broker_client() and source_info.get('tradingsymbol'):
         instrument_df = get_instrument_df()
@@ -466,7 +424,6 @@ def load_and_combine_data(instrument_name):
             from_date = hist_df.index.max().date() if not hist_df.empty else datetime.now().date() - timedelta(days=365)
             live_df = get_historical_data(token, 'day', from_date=from_date)
             if not live_df.empty: live_df.columns = [col.lower() for col in live_df.columns]
-            
     if not live_df.empty:
         combined_df = pd.concat([hist_df, live_df])
         combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
@@ -481,7 +438,7 @@ def black_scholes(S, K, T, r, sigma, option_type="call"):
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T)); d2 = d1 - sigma * np.sqrt(T)
     if option_type == "call":
         price = S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2); delta = norm.cdf(d1); theta = (-(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) - r * K * np.exp(-r * T) * norm.cdf(d2)); rho = K * T * np.exp(-r * T) * norm.cdf(d2)
-    else: # put
+    else:
         price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1); delta = norm.cdf(d1) - 1; theta = (-(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T)) + r * K * np.exp(-r * T) * norm.cdf(-d2)); rho = -K * T * np.exp(-r * T) * norm.cdf(-d2)
     gamma = norm.pdf(d1) / (S * sigma * np.sqrt(T)); vega = S * norm.pdf(d1) * np.sqrt(T)
     return {"price": price, "delta": delta, "gamma": gamma, "vega": vega / 100, "theta": theta / 365, "rho": rho / 100}
@@ -507,6 +464,27 @@ def interpret_indicators(df):
     if adx is not None: interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
     return interpretation
 
+# ================ 4. HNI & PRO TRADER FEATURES ================
+
+def place_basket_order(orders, variety):
+    """Places a basket of orders."""
+    client = get_broker_client()
+    if not client:
+        st.error("Broker not connected.")
+        return
+    
+    if st.session_state.broker == "Zerodha":
+        try:
+            order_responses = client.place_order(variety=variety, orders=orders)
+            st.toast("✅ Basket order placed successfully!", icon="🎉")
+            # Log successful orders
+            for i, resp in enumerate(order_responses):
+                if resp.get('status') == 'success':
+                    order = orders[i]
+                    st.session_state.order_history.insert(0, {"id": resp['order_id'], "symbol": order['tradingsymbol'], "qty": order['quantity'], "type": order['transaction_type'], "status": "Success"})
+        except Exception as e:
+            st.toast(f"❌ Basket order failed: {e}", icon="🔥")
+            
 @st.cache_data(ttl=3600)
 def get_sector_data():
     """Loads stock-to-sector mapping from a local CSV file."""
@@ -516,10 +494,10 @@ def get_sector_data():
     except FileNotFoundError:
         return None
 
-# ================ 6. PAGE DEFINITIONS ================
+# ================ 5. PAGE DEFINITIONS ============
 
 def page_dashboard():
-    """A redesigned 'Trader UI' Dashboard."""
+    """--- UI ENHANCEMENT: A completely redesigned 'Trader UI' Dashboard ---"""
     display_header()
     
     instrument_df = get_instrument_df()
@@ -551,16 +529,20 @@ def page_dashboard():
     col1, col2 = st.columns([1, 2], gap="large")
     
     with col1:
+        # --- Tabbed Workspace for Watchlist & Portfolio ---
         tab1, tab2 = st.tabs(["Watchlist", "Portfolio Overview"])
+
         with tab1:
             st.subheader("My Watchlist")
             watchlist_symbols = [
                 {'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'},
-                {'symbol': 'SENSEX', 'exchange': 'BSE'}, {'symbol': 'GOLDM', 'exchange': 'MCX'},
-                {'symbol': 'SILVERM', 'exchange': 'MCX'}, {'symbol': 'USDINR', 'exchange': 'CDS'}
+                {'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'SENSEX', 'exchange': 'BSE'},
+                {'symbol': 'GOLDM', 'exchange': 'MCX'}, {'symbol': 'SILVERM', 'exchange': 'MCX'},
+                {'symbol': 'USDINR', 'exchange': 'CDS'}
             ]
             watchlist_data = get_watchlist_data(watchlist_symbols)
             
+            # Add color styling to the dataframe
             def style_change(val):
                 color = '#28a745' if val > 0 else '#FF4B4B' if val < 0 else 'gray'
                 return f'color: {color}'
@@ -570,6 +552,7 @@ def page_dashboard():
                     watchlist_data.style.format({'Price': '₹{:,.2f}', 'Change': '{:,.2f}', '% Change': '{:.2f}%'}).applymap(style_change, subset=['Change', '% Change']),
                     use_container_width=True, hide_index=True
                 )
+
         with tab2:
             st.subheader("My Portfolio")
             _, holdings_df, total_pnl, total_investment = get_portfolio()
@@ -593,41 +576,53 @@ def page_dashboard():
     # --- Bottom Row: Live Ticker Tape ---
     ticker_symbols = [
         {'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'TCS', 'exchange': 'NSE'},
-        {'symbol': 'SENSEX', 'exchange': 'BSE'}, {'symbol': 'GOLDM', 'exchange': 'MCX'},
-        {'symbol': 'SILVERM', 'exchange': 'MCX'}, {'symbol': 'USDINR', 'exchange': 'CDS'},
         {'symbol': 'HDFCBANK', 'exchange': 'NSE'}, {'symbol': 'ICICIBANK', 'exchange': 'NSE'},
         {'symbol': 'INFY', 'exchange': 'NSE'}, {'symbol': 'BHARTIARTL', 'exchange': 'NSE'},
-        {'symbol': 'SBIN', 'exchange': 'NSE'}, {'symbol': 'ITC', 'exchange': 'NSE'}
+        {'symbol': 'SBIN', 'exchange': 'NSE'}, {'symbol': 'ITC', 'exchange': 'NSE'},
+        {'symbol': 'HINDUNILVR', 'exchange': 'NSE'}, {'symbol': 'LT', 'exchange': 'NSE'},
+        {'symbol': 'BAJFINANCE', 'exchange': 'NSE'}, {'symbol': 'SENSEX', 'exchange': 'BSE'},
+        {'symbol': 'GOLDM', 'exchange': 'MCX'}, {'symbol': 'SILVERM', 'exchange': 'MCX'},
+        {'symbol': 'USDINR', 'exchange': 'CDS'}
     ]
     ticker_data = get_watchlist_data(ticker_symbols)
     
     if not ticker_data.empty:
         ticker_html = ""
-        ticker_items = pd.concat([ticker_data, ticker_data], ignore_index=True)
-        for i in range(len(ticker_items)):
-            item = ticker_items.iloc[i]
+        for i in range(len(ticker_data)):
+            item = ticker_data.iloc[i]
             color = '#28a745' if item['Change'] > 0 else '#FF4B4B'
             ticker_html += f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} <span style='color: {color};'>{item['Price']:,.2f} ({item['% Change']:.2f}%)</span></span>"
         
         st.markdown(f"""
         <style>
             @keyframes marquee {{
-                0%   {{ transform: translate(0, 0); }}
-                100% {{ transform: translate(-50%, 0); }}
+                0%   {{ transform: translate(100%, 0); }}
+                100% {{ transform: translate(-100%, 0); }}
             }}
             .marquee-container {{
-                width: 100%; overflow: hidden; position: fixed; bottom: 0; left: 0;
-                background-color: #1a1a1a; border-top: 1px solid #333;
-                padding: 5px 0; white-space: nowrap;
+                width: 100%;
+                overflow: hidden;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                background-color: #1a1a1a;
+                border-top: 1px solid #333;
+                padding: 5px 0;
+                white-space: nowrap;
             }}
             .marquee-content {{
-                display: inline-block; width: 200%;
-                animation: marquee 45s linear infinite;
+                display: inline-block;
+                padding-left: 100%;
+                animation: marquee 35s linear infinite;
             }}
         </style>
-        <div class="marquee-container"><div class="marquee-content">{ticker_html}</div></div>
+        <div class="marquee-container">
+            <div class="marquee-content">
+                {ticker_html}
+            </div>
+        </div>
         """, unsafe_allow_html=True)
-
+        
 def page_advanced_charting():
     display_header(); st.title("Advanced Charting"); instrument_df = get_instrument_df()
     st.sidebar.header("Chart Controls"); ticker = st.sidebar.text_input("Select Ticker", "RELIANCE").upper(); period = st.sidebar.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4); interval = st.sidebar.selectbox("Interval", ["5minute", "day", "week"], index=1); chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"])
@@ -676,11 +671,16 @@ def page_options_hub():
                             st.warning("Could not calculate Implied Volatility for this option (LTP might be zero or expiry too close).")
             else:
                 st.warning(f"No options available for {underlying} on the selected expiry.")
+                
     st.subheader(f"{underlying} Options Chain")
     if not chain_df.empty and expiry:
-        st.caption(f"Displaying expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')} | Underlying LTP: {underlying_ltp:,.2f}"); st.dataframe(chain_df, use_container_width=True, hide_index=True)
+        st.caption(f"Displaying expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')} | Underlying LTP: {underlying_ltp:,.2f}")
+        st.dataframe(chain_df, use_container_width=True, hide_index=True)
     else:
-        st.warning(f"Could not fetch options chain for {underlying}.")
+        if underlying_ltp == 0.0:
+            st.warning(f"Could not fetch options chain for {underlying}. The underlying LTP is zero, which usually means the market is closed or there is a temporary data feed issue.")
+        else:
+            st.warning(f"Could not fetch the options chain for {underlying} on the selected expiry. Please try another date.")
 
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News Sentiment"); query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
@@ -696,9 +696,7 @@ def page_alpha_engine():
 def page_portfolio_and_risk():
     display_header(); st.title("Portfolio & Risk Journal")
     if not get_broker_client(): st.info("Connect to a broker to view your portfolio and positions."); return
-    positions_df, holdings_df, total_pnl, _ = get_portfolio()
-    tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Live Order Book"])
-    
+    positions_df, holdings_df, total_pnl, _ = get_portfolio(); tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Trading Journal"])
     with tab1:
         st.subheader("Live Intraday Positions")
         if not positions_df.empty:
@@ -712,40 +710,31 @@ def page_portfolio_and_risk():
         else:
             st.info("No holdings found.")
     with tab3:
-        st.subheader("Today's Order Book")
-        client = get_broker_client()
-        if client:
-            try:
-                orders = client.orders()
-                if orders:
-                    orders_df = pd.DataFrame(orders)
-                    st.dataframe(orders_df[[
-                        'order_timestamp', 'tradingsymbol', 'transaction_type', 
-                        'order_type', 'quantity', 'average_price', 'status'
-                    ]], use_container_width=True, hide_index=True)
-                else:
-                    st.info("No orders placed today.")
-            except Exception as e:
-                st.error(f"Failed to fetch order book: {e}")
-        else:
-            st.info("Broker not connected.")
+        st.subheader("Trading Journal")
+        if 'journal' not in st.session_state: st.session_state.journal = []
+        with st.form("journal_form"):
+            entry = st.text_area("Log your thoughts or trade ideas:")
+            if st.form_submit_button("Add Entry") and entry:
+                st.session_state.journal.insert(0, (datetime.now(), entry))
+        for ts, text in st.session_state.journal:
+            st.info(text); st.caption(f"Logged: {ts.strftime('%d %b %Y, %H:%M')}")
 
 def page_forecasting_ml():
     display_header(); st.title("📈 Advanced ML Forecasting"); st.info("Train advanced models on historical data to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.subheader("Model Configuration"); instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys())); model_choice = st.selectbox("Select a Forecasting Model", ["Ensemble Model", "ARIMA"])
+        st.subheader("Model Configuration"); instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys())); model_choice = st.selectbox("Select a Forecasting Model", ["XGBoost", "ARIMA"])
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
         if data.empty: st.error(f"Could not load data for {instrument_name}. Please check the data source."); st.stop()
         if st.button(f"Train {model_choice} Model & Forecast"):
             with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                if model_choice == "Ensemble Model":
-                    predictions, accuracy, mape, max_drawdown, backtest_df = train_ensemble_model(data, instrument_name)
-                else: # ARIMA
+                if model_choice == "XGBoost":
+                    predictions, accuracy, mape, max_drawdown, backtest_df = train_xgboost_model(data, instrument_name)
+                else:
                     predictions, accuracy, mape, max_drawdown, backtest_df = train_arima_model(data)
                 st.session_state.update({'ml_predictions': predictions, 'ml_accuracy': accuracy, 'ml_mape': mape, 'ml_max_drawdown': max_drawdown, 'ml_backtest_df': backtest_df, 'ml_instrument_name': instrument_name, 'ml_model_choice': model_choice})
-            st.rerun()
+                st.rerun()
     with col2:
         if 'ml_model_choice' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
             model_choice_display = st.session_state.get('ml_model_choice', 'N/A'); st.subheader(f"Forecast Results for {instrument_name} ({model_choice_display})")
@@ -854,7 +843,7 @@ def page_basket_orders():
 
             if st.button("Execute Basket Order", use_container_width=True, type="primary"):
                 with st.spinner("Placing basket order..."):
-                    place_basket_order(st.session_state.basket, variety="regular")
+                    place_basket_order(st.session_state.basket, variety="regular") # Use "amo" for After Market Orders if needed
                 st.session_state.basket = [] # Clear basket after execution
                 st.rerun()
 
@@ -1004,21 +993,27 @@ def page_option_strategy_builder():
             except NameError:
                 st.info("Enter premiums and strike prices to see the payoff chart.")
 
-# ============ 7. MAIN APP LOGIC AND AUTHENTICATION ============
+# ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
 def show_login_animation():
-    """Displays a boot-up animation after login."""
+    """--- UI ENHANCEMENT: Displays a boot-up animation after login ---"""
     st.title("BlockVista Terminal")
+    
     progress_bar = st.progress(0)
     status_text = st.empty()
+    
     steps = {
-        "Authenticating user...": 25, "Establishing secure connection...": 50,
-        "Fetching live market data feeds...": 75, "Initializing terminal... COMPLETE": 100
+        "Authenticating user...": 25,
+        "Establishing secure connection...": 50,
+        "Fetching live market data feeds...": 75,
+        "Initializing terminal... COMPLETE": 100
     }
+    
     for text, progress in steps.items():
         status_text.text(f"STATUS: {text}")
         progress_bar.progress(progress)
         a_time.sleep(0.9)
+    
     a_time.sleep(0.5)
     st.session_state['login_animation_complete'] = True
     st.rerun()
@@ -1027,16 +1022,20 @@ def login_page():
     """Displays the login page for broker authentication."""
     st.title("BlockVista Terminal")
     st.subheader("Broker Login")
+    
     broker = st.selectbox("Select Your Broker", ["Zerodha"])
+    
     if broker == "Zerodha":
         try:
             api_key = st.secrets["ZERODHA_API_KEY"]
             api_secret = st.secrets["ZERODHA_API_SECRET"]
         except (FileNotFoundError, KeyError):
-            st.error("Kite API credentials not found. Set ZERODHA_API_KEY and ZERODHA_API_SECRET in Streamlit secrets.")
+            st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
             st.stop()
+            
         kite = KiteConnect(api_key=api_key)
         request_token = st.query_params.get("request_token")
+        
         if request_token:
             try:
                 data = kite.generate_session(request_token, api_secret=api_secret)
@@ -1046,7 +1045,7 @@ def login_page():
                 st.session_state.profile = kite.profile()
                 st.session_state.broker = "Zerodha"
                 st.query_params.clear()
-                st.rerun()
+                st.rerun() # Rerun to trigger the animation
             except Exception as e:
                 st.error(f"Authentication failed: {e}")
         else:
@@ -1063,7 +1062,7 @@ def main_app():
     st.sidebar.divider()
     
     st.sidebar.header("Terminal Controls")
-    st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], index=0 if st.session_state.theme == "Dark" else 1, horizontal=True)
+    st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
     st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], horizontal=True)
     st.sidebar.divider()
     
@@ -1092,14 +1091,19 @@ def main_app():
     st.sidebar.header("Navigation")
     pages = {
         "Intraday": {
-            "Dashboard": page_dashboard, "Advanced Charting": page_advanced_charting,
-            "Alpha Engine": page_alpha_engine, "Portfolio & Risk": page_portfolio_and_risk,
-            "Portfolio Analytics": page_portfolio_analytics, "Basket Orders": page_basket_orders,
-            "Forecasting & ML": page_forecasting_ml, "AI Assistant": page_ai_assistant
+            "Dashboard": page_dashboard, 
+            "Advanced Charting": page_advanced_charting, 
+            "Basket Orders": page_basket_orders,
+            "Portfolio Analytics": page_portfolio_analytics,
+            "Alpha Engine": page_alpha_engine, 
+            "Portfolio & Risk": page_portfolio_and_risk, 
+            "Forecasting & ML": page_forecasting_ml, 
+            "AI Assistant": page_ai_assistant
         },
         "Options": {
-            "Options Hub": page_options_hub, "Strategy Builder": page_option_strategy_builder,
-            "Portfolio & Risk": page_portfolio_and_risk, "Basket Orders": page_basket_orders,
+            "Options Hub": page_options_hub, 
+            "Strategy Builder": page_option_strategy_builder,
+            "Portfolio & Risk": page_portfolio_and_risk, 
             "AI Assistant": page_ai_assistant
         }
     }
@@ -1107,7 +1111,8 @@ def main_app():
     
     st.sidebar.divider()
     if st.sidebar.button("Logout"):
-        for key in list(st.session_state.keys()): del st.session_state[key]
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         st.rerun()
 
     if auto_refresh and selection != "Forecasting & ML":
@@ -1124,5 +1129,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-
 
