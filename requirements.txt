@@ -7,6 +7,8 @@ plotly
 pytz
 requests
 scikit-learn
+scipy
+statsmodels
 streamlit
 streamlit-autorefresh
 tabulate
