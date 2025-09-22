@@ -14,3 +14,4 @@ scipy
 tabulate
 requests
 yfinance
+pmdarima
