@@ -11,6 +11,7 @@ import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_percentage_error
+from nselib import trading_info
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -274,40 +275,100 @@ def get_watchlist_data(symbols_with_exchange):
         st.warning(f"Watchlist for {st.session_state.broker} not implemented.")
         return pd.DataFrame()
 
+@st.cache_data(ttl=60)
+def fetch_option_chain_nse(underlying):
+    """Fallback function to get option chain data directly from NSE."""
+    try:
+        # Map dashboard symbols to symbols nselib expects
+        symbol_map = {"NIFTY": "NIFTY", "BANKNIFTY": "BANKNIFTY", "FINNIFTY": "FINNIFTY"}
+        nse_symbol = symbol_map.get(underlying, underlying)
+        
+        chain_data = trading_info.get_option_chain(nse_symbol)
+        if not isinstance(chain_data, pd.DataFrame) or chain_data.empty:
+            return pd.DataFrame(), None, 0.0, []
+        
+        # Standardize the DataFrame to match the app's expected format
+        df = chain_data.copy()
+        df.rename(columns={
+            'CE_instrumentType': 'instrument_type_CE', 'CE_expiryDate': 'expiry_CE', 'CE_strikePrice': 'STRIKE',
+            'CE_lastPrice': 'CALL LTP', 'PE_lastPrice': 'PUT LTP'
+        }, inplace=True)
+
+        # Create dummy CALL and PUT columns as KiteConnect provides tradingsymbol
+        df['CALL'] = df.apply(lambda row: f"{nse_symbol}{pd.to_datetime(row['expiry_CE']).strftime('%d%b%y').upper()}{int(row['STRIKE'])}CE", axis=1)
+        df['PUT'] = df.apply(lambda row: f"{nse_symbol}{pd.to_datetime(row['expiry_CE']).strftime('%d%b%y').upper()}{int(row['STRIKE'])}PE", axis=1)
+
+        final_df = df[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']].fillna(0)
+        
+        # Extract other details
+        expiries = sorted(pd.to_datetime(chain_data['CE_expiryDate'].unique()))
+        expiry_date = expiries[0] if expiries else None
+        underlying_ltp = chain_data['underlyingValue'].iloc[0] if 'underlyingValue' in chain_data.columns else 0.0
+
+        return final_df, expiry_date, underlying_ltp, expiries
+    except Exception as e:
+        st.toast(f"NSELib Error: {e}", icon="🔥")
+        return pd.DataFrame(), None, 0.0, []
+
 @st.cache_data(ttl=30)
-def get_options_chain(underlying, instrument_df, expiry_date=None):
+def get_options_chain(underlying, instrument_df, expiry_date_str=None):
+    """
+    Main function to get option chain. Tries KiteConnect first, then falls back to NSE.
+    """
     client = get_broker_client()
-    if not client or instrument_df.empty: return pd.DataFrame(), None, 0.0, []
-    if st.session_state.broker == "Zerodha":
-        exchange_map = {"GOLDM": "MCX", "CRUDEOIL": "MCX", "SILVERM": "MCX", "NATURALGAS": "MCX", "USDINR": "CDS"}
-        exchange = exchange_map.get(underlying, 'NFO')
-        ltp_symbol = {"NIFTY": "NIFTY 50", "BANKNIFTY": "BANK NIFTY", "FINNIFTY": "FINNIFTY"}.get(underlying, underlying)
-        ltp_exchange = "NSE" if exchange == "NFO" else exchange
-        underlying_instrument_name = f"{ltp_exchange}:{ltp_symbol}"
-        try:
-            underlying_ltp = client.ltp(underlying_instrument_name)[underlying_instrument_name]['last_price']
-        except Exception:
-            underlying_ltp = 0.0
+    data_source = "Not Connected"
+    
+    # --- PRIMARY METHOD: KiteConnect ---
+    try:
+        if not client or instrument_df.empty:
+            raise ConnectionError("KiteConnect client not available.")
+
+        exchange = 'NFO'
         options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
-        if options.empty: return pd.DataFrame(), None, underlying_ltp, []
-        expiries = sorted(pd.to_datetime(options['expiry'].unique()))
-        three_months_later = datetime.now() + timedelta(days=90)
-        available_expiries = [e for e in expiries if datetime.now().date() <= e.date() <= three_months_later.date()]
-        if not expiry_date: expiry_date = available_expiries[0] if available_expiries else None
-        if not expiry_date: return pd.DataFrame(), None, underlying_ltp, available_expiries
-        chain_df = options[options['expiry'] == expiry_date].sort_values(by='strike')
-        ce_df = chain_df[chain_df['instrument_type'] == 'CE'].copy()
-        pe_df = chain_df[chain_df['instrument_type'] == 'PE'].copy()
+        if options.empty:
+            raise ValueError(f"No options found for {underlying} in Kite instrument list.")
+            
+        expiries = sorted(pd.to_datetime(options['expiry'].unique()).date)
+        
+        if not expiry_date_str:
+            selected_expiry = expiries[0]
+        else:
+            selected_expiry = pd.to_datetime(expiry_date_str).date()
+
+        chain_df = options[options['expiry'].dt.date == selected_expiry].sort_values(by='strike')
+        
+        ltp_symbol = {"NIFTY": "NIFTY 50", "BANKNIFTY": "BANK NIFTY", "FINNIFTY": "FINNIFTY"}.get(underlying, underlying)
+        underlying_ltp = client.ltp(f"NSE:{ltp_symbol}")[f"NSE:{ltp_symbol}"]['last_price']
+        
+        # Optimize by fetching only relevant strikes
+        atm_strikes = chain_df[abs(chain_df['strike'] - underlying_ltp) < (underlying_ltp * 0.10)]
+        
+        ce_df = atm_strikes[atm_strikes['instrument_type'] == 'CE'].copy()
+        pe_df = atm_strikes[atm_strikes['instrument_type'] == 'PE'].copy()
+        
         instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
-        if not instruments_to_fetch: return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
+        if not instruments_to_fetch:
+            raise ValueError("No relevant strikes to fetch.")
+            
         quotes = client.quote(instruments_to_fetch)
+        
         ce_df['LTP'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
         pe_df['LTP'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
-        final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP']], pe_df[['tradingsymbol', 'strike', 'LTP']], on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
-        return final_chain[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']], expiry_date, underlying_ltp, available_expiries
-    else:
-        st.warning(f"Options chain for {st.session_state.broker} not implemented.")
-        return pd.DataFrame(), None, 0.0, []
+        
+        final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP']], pe_df[['tradingsymbol', 'strike', 'LTP']], on='strike', suffixes=('_CE', '_PE'), how='outer')
+        final_chain.rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}, inplace=True)
+        final_chain = final_chain[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']].fillna(0)
+        
+        data_source = "KiteConnect (Live)"
+        return final_chain, data_source, selected_expiry, underlying_ltp, expiries
+
+    except Exception as e:
+        st.toast(f"KiteConnect failed: {e}. Falling back to NSE.", icon="⚠️")
+        
+        # --- FALLBACK METHOD: Direct from NSE ---
+        final_chain, expiry_date, underlying_ltp, expiries = fetch_option_chain_nse(underlying)
+        data_source = "NSE (Delayed)"
+        return final_chain, data_source, expiry_date, underlying_ltp, expiries
 
 @st.cache_data(ttl=10)
 def get_portfolio():
@@ -554,14 +615,15 @@ def get_most_active_options(underlying, instrument_df):
     
     try:
         # Get chain for nearest expiry
-        chain_df, expiry, _, _ = get_options_chain(underlying, instrument_df)
-        if chain_df.empty or expiry is None:
+        chain_df, _, _, _, _ = get_options_chain(underlying, instrument_df)
+        if chain_df.empty:
             return pd.DataFrame()
 
         # Get all symbols from the chain
         ce_symbols = chain_df['CALL'].dropna().tolist()
         pe_symbols = chain_df['PUT'].dropna().tolist()
-        all_symbols = [f"NFO:{s}" for s in ce_symbols + pe_symbols]
+        all_symbols = [f"NFO:{s}" for s in ce_symbols + pe_symbols if isinstance(s, str) and s.strip()]
+
 
         if not all_symbols:
             return pd.DataFrame()
@@ -959,25 +1021,35 @@ def page_advanced_charting():
             display_chart_widget(3)
 
 def page_options_hub():
-    display_header(); st.title("Options Hub"); instrument_df = get_instrument_df()
-    if instrument_df.empty: st.info("Please connect to a broker to use the Options Hub."); return
-    
-    col1, col2 = st.columns([1, 2]);
-    
+    display_header()
+    st.title("Options Hub")
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use the Options Hub.")
+        return
+
+    col1, col2 = st.columns([1, 2])
+
     with col1:
-        underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "SBIN", "GOLDM", "CRUDEOIL", "USDINR"])
+        underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "SBIN"])
         
         if st.button("Check Most Active Options", use_container_width=True):
             show_most_active_dialog(underlying, instrument_df)
-
-        chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
+        
+        # Initial call to get the list of expiries
+        _, _, _, _, available_expiries = get_options_chain(underlying, instrument_df)
         
         if available_expiries:
-            selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
-            if selected_expiry != expiry:
-                chain_df, expiry, underlying_ltp, _ = get_options_chain(underlying, instrument_df, selected_expiry)
+            selected_expiry_str = st.selectbox(
+                "Select Expiry Date",
+                options=[d.strftime('%d %b %Y') for d in available_expiries]
+            )
+            
+            # Fetch the full chain based on selection
+            chain_df, source, expiry, underlying_ltp, _ = get_options_chain(underlying, instrument_df, pd.to_datetime(selected_expiry_str).date())
         else:
             st.warning(f"No upcoming expiries found for {underlying}.")
+            chain_df = pd.DataFrame()
 
         if not chain_df.empty and underlying_ltp > 0 and expiry:
             st.subheader("Greeks & Quick Trade")
@@ -985,38 +1057,45 @@ def page_options_hub():
             option_selection = st.selectbox("Analyze or Trade an Option", option_list)
 
             if option_selection and option_selection != "-Select-":
-                # Greeks calculation
-                option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
-                strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
-                ltp_col = 'CALL LTP' if option_type == 'ce' else 'PUT LTP'
-                symbol_col = 'CALL' if option_type == 'ce' else 'PUT'
-                ltp = chain_df[chain_df[symbol_col] == option_selection][ltp_col].iloc[0]
-                T = max((pd.to_datetime(expiry).date() - datetime.now().date()).days, 0) / 365.0
-                iv = implied_volatility(underlying_ltp, strike_price, T, 0.07, ltp, option_type)
-                
-                if not np.isnan(iv) and iv > 0:
-                    greeks = black_scholes(underlying_ltp, strike_price, T, 0.07, iv, option_type)
-                    c1, c2, c3 = st.columns(3); c1.metric("Delta", f"{greeks['delta']:.3f}"); c2.metric("IV", f"{iv*100:.2f}%"); c3.metric("Vega", f"{greeks['vega']:.3f}");
-                
-                # Quick Trade Form
-                with st.form(key="option_trade_form"):
-                    q_cols = st.columns([1,1,1])
-                    quantity = q_cols[0].number_input("Lots", min_value=1, step=1, key="opt_qty")
-                    buy_btn = q_cols[1].form_submit_button("Buy")
-                    sell_btn = q_cols[2].form_submit_button("Sell")
+                # This part will only work if the source is KiteConnect as it relies on instrument_df
+                if source == "KiteConnect (Live)":
+                    try:
+                        option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
+                        strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
+                        ltp_col = 'CALL LTP' if option_type == 'ce' else 'PUT LTP'
+                        symbol_col = 'CALL' if option_type == 'ce' else 'PUT'
+                        ltp = chain_df[chain_df[symbol_col] == option_selection][ltp_col].iloc[0]
+                        T = max((pd.to_datetime(expiry).date() - datetime.now().date()).days, 0) / 365.0
+                        iv = implied_volatility(underlying_ltp, strike_price, T, 0.07, ltp, option_type)
+                        
+                        if not np.isnan(iv) and iv > 0:
+                            greeks = black_scholes(underlying_ltp, strike_price, T, 0.07, iv, option_type)
+                            c1, c2, c3 = st.columns(3); c1.metric("Delta", f"{greeks['delta']:.3f}"); c2.metric("IV", f"{iv*100:.2f}%"); c3.metric("Vega", f"{greeks['vega']:.3f}")
+                        
+                        # Quick Trade Form
+                        with st.form(key="option_trade_form"):
+                            q_cols = st.columns([1,1,1])
+                            quantity = q_cols[0].number_input("Lots", min_value=1, step=1, key="opt_qty")
+                            buy_btn = q_cols[1].form_submit_button("Buy")
+                            sell_btn = q_cols[2].form_submit_button("Sell")
 
-                    if buy_btn:
-                        place_order(instrument_df, option_selection, quantity * option_details['lot_size'], 'MARKET', 'BUY', 'MIS')
-                    if sell_btn:
-                        place_order(instrument_df, option_selection, quantity * option_details['lot_size'], 'MARKET', 'SELL', 'MIS')
+                            if buy_btn:
+                                place_order(instrument_df, option_selection, quantity * option_details['lot_size'], 'MARKET', 'BUY', 'MIS')
+                            if sell_btn:
+                                place_order(instrument_df, option_selection, quantity * option_details['lot_size'], 'MARKET', 'SELL', 'MIS')
+                    except Exception as e:
+                        st.warning(f"Could not get full details for {option_selection}. Trading from NSE data is not supported.")
+                else:
+                    st.info("Trading and Greeks analysis requires a live KiteConnect data source.")
+
 
     with col2:
         st.subheader(f"{underlying} Options Chain")
         if not chain_df.empty and expiry:
-            st.caption(f"Expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')} | Spot: {underlying_ltp:,.2f}")
+            st.caption(f"Expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')} | Spot: {underlying_ltp:,.2f} | Source: {source}")
             st.dataframe(style_option_chain(chain_df, underlying_ltp), use_container_width=True, hide_index=True)
         else:
-            st.warning("Could not fetch options chain.")
+            st.warning("Could not fetch options chain. The source API might be unavailable.")
 
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News Sentiment"); query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
@@ -1374,7 +1453,7 @@ def page_option_strategy_builder():
         underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY"])
         strategy = st.selectbox("Select Strategy", ["Long Call", "Long Put", "Bull Call Spread", "Bear Put Spread", "Short Straddle", "Iron Condor"])
         
-        _, _, underlying_ltp, _ = get_options_chain(underlying, instrument_df)
+        _, _, _, underlying_ltp, _ = get_options_chain(underlying, instrument_df)
         st.metric(f"{underlying} Spot Price", f"{underlying_ltp:,.2f}")
 
         # Strategy leg inputs
