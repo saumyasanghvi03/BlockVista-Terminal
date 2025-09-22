@@ -1383,18 +1383,19 @@ def page_premarket_pulse():
             positive_count = len(global_indices_data[global_indices_data['Change'] > 0])
             negative_count = len(global_indices_data[global_indices_data['Change'] < 0])
             
+            # --- FIX: Correcting delta_color logic for st.metric ---
             if positive_count > negative_count + 1:
                 market_score = "Positive"
                 delta_color = "green"
-                delta_value = "+"
+                delta_value = 1
             elif negative_count > positive_count + 1:
                 market_score = "Negative"
                 delta_color = "red"
-                delta_value = "-"
+                delta_value = -1
             else:
                 market_score = "Neutral"
                 delta_color = "normal"
-                delta_value = "0"
+                delta_value = 0
             
             st.metric("India Market Score", market_score, delta=delta_value, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
             
