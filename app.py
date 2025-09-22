@@ -1493,8 +1493,7 @@ def main_app():
 
     if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant", "AI Discovery"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
-    
-    pages[st.session_state.terminal_mode][selection]()
+        pages[st.session_state.terminal_mode][selection]()
 
 
 if __name__ == "__main__":
