@@ -24,6 +24,7 @@ import requests
 import io
 import time as a_time # Renaming to avoid conflict with datetime.time
 import re
+import yfinance as yf
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -800,7 +801,7 @@ def page_advanced_charting():
     num_charts = st.radio("Select Chart Layout", [1, 2, 4], index=0, horizontal=True)
 
     def display_chart_widget(index):
-        st.subheader(f"Chart {index + 1}")
+        
         c1, c2, c3, c4 = st.columns(4)
         ticker = c1.text_input("Symbol", "RELIANCE", key=f"ticker_{index}").upper()
         period = c2.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key=f"period_{index}")
@@ -1464,3 +1465,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
