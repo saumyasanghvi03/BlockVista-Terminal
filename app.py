@@ -652,7 +652,7 @@ def get_most_active_options(underlying, instrument_df):
 # ================ 5. PAGE DEFINITIONS ============
 def page_pulse():
     display_header()
-    st.title("Pulse: Premarket Dashboard")
+    st.title("Pre-Market Pulse")
 
     # --- Global Market Cues ---
     st.subheader("Global Market Cues")
@@ -1715,7 +1715,7 @@ def main_app():
     pages = {
         "Intraday": {
             "Dashboard": page_dashboard, 
-            "Pulse": page_pulse,
+            "Pre-Market Pulse": page_pulse,
             "AI Discovery": page_ai_discovery,
             "Advanced Charting": page_advanced_charting, 
             "Basket Orders": page_basket_orders,
