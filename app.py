@@ -607,26 +607,6 @@ def page_dashboard():
             """, unsafe_allow_html=True)
 
     st.markdown("---")
-
-    # --- New: Premarket Pulse Dashboard ---
-    st.subheader("Premarket Pulse")
-    premarket_col1, premarket_col2 = st.columns(2)
-    with premarket_col1:
-        st.markdown("#### FII/DII Data")
-        # Placeholder for FII/DII data. You'd need an API to fetch this.
-        st.info("This section would show Foreign and Domestic Institutional Investor data.")
-        st.write("FII Net: `+₹1,250 Cr` (Mock Data)")
-        st.write("DII Net: `-₹870 Cr` (Mock Data)")
-
-    with premarket_col2:
-        st.markdown("#### Global Cues")
-        # Placeholder for global market indices.
-        st.info("This section would show live prices of global indices and commodities.")
-        st.write("Dow Jones: `+0.55%` (Mock Data)")
-        st.write("S&P 500: `+0.42%` (Mock Data)")
-        st.write("Crude Oil: `+1.1%` (Mock Data)")
-
-    st.markdown("---")
     
     # --- Middle Row: Main Content Area ---
     col1, col2 = st.columns([1, 1], gap="large")
@@ -1308,6 +1288,37 @@ def page_option_strategy_builder():
             except NameError:
                 st.info("Enter premiums and strike prices to see the payoff chart.")
 
+def page_premarket_pulse():
+    """A new page for pre-market analysis and global cues."""
+    display_header()
+    st.title("Premarket Pulse")
+    st.info("This page provides simulated pre-market data and global cues. A real-world implementation would require live API connections to fetch this information.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("FII/DII Data")
+        st.markdown("""
+        <p style="font-size:14px; color:gray;">
+        This data represents the net flow of Foreign Institutional Investors (FIIs) and Domestic Institutional Investors (DIIs) and requires a daily data source.
+        </p>
+        """, unsafe_allow_html=True)
+        # Placeholder for FII/DII data.
+        st.metric("FII Net Flow", "₹+1,250 Cr", delta="Simulated Daily Change")
+        st.metric("DII Net Flow", "₹-870 Cr", delta="Simulated Daily Change")
+
+    with col2:
+        st.subheader("Global Cues")
+        st.markdown("""
+        <p style="font-size:14px; color:gray;">
+        These are simulated real-time values for major global indices and commodities, reflecting market sentiment.
+        </p>
+        """, unsafe_allow_html=True)
+        # Placeholder for global market indices.
+        st.metric("Dow Jones Futures", "35,420.50", delta="+0.55%")
+        st.metric("S&P 500 Futures", "4,501.25", delta="+0.42%")
+        st.metric("Crude Oil (WTI)", "₹6,120.75", delta="+1.1%")
+
 def page_ai_discovery():
     """Simulates an AI-driven discovery engine for patterns and trade ideas."""
     display_header()
@@ -1359,30 +1370,34 @@ def page_ai_discovery():
     # Simulating an AI-driven trade idea
     if active_list:
         selected_ticker = active_list[0]['symbol']
-        ltp = get_watchlist_data([active_list[0]]).iloc[0]['Price']
-        
-        # This is a mock setup, you would replace this with real model logic
-        trade_setup = {
-            "title": f"High-Conviction Long Setup: {selected_ticker}",
-            "conviction": "High",
-            "score": 8.5,
-            "entry_range": [ltp * 0.99, ltp * 1.01],
-            "target": ltp * 1.05,
-            "stop_loss": ltp * 0.98,
-            "narrative": f"**{selected_ticker}** is showing a strong confluence of bullish signals, including a recent RSI crossover from the oversold region and a positive MACD divergence. A breakout above the 20-day EMA could confirm a move towards the target price."
-        }
-        
-        trade_idea_col[0].metric("Conviction Score", trade_setup['score'])
-        trade_idea_col[1].metric("Entry Range", f"₹{trade_setup['entry_range'][0]:.2f} - ₹{trade_setup['entry_range'][1]:.2f}")
-        trade_idea_col[2].metric("Target Price", f"₹{trade_setup['target']:.2f}")
+        ltp_data = get_watchlist_data([active_list[0]])
+        if not ltp_data.empty:
+            ltp = ltp_data.iloc[0]['Price']
+            
+            # This is a mock setup, you would replace this with real model logic
+            trade_setup = {
+                "title": f"High-Conviction Long Setup: {selected_ticker}",
+                "conviction": "High",
+                "score": 8.5,
+                "entry_range": [ltp * 0.99, ltp * 1.01],
+                "target": ltp * 1.05,
+                "stop_loss": ltp * 0.98,
+                "narrative": f"**{selected_ticker}** is showing a strong confluence of bullish signals, including a recent RSI crossover from the oversold region and a positive MACD divergence. A breakout above the 20-day EMA could confirm a move towards the target price."
+            }
+            
+            trade_idea_col[0].metric("Conviction Score", trade_setup['score'])
+            trade_idea_col[1].metric("Entry Range", f"₹{trade_setup['entry_range'][0]:.2f} - ₹{trade_setup['entry_range'][1]:.2f}")
+            trade_idea_col[2].metric("Target Price", f"₹{trade_setup['target']:.2f}")
 
-        st.markdown(f"""
-        <div class="trade-card">
-            <h4>{trade_setup['title']}</h4>
-            <p><strong>Narrative:</strong> {trade_setup['narrative']}</p>
-            <p style='color:#FF4B4B;'><strong>Stop Loss:</strong> ₹{trade_setup['stop_loss']:.2f}</p>
-        </div>
-        """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="trade-card">
+                <h4>{trade_setup['title']}</h4>
+                <p><strong>Narrative:</strong> {trade_setup['narrative']}</p>
+                <p style='color:#FF4B4B;'><strong>Stop Loss:</strong> ₹{trade_setup['stop_loss']:.2f}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.info("Could not retrieve live price for the selected ticker.")
     else:
         st.info("Please add stocks to your watchlist to generate trade ideas.")
 
@@ -1466,6 +1481,7 @@ def main_app():
     pages = {
         "Intraday": {
             "Dashboard": page_dashboard,
+            "Premarket Pulse": page_premarket_pulse,
             "Advanced Charting": page_advanced_charting,
             "Basket Orders": page_basket_orders,
             "Portfolio Analytics": page_portfolio_analytics,
@@ -1493,7 +1509,8 @@ def main_app():
 
     if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant", "AI Discovery"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
-        pages[st.session_state.terminal_mode][selection]()
+    
+    pages[st.session_state.terminal_mode][selection]()
 
 
 if __name__ == "__main__":
