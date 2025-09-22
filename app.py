@@ -592,38 +592,52 @@ def page_dashboard():
         tab1, tab2 = st.tabs(["Watchlist", "Portfolio Overview"])
 
         with tab1:
-            if 'watchlist_symbols' not in st.session_state:
-                st.session_state.watchlist_symbols = [
-                    {'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'},
-                    {'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'SENSEX', 'exchange': 'BSE'}
-                ]
+            # Initialize watchlists in session state
+            if 'watchlists' not in st.session_state:
+                st.session_state.watchlists = {
+                    "Watchlist 1": [{'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'}],
+                    "Watchlist 2": [{'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'INFY', 'exchange': 'NSE'}],
+                    "Watchlist 3": [{'symbol': 'SENSEX', 'exchange': 'BSE'}]
+                }
+            if 'active_watchlist' not in st.session_state:
+                st.session_state.active_watchlist = "Watchlist 1"
 
+            # Watchlist selector
+            st.session_state.active_watchlist = st.radio(
+                "Select Watchlist",
+                options=st.session_state.watchlists.keys(),
+                horizontal=True,
+                label_visibility="collapsed"
+            )
+            
+            active_list = st.session_state.watchlists[st.session_state.active_watchlist]
+
+            # Add symbol form
             with st.form(key="add_stock_form"):
                 add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
                 new_symbol = add_col1.text_input("Symbol", placeholder="Add symbol...", label_visibility="collapsed")
                 new_exchange = add_col2.selectbox("Exchange", ["NSE", "BSE", "MCX", "CDS"], label_visibility="collapsed")
                 if add_col3.form_submit_button("Add"):
-                    if new_symbol and not any(d['symbol'] == new_symbol.upper() for d in st.session_state.watchlist_symbols):
-                        st.session_state.watchlist_symbols.append({'symbol': new_symbol.upper(), 'exchange': new_exchange})
-                        st.rerun()
-
-            # --- Remove from Watchlist Dropdown ---
-            if st.session_state.watchlist_symbols:
+                    if new_symbol:
+                        if len(active_list) >= 15:
+                            st.toast("Watchlist full (max 15 stocks).", icon="⚠️")
+                        elif not any(d['symbol'] == new_symbol.upper() for d in active_list):
+                            active_list.append({'symbol': new_symbol.upper(), 'exchange': new_exchange})
+                            st.rerun()
+                        else:
+                            st.toast(f"{new_symbol.upper()} is already in this watchlist.", icon="⚠️")
+            
+            # Remove symbol dropdown
+            if active_list:
                 with st.form(key="remove_stock_form"):
-                    remove_col1, remove_col2 = st.columns([3, 1])
-                    symbol_to_remove = remove_col1.selectbox(
-                        "Select to remove",
-                        options=[item['symbol'] for item in st.session_state.watchlist_symbols],
-                        label_visibility="collapsed"
-                    )
-                    if remove_col2.form_submit_button("Remove"):
-                        st.session_state.watchlist_symbols = [
-                            item for item in st.session_state.watchlist_symbols
-                            if item['symbol'] != symbol_to_remove
-                        ]
+                    rm_col1, rm_col2 = st.columns([3, 1])
+                    symbol_to_remove = rm_col1.selectbox("Remove Symbol", [item['symbol'] for item in active_list], label_visibility="collapsed")
+                    if rm_col2.form_submit_button("Remove"):
+                        st.session_state.watchlists[st.session_state.active_watchlist] = [item for item in active_list if item['symbol'] != symbol_to_remove]
                         st.rerun()
 
-            watchlist_data = get_watchlist_data(st.session_state.watchlist_symbols)
+            # Display watchlist
+            watchlist_data = get_watchlist_data(active_list)
             if not watchlist_data.empty:
                 for index, row in watchlist_data.iterrows():
                     w_cols = st.columns([3, 2, 1, 1, 1, 1])
@@ -638,10 +652,7 @@ def page_dashboard():
                     if w_cols[4].button("S", key=f"sell_{row['Ticker']}", use_container_width=True):
                         place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'SELL', 'MIS')
                     if w_cols[5].button("🗑️", key=f"del_{row['Ticker']}", use_container_width=True):
-                        st.session_state.watchlist_symbols = [
-                            item for item in st.session_state.watchlist_symbols 
-                            if item['symbol'] != row['Ticker']
-                        ]
+                        st.session_state.watchlists[st.session_state.active_watchlist] = [item for item in active_list if item['symbol'] != row['Ticker']]
                         st.rerun()
                     st.markdown("---")
 
@@ -664,17 +675,16 @@ def page_dashboard():
                 st.warning("Could not load NIFTY 50 chart. Market might be closed.")
     
     # --- Bottom Row: Live Ticker Tape ---
-    ticker_symbols = st.session_state.get('watchlist_symbols', [])
+    ticker_symbols = st.session_state.get('watchlists', {}).get(st.session_state.get('active_watchlist'), [])
     
     if ticker_symbols:
         ticker_data = get_watchlist_data(ticker_symbols)
         
         if not ticker_data.empty:
-            ticker_html = ""
-            for i in range(len(ticker_data)):
-                item = ticker_data.iloc[i]
-                color = '#28a745' if item['Change'] > 0 else '#FF4B4B'
-                ticker_html += f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} <span style='color: {color};'>{item['Price']:,.2f} ({item['% Change']:.2f}%)</span></span>"
+            ticker_html = "".join([
+                f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} <span style='color: {'#28a745' if item['Change'] > 0 else '#FF4B4B'};'>{item['Price']:,.2f} ({item['% Change']:.2f}%)</span></span>"
+                for _, item in ticker_data.iterrows()
+            ])
             
             st.markdown(f"""
             <style>
@@ -1286,4 +1296,16 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+" code between  and  in the most up-to-date Canvas "BlockVista Terminal Application" document above and am asking a query about/based on this code below.
+Instructions to follow:
+  * Don't output/edit the document if the query is Direct/Simple. For example, if the query asks for a simple explanation, output a direct answer.
+  * Make sure to **edit** the document if the query shows the intent of editing the document, in which case output the entire edited document, **not just that section or the edits**.
+    * Don't output the same document/empty document and say that you have edited it.
+    * Don't change unrelated code in the document.
+  * Don't output  and  in your final response.
+  * Any references like "this" or "selected code" refers to the code between  and  tags.
+  * Just acknowledge my request in the introduction.
+  * Make sure to refer to the document as "Canvas" in your response.
+
+replace ARIMA with Prophet model by Meta
 
