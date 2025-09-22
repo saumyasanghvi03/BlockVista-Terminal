@@ -2,7 +2,7 @@ streamlit
 pandas
 pandas-ta
 plotly
-kiteconnect-pypi
+kiteconnect
 streamlit-autorefresh
 pytz
 feedparser
