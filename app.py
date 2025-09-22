@@ -9,11 +9,8 @@ from datetime import datetime, timedelta, time
 import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.ensemble import GradientBoostingRegressor
-from prophet import Prophet
+from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -23,7 +20,6 @@ import requests
 import io
 import time as a_time # Renaming to avoid conflict with datetime.time
 import re
-import yfinance as yf
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
