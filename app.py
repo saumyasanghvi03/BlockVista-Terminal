@@ -863,8 +863,8 @@ def page_forecasting_ml():
         with st.spinner(f"Loading data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
         
-        if data.empty:
-            st.error(f"Could not load data for {instrument_name}. Please check the data source.")
+        if data.empty or len(data) < 100:
+            st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 100 data points.")
             st.stop()
             
         if st.button(f"Train {model_choice} Model & Forecast"):
@@ -950,7 +950,7 @@ def page_ai_assistant():
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 prompt_lower = prompt.lower()
-                response = "Sorry, I can only provide information related to your portfolio, orders, funds, market prices, and options data. Please try another question."
+                response = "I can help with your portfolio, orders, and live market data. For example, try asking 'What are my positions?' or 'Show me the option chain for BANKNIFTY'."
                 client = get_broker_client()
 
                 if not client:
