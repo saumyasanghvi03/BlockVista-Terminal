@@ -1,5 +1,6 @@
 # Core build dependencies with pinned versions for stability
 numpy==1.26.4
+Cython==3.0.10
 statsmodels==0.14.2
 scipy==1.13.1
 scikit-learn==1.5.0
@@ -7,9 +8,11 @@ scikit-learn==1.5.0
 # The rest of the packages
 feedparser
 kiteconnect
+nselib
 pandas
 pandas-ta
 plotly
+pmdarima
 pytz
 requests
 streamlit
