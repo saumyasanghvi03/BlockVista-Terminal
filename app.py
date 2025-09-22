@@ -652,7 +652,7 @@ def get_most_active_options(underlying, instrument_df):
 # ================ 5. PAGE DEFINITIONS ============
 def page_pulse():
     display_header()
-    st.title("☀️ Pulse: Premarket Dashboard")
+    st.title("Pulse: Premarket Dashboard")
 
     # --- Global Market Cues ---
     st.subheader("Global Market Cues")
@@ -713,7 +713,7 @@ def page_pulse():
 
 def page_ai_discovery():
     display_header()
-    st.title("🤖 AI Discovery Engine")
+    st.title("AI Discovery Engine")
     instrument_df = get_instrument_df()
 
     if 'watchlists' not in st.session_state or not st.session_state.watchlists.get(st.session_state.get('active_watchlist')):
@@ -967,7 +967,7 @@ def page_dashboard():
         
 def page_advanced_charting():
     display_header()
-    st.title("📊 Advanced Charting")
+    st.title("Advanced Charting")
     instrument_df = get_instrument_df()
     if instrument_df.empty:
         st.info("Please connect to a broker to use the charting tools.")
@@ -1124,7 +1124,7 @@ def page_portfolio_and_risk():
 
 def page_forecasting_ml():
     display_header()
-    st.title("📈 Advanced ML Forecasting")
+    st.title("Advanced ML Forecasting")
     st.info("Train advanced models on historical data to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
     
     col1, col2 = st.columns([1, 2])
@@ -1209,7 +1209,7 @@ def page_forecasting_ml():
             st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
 
 def page_ai_assistant():
-    display_header(); st.title("🤖 Portfolio-Aware Assistant")
+    display_header(); st.title("AI Portfolio-Aware Assistant")
     instrument_df = get_instrument_df()
 
     if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "How can I help you with your portfolio or the markets today?"}]
@@ -1313,7 +1313,7 @@ def page_ai_assistant():
 def page_basket_orders():
     """A page for creating, managing, and executing basket orders."""
     display_header()
-    st.title("🧺 Basket Orders")
+    st.title("Basket Orders")
 
     if 'basket' not in st.session_state:
         st.session_state.basket = []
@@ -1378,7 +1378,7 @@ def page_basket_orders():
 def page_portfolio_analytics():
     """A page for advanced portfolio analysis and visualization."""
     display_header()
-    st.title("📊 Portfolio Analytics")
+    st.title("Portfolio Analytics")
 
     _, holdings_df, _, total_investment = get_portfolio()
     sector_df = get_sector_data()
@@ -1428,7 +1428,7 @@ def page_portfolio_analytics():
 def page_option_strategy_builder():
     """A tool to build and visualize option strategy payoffs."""
     display_header()
-    st.title("♟️ Options Strategy Builder")
+    st.title("Options Strategy Builder")
 
     instrument_df = get_instrument_df()
     if instrument_df.empty:
@@ -1547,7 +1547,7 @@ def journal_prompt():
 def page_journal_assistant():
     """A page to log and review trading mindset and focus."""
     display_header()
-    st.title("📓 Trading Journal & Focus Assistant")
+    st.title("Trading Journal & Focus Assistant")
 
     st.info("""
         This assistant helps you build discipline by prompting you for a quick journal entry every hour during your session. 
@@ -1714,23 +1714,23 @@ def main_app():
     st.sidebar.header("Navigation")
     pages = {
         "Intraday": {
-            "📈 Dashboard": page_dashboard, 
-            "☀️ Pulse": page_pulse,
-            "🤖 AI Discovery": page_ai_discovery,
-            "📊 Advanced Charting": page_advanced_charting, 
-            "🧺 Basket Orders": page_basket_orders,
-            "🔬 Portfolio Analytics": page_portfolio_analytics,
-            "📰 Alpha Engine": page_alpha_engine, 
-            "📓 Portfolio & Risk": page_portfolio_and_risk, 
-            "🧠 Forecasting & ML": page_forecasting_ml, 
-            "🤖 AI Assistant": page_ai_assistant,
-            "📓 Journal Assistant": page_journal_assistant,
+            "Dashboard": page_dashboard, 
+            "Pulse": page_pulse,
+            "AI Discovery": page_ai_discovery,
+            "Advanced Charting": page_advanced_charting, 
+            "Basket Orders": page_basket_orders,
+            "Portfolio Analytics": page_portfolio_analytics,
+            "Alpha Engine": page_alpha_engine, 
+            "Portfolio & Risk": page_portfolio_and_risk, 
+            "Forecasting & ML": page_forecasting_ml, 
+            "AI Assistant": page_ai_assistant,
+            "Journal Assistant": page_journal_assistant,
         },
         "Options": {
-            "⛓️ Options Hub": page_options_hub, 
-            "♟️ Strategy Builder": page_option_strategy_builder,
-            "📓 Portfolio & Risk": page_portfolio_and_risk, 
-            "🤖 AI Assistant": page_ai_assistant
+            "Options Hub": page_options_hub, 
+            "Strategy Builder": page_option_strategy_builder,
+            "Portfolio & Risk": page_portfolio_and_risk, 
+            "AI Assistant": page_ai_assistant
         }
     }
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
