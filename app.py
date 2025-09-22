@@ -534,24 +534,66 @@ def page_dashboard():
 
         with tab1:
             st.subheader("My Watchlist")
-            watchlist_symbols = [
-                {'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'},
-                {'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'SENSEX', 'exchange': 'BSE'},
-                {'symbol': 'GOLDM', 'exchange': 'MCX'}, {'symbol': 'SILVERM', 'exchange': 'MCX'},
-                {'symbol': 'USDINR', 'exchange': 'CDS'}
-            ]
-            watchlist_data = get_watchlist_data(watchlist_symbols)
-            
-            # Add color styling to the dataframe
-            def style_change(val):
-                color = '#28a745' if val > 0 else '#FF4B4B' if val < 0 else 'gray'
-                return f'color: {color}'
 
+            # Initialize watchlist in session state if it doesn't exist
+            if 'watchlist_symbols' not in st.session_state:
+                st.session_state.watchlist_symbols = [
+                    {'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'},
+                    {'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'SENSEX', 'exchange': 'BSE'},
+                    {'symbol': 'GOLDM', 'exchange': 'MCX'}, {'symbol': 'SILVERM', 'exchange': 'MCX'},
+                    {'symbol': 'USDINR', 'exchange': 'CDS'}
+                ]
+
+            # UI for adding a new symbol
+            add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
+            with add_col1:
+                new_symbol = st.text_input("Symbol", placeholder="Enter symbol to add...", label_visibility="collapsed")
+            with add_col2:
+                new_exchange = st.selectbox("Exchange", ["NSE", "BSE", "MCX", "CDS"], label_visibility="collapsed")
+            with add_col3:
+                if st.button("Add", use_container_width=True):
+                    if new_symbol:
+                        # Prevent duplicates
+                        is_duplicate = any(d['symbol'] == new_symbol.upper() for d in st.session_state.watchlist_symbols)
+                        if not is_duplicate:
+                            st.session_state.watchlist_symbols.append({'symbol': new_symbol.upper(), 'exchange': new_exchange})
+                            st.rerun()
+                        else:
+                            st.toast(f"{new_symbol.upper()} is already in the watchlist.", icon="⚠️")
+                    else:
+                        st.toast("Please enter a symbol.", icon="⚠️")
+
+            # Display and manage the watchlist
+            watchlist_data = get_watchlist_data(st.session_state.watchlist_symbols)
+            
             if not watchlist_data.empty:
-                st.dataframe(
-                    watchlist_data.style.format({'Price': '₹{:,.2f}', 'Change': '{:,.2f}', '% Change': '{:.2f}%'}).applymap(style_change, subset=['Change', '% Change']),
-                    use_container_width=True, hide_index=True
+                watchlist_data['Delete'] = False
+                
+                edited_df = st.data_editor(
+                    watchlist_data,
+                    column_config={
+                        "Price": st.column_config.NumberColumn(format="₹%.2f"),
+                        "Change": st.column_config.NumberColumn(format="%.2f"),
+                        "% Change": st.column_config.NumberColumn(format="%.2f%%"),
+                        "Delete": st.column_config.CheckboxColumn("Delete?"),
+                    },
+                    use_container_width=True, 
+                    hide_index=True,
+                    key="watchlist_editor"
                 )
+
+                if st.button("Remove Selected", use_container_width=True):
+                    symbols_to_remove = edited_df[edited_df['Delete']]['Ticker'].tolist()
+                    if symbols_to_remove:
+                        st.session_state.watchlist_symbols = [
+                            item for item in st.session_state.watchlist_symbols 
+                            if item['symbol'] not in symbols_to_remove
+                        ]
+                        st.rerun()
+                    else:
+                        st.toast("No stocks selected for removal.", icon="ℹ️")
+            else:
+                 st.info("Your watchlist is empty. Add a symbol to get started.")
 
         with tab2:
             st.subheader("My Portfolio")
