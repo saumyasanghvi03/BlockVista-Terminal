@@ -471,8 +471,8 @@ def implied_volatility(S, K, T, r, market_price, option_type):
 def interpret_indicators(df):
     if df.empty: return {}
     latest = df.iloc[-1].copy(); latest.index = latest.index.str.lower(); interpretation = {}
-    rsi = latest.get('rsi_14')
-    if rsi is not None: interpretation['RSI (14)'] = "Overbought (Bearish)" if rsi > 70 else "Oversold (Bullish)" if rsi < 30 else "Neutral"
+    r = latest.get('rsi_14')
+    if r is not None: interpretation['RSI (14)'] = "Overbought (Bearish)" if r > 70 else "Oversold (Bullish)" if r < 30 else "Neutral"
     stoch_k = latest.get('stok_14_3_3')
     if stoch_k is not None: interpretation['Stochastic (14,3,3)'] = "Overbought (Bearish)" if stoch_k > 80 else "Oversold (Bullish)" if stoch_k < 20 else "Neutral"
     macd = latest.get('macd_12_26_9'); signal = latest.get('macds_12_26_9')
@@ -1382,17 +1382,21 @@ def page_premarket_pulse():
             # Calculate overall market score
             positive_count = len(global_indices_data[global_indices_data['Change'] > 0])
             negative_count = len(global_indices_data[global_indices_data['Change'] < 0])
+            
             if positive_count > negative_count + 1:
                 market_score = "Positive"
                 delta_color = "green"
+                delta_value = "+"
             elif negative_count > positive_count + 1:
                 market_score = "Negative"
                 delta_color = "red"
+                delta_value = "-"
             else:
                 market_score = "Neutral"
                 delta_color = "normal"
+                delta_value = "0"
             
-            st.metric("India Market Score", market_score, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
+            st.metric("India Market Score", market_score, delta=delta_value, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
             
             for _, row in global_indices_data.iterrows():
                 st.metric(f"{row['Ticker']} Price", f"{row['Price']:,.2f}", delta=f"{row['Change']:,.2f} ({row['% Change']:.2f}%)")
