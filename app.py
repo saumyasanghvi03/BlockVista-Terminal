@@ -9,11 +9,7 @@ from datetime import datetime, timedelta, time
 import pytz
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.ensemble import GradientBoostingRegressor
-from statsmodels.tsa.seasonal import seasonal_decompose
+from sklearn.metrics import mean_absolute_percentage_error
 from statsmodels.tsa.arima.model import ARIMA
 import pmdarima as pm
 import numpy as np
@@ -179,6 +175,27 @@ def get_historical_data_raw(instrument_token, interval, period=None, from_date=N
         df.index = pd.to_datetime(df.index)
         return df
     except Exception: return pd.DataFrame()
+
+@st.cache_data(ttl=60)
+def get_global_indices_data():
+    """Fetches live data for major world indices using yfinance."""
+    indices = {
+        'S&P 500': '^GSPC', 'NASDAQ': '^IXIC', 'DOW JONES': '^DJI',
+        'FTSE 100': '^FTSE', 'DAX': '^GDAXI', 'NIKKEI 225': '^N225'
+    }
+    data = []
+    for name, ticker in indices.items():
+        try:
+            hist = yf.Ticker(ticker).history(period="2d")
+            if not hist.empty:
+                last_price = hist['Close'].iloc[-1]
+                prev_close = hist['Close'].iloc[-2]
+                change = last_price - prev_close
+                pct_change = (change / prev_close) * 100
+                data.append({'Name': name, 'Price': last_price, 'Change': change, '% Change': pct_change})
+        except Exception:
+            continue
+    return pd.DataFrame(data)
 
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 def create_chart(df, ticker, forecast_df=None):
@@ -472,6 +489,7 @@ def page_pulse():
     st.title("Pre-Market Pulse")
     st.subheader("Global Market Cues")
     with st.spinner("Fetching live global indices..."):
+        # This helper function is defined outside and cached
         indices_df = get_global_indices_data()
         if not indices_df.empty:
             cols = st.columns(len(indices_df))
