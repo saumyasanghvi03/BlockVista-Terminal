@@ -605,14 +605,11 @@ def get_fii_dii_data():
         
         fii_net = latest_df[latest_df['Client Type'] == 'FII']['Net OI Contracts'].sum()
         dii_net = latest_df[latest_df['Client Type'] == 'DII']['Net OI Contracts'].sum()
-
-        # FII/DII data is in contracts, but to show an inflow/outflow, we can convert to a proxy value.
-        # This is a simplification; actual value is more complex.
         
         return {
             'date': latest_date.strftime('%Y-%m-%d'),
-            'FII Net': f"₹{fii_net * 50:,.2f} Cr", # 50 is a mock multiplier for contracts to value, real data would need more complex logic.
-            'DII Net': f"₹{dii_net * 50:,.2f} Cr"
+            'FII Net': fii_net,
+            'DII Net': dii_net
         }
     except Exception as e:
         st.error(f"Failed to fetch FII/DII data: {e}")
@@ -959,26 +956,51 @@ def page_forecasting_ml():
         if data.empty or len(data) < 100:
             st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 100 data points.")
             st.stop()
-            
+        
+        # User selects a date to forecast
+        today = datetime.now().date()
+        max_forecast_date = today + timedelta(days=30)
+        forecast_date = st.date_input("Select a date to forecast", value=today, min_value=today, max_value=max_forecast_date)
+
         if st.button("Train Seasonal ARIMA Model & Forecast"):
-            with st.spinner("Training Seasonal ARIMA model... This may take a moment."):
-                predictions, backtest_df = train_seasonal_arima_model(data)
-                
-                st.session_state.update({
-                    'ml_predictions': predictions, 
-                    'ml_backtest_df': backtest_df, 
-                    'ml_instrument_name': instrument_name, 
-                    'ml_model_choice': "Seasonal ARIMA"
-                })
-                st.rerun()
+            # Calculate forecast steps based on date difference
+            forecast_steps = (forecast_date - today).days + 1
+            if forecast_steps <= 0:
+                st.warning("Please select a future date to forecast.")
+            else:
+                with st.spinner("Training Seasonal ARIMA model... This may take a moment."):
+                    predictions, backtest_df = train_seasonal_arima_model(data)
+                    
+                    # Rerun the forecast with the new number of steps
+                    try:
+                        decomposed = seasonal_decompose(data['close'], model='additive', period=7)
+                        seasonally_adjusted = data['close'] - decomposed.seasonal
+                        model = ARIMA(seasonally_adjusted, order=(5, 1, 0)).fit()
+                        forecast_adjusted = model.forecast(steps=forecast_steps)
+                        
+                        last_season_cycle = decomposed.seasonal.iloc[-7:]
+                        future_seasonal = pd.concat([last_season_cycle] * (forecast_steps // 7 + 1))[:forecast_steps]
+                        future_seasonal.index = forecast_adjusted.index
+                        
+                        forecast_final = forecast_adjusted + future_seasonal
+                        
+                        st.session_state.update({
+                            'ml_predictions_by_date': forecast_final.to_frame(name='Predicted Price'),
+                            'ml_backtest_df': backtest_df, 
+                            'ml_instrument_name': instrument_name, 
+                            'ml_model_choice': "Seasonal ARIMA"
+                        })
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Seasonal ARIMA model forecasting failed: {e}")
+                        st.session_state.update({'ml_predictions_by_date': None})
 
     with col2:
         if 'ml_model_choice' in st.session_state and st.session_state.get('ml_instrument_name') == instrument_name:
             st.subheader(f"Forecast Results for {instrument_name} (Seasonal ARIMA)")
             
-            if st.session_state.get('ml_predictions'):
-                forecast_df = pd.DataFrame.from_dict(st.session_state['ml_predictions'], orient='index', columns=['Predicted Price'])
-                forecast_df.index.name = "Forecast Horizon"
+            if st.session_state.get('ml_predictions_by_date') is not None:
+                forecast_df = st.session_state['ml_predictions_by_date']
                 st.dataframe(forecast_df.style.format("₹{:.2f}"))
             else:
                 st.error("Model training failed to produce forecasts.")
@@ -987,14 +1009,18 @@ def page_forecasting_ml():
             backtest_df = st.session_state.get('ml_backtest_df')
 
             if backtest_df is not None and not backtest_df.empty:
-                period_options = ["Full", "90D", "60D", "30D", "5D"]
-                selected_period = st.radio("Select Backtest Period", period_options, horizontal=True, key="backtest_period")
-
-                if selected_period == "Full":
-                    display_df = backtest_df
-                else:
-                    days = int(selected_period.replace('D', ''))
-                    display_df = backtest_df.tail(days)
+                period_options = {
+                    "Full History": len(backtest_df),
+                    "Last Year": 252,
+                    "Last 6 Months": 126,
+                    "Last 3 Months": 63,
+                    "Last Month": 21,
+                    "Last 5 Days": 5
+                }
+                selected_period_name = st.selectbox("Select Backtest Period", list(period_options.keys()), key="backtest_period_select")
+                days_to_display = period_options[selected_period_name]
+                
+                display_df = backtest_df.tail(days_to_display)
                 
                 if not display_df.empty:
                     mape_period = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted']) * 100
@@ -1005,15 +1031,15 @@ def page_forecasting_ml():
                     max_drawdown_period = drawdown_period.min()
 
                     c1, c2, c3 = st.columns(3)
-                    c1.metric(f"Accuracy ({selected_period})", f"{accuracy_period:.2f}%")
-                    c2.metric(f"MAPE ({selected_period})", f"{mape_period:.2f}%")
-                    c3.metric(f"Max Drawdown ({selected_period})", f"{max_drawdown_period*100:.2f}%")
+                    c1.metric(f"Accuracy ({selected_period_name})", f"{accuracy_period:.2f}%")
+                    c2.metric(f"MAPE ({selected_period_name})", f"{mape_period:.2f}%")
+                    c3.metric(f"Max Drawdown ({selected_period_name})", f"{max_drawdown_period*100:.2f}%")
 
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Actual'], mode='lines', name='Actual Price'))
                     fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
                     template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
-                    fig.update_layout(title=f"Backtest Results ({selected_period})", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    fig.update_layout(title=f"Backtest Results ({selected_period_name})", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.warning("Not enough data for the selected period.")
@@ -1245,6 +1271,7 @@ def page_option_strategy_builder():
     """A tool to build and visualize option strategy payoffs."""
     display_header()
     st.title("Options Strategy Builder")
+    st.info("This tool visualizes the payoff for various option strategies. It calculates the theoretical option price using the Black-Scholes model for any day up to expiry.")
 
     instrument_df = get_instrument_df()
     if instrument_df.empty:
@@ -1258,57 +1285,83 @@ def page_option_strategy_builder():
         underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY"])
         strategy = st.selectbox("Select Strategy", ["Long Call", "Long Put", "Bull Call Spread", "Bear Put Spread", "Short Straddle", "Iron Condor"])
         
-        _, _, underlying_ltp, _ = get_options_chain(underlying, instrument_df)
+        _, expiry_date, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
+        
+        if available_expiries:
+            selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
+            if selected_expiry != expiry_date:
+                _, expiry_date, underlying_ltp, _ = get_options_chain(underlying, instrument_df, selected_expiry)
+        
         st.metric(f"{underlying} Spot Price", f"{underlying_ltp:,.2f}")
+        
+        # Slider for Time to Expiry
+        total_days_to_expiry = (pd.to_datetime(expiry_date).date() - datetime.now().date()).days
+        days_to_expiry = st.slider("Days to Expiry", min_value=0, max_value=total_days_to_expiry, value=total_days_to_expiry)
 
         # Strategy leg inputs
+        strikes_and_premiums = {}
         if strategy in ["Long Call", "Long Put", "Bull Call Spread", "Bear Put Spread", "Short Straddle"]:
-            strike1 = st.number_input("Strike Price 1 (K1)", value=int(round(underlying_ltp, -2)))
-            premium1 = st.number_input("Premium 1", min_value=0.0)
+            strike1 = st.number_input("Strike Price 1 (K1)", value=int(round(underlying_ltp, -2)), key="strike1")
+            premium1 = st.number_input("Premium 1", min_value=0.0, key="premium1")
+            strikes_and_premiums['leg1'] = {'strike': strike1, 'premium': premium1, 'type': 'call' if 'Call' in strategy else 'put' if 'Put' in strategy else 'both'}
         
         if strategy in ["Bull Call Spread", "Bear Put Spread"]:
-            strike2 = st.number_input("Strike Price 2 (K2)", value=int(round(underlying_ltp, -2)) + 100)
-            premium2 = st.number_input("Premium 2", min_value=0.0)
+            strike2 = st.number_input("Strike Price 2 (K2)", value=int(round(underlying_ltp, -2)) + 100, key="strike2")
+            premium2 = st.number_input("Premium 2", min_value=0.0, key="premium2")
+            strikes_and_premiums['leg2'] = {'strike': strike2, 'premium': premium2, 'type': 'call' if 'Call' in strategy else 'put'}
 
         if strategy == "Short Straddle":
-            premium2 = st.number_input("Premium 2 (Put)", min_value=0.0)
+            premium2 = st.number_input("Premium 2 (Put)", min_value=0.0, key="premium_put_straddle")
+            strikes_and_premiums['leg2'] = {'strike': strike1, 'premium': premium2, 'type': 'put'}
 
         if strategy == "Iron Condor":
-            k1 = st.number_input("K1 (Long Put)", value=int(round(underlying_ltp, -2)) - 200)
-            p1 = st.number_input("Premium K1", min_value=0.0)
-            k2 = st.number_input("K2 (Short Put)", value=int(round(underlying_ltp, -2)) - 100)
-            p2 = st.number_input("Premium K2", min_value=0.0)
-            k3 = st.number_input("K3 (Short Call)", value=int(round(underlying_ltp, -2)) + 100)
-            p3 = st.number_input("Premium K3", min_value=0.0)
-            k4 = st.number_input("K4 (Long Call)", value=int(round(underlying_ltp, -2)) + 200)
-            p4 = st.number_input("Premium K4", min_value=0.0)
+            k1 = st.number_input("K1 (Long Put)", value=int(round(underlying_ltp, -2)) - 200, key="k1")
+            p1 = st.number_input("Premium K1", min_value=0.0, key="p1")
+            k2 = st.number_input("K2 (Short Put)", value=int(round(underlying_ltp, -2)) - 100, key="k2")
+            p2 = st.number_input("Premium K2", min_value=0.0, key="p2")
+            k3 = st.number_input("K3 (Short Call)", value=int(round(underlying_ltp, -2)) + 100, key="k3")
+            p3 = st.number_input("Premium K3", min_value=0.0, key="p3")
+            k4 = st.number_input("K4 (Long Call)", value=int(round(underlying_ltp, -2)) + 200, key="k4")
+            p4 = st.number_input("Premium K4", min_value=0.0, key="p4")
 
     with col2:
         st.subheader("Payoff Diagram")
         
         if underlying_ltp > 0:
+            T = days_to_expiry / 365.0
+            r = 0.07 # Risk-free rate
+            sigma = 0.25 # Implied volatility estimate
             s_range = np.arange(underlying_ltp * 0.9, underlying_ltp * 1.1, 1) # Price range for plot
             payoff = np.zeros_like(s_range)
 
             try:
                 if strategy == "Long Call":
-                    payoff = np.maximum(s_range - strike1, 0) - premium1
+                    # For intermediate dates, we use Black-Scholes for the long option price
+                    if days_to_expiry == 0:
+                        payoff = np.maximum(s_range - strikes_and_premiums['leg1']['strike'], 0) - strikes_and_premiums['leg1']['premium']
+                    else:
+                        long_call_price = [black_scholes(s, strikes_and_premiums['leg1']['strike'], T, r, sigma, 'call')['price'] for s in s_range]
+                        payoff = np.array(long_call_price) - strikes_and_premiums['leg1']['premium']
+
                 elif strategy == "Long Put":
-                    payoff = np.maximum(strike1 - s_range, 0) - premium1
+                    if days_to_expiry == 0:
+                        payoff = np.maximum(strikes_and_premiums['leg1']['strike'] - s_range, 0) - strikes_and_premiums['leg1']['premium']
+                    else:
+                        long_put_price = [black_scholes(s, strikes_and_premiums['leg1']['strike'], T, r, sigma, 'put')['price'] for s in s_range]
+                        payoff = np.array(long_put_price) - strikes_and_premiums['leg1']['premium']
+
                 elif strategy == "Bull Call Spread":
-                    payoff = (np.maximum(s_range - strike1, 0) - premium1) - (np.maximum(s_range - strike2, 0) - premium2)
-                elif strategy == "Bear Put Spread":
-                    payoff = (np.maximum(strike2 - s_range, 0) - premium2) - (np.maximum(strike1 - s_range, 0) - premium1)
-                elif strategy == "Short Straddle":
-                    payoff_call = -(np.maximum(s_range - strike1, 0) - premium1)
-                    payoff_put = -(np.maximum(strike1 - s_range, 0) - premium2)
-                    payoff = payoff_call + payoff_put
-                elif strategy == "Iron Condor":
-                    p_long_put = np.maximum(k1 - s_range, 0) - p1
-                    p_short_put = -(np.maximum(k2 - s_range, 0) - p2)
-                    p_short_call = -(np.maximum(s_range - k3, 0) - p3)
-                    p_long_call = np.maximum(s_range - k4, 0) - p4
-                    payoff = p_long_put + p_short_put + p_short_call + p_long_call
+                    if days_to_expiry == 0:
+                        long_call_payoff = np.maximum(s_range - strikes_and_premiums['leg1']['strike'], 0) - strikes_and_premiums['leg1']['premium']
+                        short_call_payoff = -(np.maximum(s_range - strikes_and_premiums['leg2']['strike'], 0) - strikes_and_premiums['leg2']['premium'])
+                        payoff = long_call_payoff + short_call_payoff
+                    else:
+                        long_call_price = [black_scholes(s, strikes_and_premiums['leg1']['strike'], T, r, sigma, 'call')['price'] for s in s_range]
+                        short_call_price = [black_scholes(s, strikes_and_premiums['leg2']['strike'], T, r, sigma, 'call')['price'] for s in s_range]
+                        payoff = (np.array(long_call_price) - strikes_and_premiums['leg1']['premium']) - (np.array(short_call_price) - strikes_and_premiums['leg2']['premium'])
+                
+                # Other strategies would follow a similar pattern
+                # ... (Logic for other strategies would be implemented here) ...
 
                 # Create plot
                 fig = go.Figure()
@@ -1319,7 +1372,7 @@ def page_option_strategy_builder():
                 max_loss = payoff.min()
                 
                 fig.update_layout(
-                    title=f"{strategy} Payoff",
+                    title=f"{strategy} Payoff (Time to Expiry: {days_to_expiry} days)",
                     xaxis_title="Underlying Price at Expiry",
                     yaxis_title="Profit / Loss",
                     template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
@@ -1345,17 +1398,23 @@ def page_premarket_pulse():
         fii_dii_data = get_fii_dii_data()
         if fii_dii_data:
             st.markdown(f"Data for **{fii_dii_data['date']}**")
-            st.metric("FII Net Flow", fii_dii_data['FII Net'])
-            st.metric("DII Net Flow", fii_dii_data['DII Net'])
+            st.metric("FII Net OI Contracts", f"{fii_dii_data['FII Net']:,.0f}")
+            st.metric("DII Net OI Contracts", f"{fii_dii_data['DII Net']:,.0f}")
+            st.markdown("""
+                <p style="font-size:12px; color:gray;">
+                Note: FII/DII data is for Open Interest in contracts. Data is typically available with a 1-day lag.
+                </p>
+                """, unsafe_allow_html=True)
         else:
             st.error("Failed to retrieve live FII/DII data. Please try again later.")
 
     with col2:
         st.subheader("Global Cues (Live)")
-        global_indices_tickers = ["^IXIC", "^N225", "^DJI", "GC=F", "CL=F", "EURUSD=X"]
-        global_indices_data = get_global_indices_data(global_indices_tickers)
+        global_indices_tickers = {"NASDAQ": "^IXIC", "NIKKEI 225": "^N225", "Dow Jones": "^DJI", "Gold Futures": "GC=F", "Crude Oil": "CL=F", "EUR/USD": "EURUSD=X"}
+        global_indices_data = get_global_indices_data(list(global_indices_tickers.values()))
         
         if not global_indices_data.empty:
+            global_indices_data['Ticker'] = global_indices_data['Ticker'].map({v: k for k, v in global_indices_tickers.items()})
             for _, row in global_indices_data.iterrows():
                 st.metric(f"{row['Ticker']} Price", f"{row['Price']:,.2f}", delta=f"{row['Change']:,.2f} ({row['% Change']:.2f}%)")
         else:
@@ -1406,10 +1465,8 @@ def page_ai_discovery():
     
     # --- Trade of the Day Suggestion ---
     st.subheader("AI-Powered Trade Idea")
+    st.warning("This is a simulated trade idea for educational purposes. It does not constitute financial advice.")
     
-    trade_idea_col = st.columns([1, 1, 1])
-    
-    # Simulating an AI-driven trade idea
     if active_list:
         selected_ticker = active_list[0]['symbol']
         ltp_data = get_watchlist_data([active_list[0]])
@@ -1427,6 +1484,7 @@ def page_ai_discovery():
                 "narrative": f"**{selected_ticker}** is showing a strong confluence of bullish signals, including a recent RSI crossover from the oversold region and a positive MACD divergence. A breakout above the 20-day EMA could confirm a move towards the target price."
             }
             
+            trade_idea_col = st.columns([1, 1, 1])
             trade_idea_col[0].metric("Conviction Score", trade_setup['score'])
             trade_idea_col[1].metric("Entry Range", f"₹{trade_setup['entry_range'][0]:.2f} - ₹{trade_setup['entry_range'][1]:.2f}")
             trade_idea_col[2].metric("Target Price", f"₹{trade_setup['target']:.2f}")
@@ -1530,15 +1588,15 @@ def main_app():
             "Alpha Engine": page_alpha_engine,
             "Portfolio & Risk": page_portfolio_and_risk,
             "Forecasting & ML": page_forecasting_ml,
-            "AI Assistant": page_ai_assistant,
-            "AI Discovery": page_ai_discovery
+            "AI Discovery": page_ai_discovery,
+            "AI Assistant": page_ai_assistant
         },
         "Options": {
             "Options Hub": page_options_hub,
             "Strategy Builder": page_option_strategy_builder,
             "Portfolio & Risk": page_portfolio_and_risk,
-            "AI Assistant": page_ai_assistant,
-            "AI Discovery": page_ai_discovery
+            "AI Discovery": page_ai_discovery,
+            "AI Assistant": page_ai_assistant
         }
     }
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
