@@ -317,7 +317,7 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
             # For options, the exchange is NFO, not derived from instrument_df
             is_option = any(char.isdigit() for char in symbol)
             if is_option:
-                 exchange = 'NFO'
+                exchange = 'NFO'
             else:
                 instrument = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
                 if instrument.empty:
@@ -664,6 +664,26 @@ def page_dashboard():
 
     st.markdown("---")
 
+    # --- New: Premarket Pulse Dashboard ---
+    st.subheader("Premarket Pulse")
+    premarket_col1, premarket_col2 = st.columns(2)
+    with premarket_col1:
+        st.markdown("#### FII/DII Data")
+        # Placeholder for FII/DII data. You'd need an API to fetch this.
+        st.info("This section would show Foreign and Domestic Institutional Investor data.")
+        st.write("FII Net: `+₹1,250 Cr` (Mock Data)")
+        st.write("DII Net: `-₹870 Cr` (Mock Data)")
+
+    with premarket_col2:
+        st.markdown("#### Global Cues")
+        # Placeholder for global market indices.
+        st.info("This section would show live prices of global indices and commodities.")
+        st.write("Dow Jones: `+0.55%` (Mock Data)")
+        st.write("S&P 500: `+0.42%` (Mock Data)")
+        st.write("Crude Oil: `+1.1%` (Mock Data)")
+
+    st.markdown("---")
+    
     # --- Middle Row: Main Content Area ---
     col1, col2 = st.columns([1, 1], gap="large")
     
@@ -797,7 +817,7 @@ def page_dashboard():
         
 def page_advanced_charting():
     display_header()
-    st.title("📊 Advanced Charting")
+    st.title("Advanced Charting")
     instrument_df = get_instrument_df()
     if instrument_df.empty:
         st.info("Please connect to a broker to use the charting tools.")
@@ -955,7 +975,7 @@ def page_portfolio_and_risk():
 
 def page_forecasting_ml():
     display_header()
-    st.title("📈 Advanced ML Forecasting")
+    st.title("Advanced ML Forecasting")
     st.info("Train advanced models on historical data to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
     
     col1, col2 = st.columns([1, 2])
@@ -976,7 +996,7 @@ def page_forecasting_ml():
             with st.spinner(f"Training {model_choice} model... This may take a moment."):
                 if model_choice == "Gradient Boosting":
                     predictions, backtest_df = train_gradient_boosting_model(data, instrument_name)
-                else:  # Prophet
+                else: # Prophet
                     predictions, backtest_df = train_prophet_model(data)
                 
                 st.session_state.update({
@@ -1041,7 +1061,7 @@ def page_forecasting_ml():
 
 
 def page_ai_assistant():
-    display_header(); st.title("🤖 Portfolio-Aware Assistant")
+    display_header(); st.title("Portfolio-Aware Assistant")
     instrument_df = get_instrument_df()
 
     if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "How can I help you with your portfolio or the markets today?"}]
@@ -1135,7 +1155,7 @@ def page_ai_assistant():
                         else:
                             response = "Please specify a valid option symbol (e.g., NIFTY24SEPWK123000CE)."
                     except (AttributeError, IndexError):
-                         response = "I couldn't find a valid option symbol in your query. Please use the full symbol (e.g., BANKNIFTY24OCT60000CE)."
+                            response = "I couldn't find a valid option symbol in your query. Please use the full symbol (e.g., BANKNIFTY24OCT60000CE)."
                     except Exception as e:
                         response = f"An error occurred: {e}"
 
@@ -1145,7 +1165,7 @@ def page_ai_assistant():
 def page_basket_orders():
     """A page for creating, managing, and executing basket orders."""
     display_header()
-    st.title("🧺 Basket Orders")
+    st.title("Basket Orders")
 
     if 'basket' not in st.session_state:
         st.session_state.basket = []
@@ -1210,7 +1230,7 @@ def page_basket_orders():
 def page_portfolio_analytics():
     """A page for advanced portfolio analysis and visualization."""
     display_header()
-    st.title("📊 Portfolio Analytics")
+    st.title("Portfolio Analytics")
 
     _, holdings_df, _, total_investment = get_portfolio()
     sector_df = get_sector_data()
@@ -1260,7 +1280,7 @@ def page_portfolio_analytics():
 def page_option_strategy_builder():
     """A tool to build and visualize option strategy payoffs."""
     display_header()
-    st.title("♟️ Options Strategy Builder")
+    st.title("Options Strategy Builder")
 
     instrument_df = get_instrument_df()
     if instrument_df.empty:
@@ -1283,11 +1303,11 @@ def page_option_strategy_builder():
             premium1 = st.number_input("Premium 1", min_value=0.0)
         
         if strategy in ["Bull Call Spread", "Bear Put Spread"]:
-             strike2 = st.number_input("Strike Price 2 (K2)", value=int(round(underlying_ltp, -2)) + 100)
-             premium2 = st.number_input("Premium 2", min_value=0.0)
+            strike2 = st.number_input("Strike Price 2 (K2)", value=int(round(underlying_ltp, -2)) + 100)
+            premium2 = st.number_input("Premium 2", min_value=0.0)
 
         if strategy == "Short Straddle":
-             premium2 = st.number_input("Premium 2 (Put)", min_value=0.0)
+            premium2 = st.number_input("Premium 2 (Put)", min_value=0.0)
 
         if strategy == "Iron Condor":
             k1 = st.number_input("K1 (Long Put)", value=int(round(underlying_ltp, -2)) - 200)
@@ -1348,6 +1368,85 @@ def page_option_strategy_builder():
 
             except NameError:
                 st.info("Enter premiums and strike prices to see the payoff chart.")
+
+def page_ai_discovery():
+    """Simulates an AI-driven discovery engine for patterns and trade ideas."""
+    display_header()
+    st.title("AI Discovery Engine")
+    st.info("This engine simulates advanced AI analysis by discovering technical patterns and suggesting high-conviction trade setups based on your active watchlist. The suggestions are for informational purposes only.", icon="🧠")
+    
+    # Get active watchlist and data
+    active_list = st.session_state.get('watchlists', {}).get(st.session_state.get('active_watchlist', 'Watchlist 1'), [])
+    instrument_df = get_instrument_df()
+
+    if not active_list or instrument_df.empty:
+        st.warning("Please set up your watchlist on the Dashboard page to enable AI Discovery.")
+        return
+
+    st.markdown("---")
+    
+    # --- Automated Pattern Discovery ---
+    st.subheader("Automated Pattern Discovery")
+    st.markdown("Scanning your watchlist for potential technical signals...")
+    
+    with st.spinner("Analyzing data..."):
+        discovery_results = {}
+        for item in active_list:
+            ticker = item['symbol']
+            token = get_instrument_token(ticker, instrument_df, exchange=item['exchange'])
+            if token:
+                data = get_historical_data(token, 'day', period='6mo')
+                if not data.empty:
+                    interpretation = interpret_indicators(data)
+                    signals = [f"{k}: {v}" for k, v in interpretation.items() if v in ["Overbought (Bearish)", "Oversold (Bullish)", "Bullish Crossover", "Bearish Crossover"]]
+                    if signals:
+                        discovery_results[ticker] = signals
+    
+    if discovery_results:
+        for ticker, signals in discovery_results.items():
+            st.markdown(f"**Potential Signals for {ticker}:**")
+            for signal in signals:
+                st.markdown(f"- {signal}")
+    else:
+        st.info("No significant technical patterns found in the last 6 months for your watchlist.")
+        
+    st.markdown("---")
+    
+    # --- Trade of the Day Suggestion ---
+    st.subheader("AI-Powered Trade Idea")
+    
+    trade_idea_col = st.columns([1, 1, 1])
+    
+    # Simulating an AI-driven trade idea
+    if active_list:
+        selected_ticker = active_list[0]['symbol']
+        ltp = get_watchlist_data([active_list[0]]).iloc[0]['Price']
+        
+        # This is a mock setup, you would replace this with real model logic
+        trade_setup = {
+            "title": f"High-Conviction Long Setup: {selected_ticker}",
+            "conviction": "High",
+            "score": 8.5,
+            "entry_range": [ltp * 0.99, ltp * 1.01],
+            "target": ltp * 1.05,
+            "stop_loss": ltp * 0.98,
+            "narrative": f"**{selected_ticker}** is showing a strong confluence of bullish signals, including a recent RSI crossover from the oversold region and a positive MACD divergence. A breakout above the 20-day EMA could confirm a move towards the target price."
+        }
+        
+        trade_idea_col[0].metric("Conviction Score", trade_setup['score'])
+        trade_idea_col[1].metric("Entry Range", f"₹{trade_setup['entry_range'][0]:.2f} - ₹{trade_setup['entry_range'][1]:.2f}")
+        trade_idea_col[2].metric("Target Price", f"₹{trade_setup['target']:.2f}")
+
+        st.markdown(f"""
+        <div class="trade-card">
+            <h4>{trade_setup['title']}</h4>
+            <p><strong>Narrative:</strong> {trade_setup['narrative']}</p>
+            <p style='color:#FF4B4B;'><strong>Stop Loss:</strong> ₹{trade_setup['stop_loss']:.2f}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.info("Please add stocks to your watchlist to generate trade ideas.")
+
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -1433,20 +1532,22 @@ def main_app():
     st.sidebar.header("Navigation")
     pages = {
         "Intraday": {
-            "📈 Dashboard": page_dashboard, 
-            "📊 Advanced Charting": page_advanced_charting, 
-            "🧺 Basket Orders": page_basket_orders,
-            "🔬 Portfolio Analytics": page_portfolio_analytics,
-            "📰 Alpha Engine": page_alpha_engine, 
-            "📓 Portfolio & Risk": page_portfolio_and_risk, 
-            "🧠 Forecasting & ML": page_forecasting_ml, 
-            "🤖 AI Assistant": page_ai_assistant
+            "Dashboard": page_dashboard,
+            "Advanced Charting": page_advanced_charting,
+            "Basket Orders": page_basket_orders,
+            "Portfolio Analytics": page_portfolio_analytics,
+            "Alpha Engine": page_alpha_engine,
+            "Portfolio & Risk": page_portfolio_and_risk,
+            "Forecasting & ML": page_forecasting_ml,
+            "AI Assistant": page_ai_assistant,
+            "AI Discovery": page_ai_discovery
         },
         "Options": {
-            "⛓️ Options Hub": page_options_hub, 
-            "♟️ Strategy Builder": page_option_strategy_builder,
-            "📓 Portfolio & Risk": page_portfolio_and_risk, 
-            "🤖 AI Assistant": page_ai_assistant
+            "Options Hub": page_options_hub,
+            "Strategy Builder": page_option_strategy_builder,
+            "Portfolio & Risk": page_portfolio_and_risk,
+            "AI Assistant": page_ai_assistant,
+            "AI Discovery": page_ai_discovery
         }
     }
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
@@ -1457,7 +1558,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    if auto_refresh and selection not in ["🧠 Forecasting & ML", "🤖 AI Assistant"]:
+    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant", "AI Discovery"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
     pages[st.session_state.terminal_mode][selection]()
@@ -1471,4 +1572,3 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-
