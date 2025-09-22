@@ -1,4 +1,0 @@
-build-essential
-libatlas-base-dev
-gfortran
-pkg-config
