@@ -592,28 +592,6 @@ def get_global_indices_data(tickers):
             continue
     return pd.DataFrame(data)
 
-@st.cache_data(ttl=3600)
-def get_fii_dii_data():
-    """Fetches FII/DII data from a public source."""
-    try:
-        url = "https://nsearchives.nseindia.com/content/nsccl/fao_participant_oi_date.csv"
-        df = pd.read_csv(url)
-        df.columns = [col.strip() for col in df.columns]
-        df['Date'] = pd.to_datetime(df['Date'], format='%d-%b-%Y')
-        latest_date = df['Date'].max()
-        latest_df = df[df['Date'] == latest_date]
-        
-        fii_net = latest_df[latest_df['Client Type'] == 'FII']['Net OI Contracts'].sum()
-        dii_net = latest_df[latest_df['Client Type'] == 'DII']['Net OI Contracts'].sum()
-        
-        return {
-            'date': latest_date.strftime('%Y-%m-%d'),
-            'FII Net': fii_net,
-            'DII Net': dii_net
-        }
-    except Exception as e:
-        st.error(f"Failed to fetch FII/DII data: {e}")
-        return None
 
 # ================ 5. PAGE DEFINITIONS ============
 
@@ -1390,35 +1368,49 @@ def page_premarket_pulse():
     """A new page for pre-market analysis and global cues."""
     display_header()
     st.title("Premarket Pulse")
-
+    
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("FII/DII Data (Last Day)")
-        fii_dii_data = get_fii_dii_data()
-        if fii_dii_data:
-            st.markdown(f"Data for **{fii_dii_data['date']}**")
-            st.metric("FII Net OI Contracts", f"{fii_dii_data['FII Net']:,.0f}")
-            st.metric("DII Net OI Contracts", f"{fii_dii_data['DII Net']:,.0f}")
-            st.markdown("""
-                <p style="font-size:12px; color:gray;">
-                Note: FII/DII data is for Open Interest in contracts. Data is typically available with a 1-day lag.
-                </p>
-                """, unsafe_allow_html=True)
-        else:
-            st.error("Failed to retrieve live FII/DII data. Please try again later.")
-
-    with col2:
         st.subheader("Global Cues (Live)")
         global_indices_tickers = {"NASDAQ": "^IXIC", "NIKKEI 225": "^N225", "Dow Jones": "^DJI", "Gold Futures": "GC=F", "Crude Oil": "CL=F", "EUR/USD": "EURUSD=X"}
         global_indices_data = get_global_indices_data(list(global_indices_tickers.values()))
         
         if not global_indices_data.empty:
             global_indices_data['Ticker'] = global_indices_data['Ticker'].map({v: k for k, v in global_indices_tickers.items()})
+            
+            # Calculate overall market score
+            positive_count = len(global_indices_data[global_indices_data['Change'] > 0])
+            negative_count = len(global_indices_data[global_indices_data['Change'] < 0])
+            if positive_count > negative_count + 1:
+                market_score = "Positive"
+                market_score_color = "#28a745"
+            elif negative_count > positive_count + 1:
+                market_score = "Negative"
+                market_score_color = "#FF4B4B"
+            else:
+                market_score = "Neutral"
+                market_score_color = "gray"
+            
+            st.metric("India Market Score", market_score, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=market_score_color)
+            
             for _, row in global_indices_data.iterrows():
                 st.metric(f"{row['Ticker']} Price", f"{row['Price']:,.2f}", delta=f"{row['Change']:,.2f} ({row['% Change']:.2f}%)")
         else:
             st.warning("Could not retrieve data for all global indices.")
+
+    with col2:
+        st.subheader("GIFT NIFTY Chart (Proxy)")
+        st.caption("Displaying NIFTY 50 futures as a proxy for GIFT NIFTY. Data updates every minute.")
+        try:
+            nifty_data = yf.download("^CNXNIFTY", period="1d", interval="1m")
+            if not nifty_data.empty:
+                st.plotly_chart(create_chart(nifty_data, "GIFT NIFTY"), use_container_width=True)
+            else:
+                st.warning("Could not load GIFT NIFTY chart.")
+        except Exception as e:
+            st.error(f"Error fetching GIFT NIFTY data: {e}")
+
 
 def page_ai_discovery():
     """Simulates an AI-driven discovery engine for patterns and trade ideas."""
