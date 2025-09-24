@@ -1168,9 +1168,6 @@ def page_portfolio_analytics():
         st.info("No holdings found to analyze. Please check your portfolio.")
         return
     
-    if sector_df is None:
-        st.warning("`sectors.csv` not found. Cannot perform sector-wise analysis. Please create this file.")
-
     if not holdings_df.empty:
         holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
         
