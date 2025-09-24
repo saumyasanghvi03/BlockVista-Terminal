@@ -966,13 +966,13 @@ def page_forecasting_ml():
                     max_drawdown_period = drawdown_period.min()
                     
                     # --- New: Calculate Max Gains % ---
-                    max_gains_period = ((display_df['Predicted'] / display_df['Predicted'].shift(1)).cumprod()).max()
+                    max_gains_period = ((1 + display_df['Predicted'].pct_change().fillna(0))).cumprod().max() - 1
                     
                     c1, c2, c3 = st.columns(3)
                     c1.metric(f"Accuracy ({selected_period_name})", f"{accuracy_period:.2f}%")
                     c2.metric(f"MAPE ({selected_period_name})", f"{mape_period:.2f}%")
                     c3.metric(f"Max Drawdown ({selected_period_name})", f"{max_drawdown_period*100:.2f}%")
-                    st.metric(f"Max Gains ({selected_period_name})", f"{(max_gains_period-1)*100:.2f}%")
+                    st.metric(f"Max Gains ({selected_period_name})", f"{max_gains_period*100:.2f}%")
 
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Actual'], mode='lines', name='Actual Price'))
