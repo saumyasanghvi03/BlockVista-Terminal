@@ -1168,7 +1168,6 @@ def page_portfolio_analytics():
         st.info("No holdings found to analyze. Please check your portfolio.")
         return
     
-    # FIX: Check for empty holdings_df before performing operations
     if not holdings_df.empty:
         holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
         
