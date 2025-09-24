@@ -1962,13 +1962,13 @@ def two_factor_dialog():
     
     if st.button("Authenticate", use_container_width=True):
         if auth_code:
-            # For this demo, we'll assume a valid code is "123456" or any non-empty code
-            # A real application would validate this with the broker API
-            if len(auth_code) == 6:
+            # --- FIX: Verify the code with pyotp against the stored secret key ---
+            totp = pyotp.TOTP(st.session_state.pyotp_secret)
+            if totp.verify(auth_code):
                 st.session_state.authenticated = True
                 st.rerun()
             else:
-                st.error("Invalid code. Please enter a 6-digit code.")
+                st.error("Invalid code. Please try again.")
         else:
             st.warning("Please enter a code.")
 
@@ -1976,18 +1976,23 @@ def two_factor_dialog():
 @st.dialog("Generate QR Code for 2FA")
 def qr_code_dialog():
     st.subheader("Set up Two-Factor Authentication")
-    st.info("For a real-world app, you would use a library like `pyotp` to generate a secure key. For this demo, we will simulate the process.")
+    st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator).")
 
-    st.markdown("Please scan the QR code below with your authenticator app (e.g., Google Authenticator).")
+    # --- FIX: Generate a real, unique secret key and URI ---
+    if 'pyotp_secret' not in st.session_state:
+        st.session_state.pyotp_secret = pyotp.random_base32()
     
-    # Simulating QR code generation and display
-    placeholder_text = "Simulated QR Code"
-    qr_img = qrcode.make(placeholder_text)
+    secret = st.session_state.pyotp_secret
+    user_name = st.session_state.get('profile', {}).get('user_name', 'User')
+    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
     
-    # Save QR code to a BytesIO object
+    # Generate the QR code from the URI
+    img = qrcode.make(uri)
     buf = io.BytesIO()
-    qr_img.save(buf, format="PNG")
-    st.image(buf.getvalue(), caption="Scan this code", use_container_width=True)
+    img.save(buf, format="PNG")
+    
+    st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
+    st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
     
     st.markdown("After scanning, click 'Continue' and enter the 6-digit code from your app.")
     
