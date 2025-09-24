@@ -1650,6 +1650,10 @@ def page_greeks_calculator():
         st.subheader("Option Details")
         # Use existing options list to populate the selectbox
         fo_underlyings = sorted(instrument_df[instrument_df['segment'].isin(['NFO-FUT', 'NFO-OPT'])]['name'].unique())
+        if not fo_underlyings:
+            st.warning("No F&O instruments found.")
+            st.stop()
+            
         selected_underlying = st.selectbox("Underlying Symbol", fo_underlyings, key="greeks_underlying_select")
         
         # Get expiry dates for the selected underlying
@@ -1784,7 +1788,7 @@ def page_algo_strategy_maker():
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_strategy_returns'], mode='lines', name='Strategy Returns', line=dict(color='#28a745')))
                 fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_market_returns'], mode='lines', name='Market Returns', line=dict(color='gray', dash='dash')))
-                fig.update_layout(title=f"Backtest Results for {strategy_name}", yaxis_title="Cumulative Returns", xaxis_title="Date", template='plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white')
+                fig.update_layout(title=f"Backtest Results for {selected_strategy_name}", yaxis_title="Cumulative Returns", xaxis_title="Date", template='plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white')
                 
                 st.session_state.backtest_fig = fig
                 
@@ -1983,7 +1987,7 @@ def qr_code_dialog():
     # Save QR code to a BytesIO object
     buf = io.BytesIO()
     qr_img.save(buf, format="PNG")
-    st.image(buf.getvalue(), caption="Scan this code", use_column_width=True)
+    st.image(buf.getvalue(), caption="Scan this code", use_container_width=True)
     
     st.markdown("After scanning, click 'Continue' and enter the 6-digit code from your app.")
     
