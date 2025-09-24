@@ -1,6 +1,6 @@
 streamlit
 pandas
-pandas_ta
+pandas-ta
 plotly
 kiteconnect
 streamlit-autorefresh
@@ -14,3 +14,6 @@ scipy
 tabulate
 requests
 yfinance
+pyotp
+qrcode
+Pillow
