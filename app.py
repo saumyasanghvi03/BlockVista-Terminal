@@ -791,20 +791,7 @@ def page_advanced_charting():
     if instrument_df.empty:
         st.info("Please connect to a broker to use the charting tools.")
         return
-
-    # --- New: Global controls for all 4 charts ---
-    st.subheader("Global Chart Controls")
-    global_cols = st.columns(4)
-    global_ticker = global_cols[0].text_input("Symbol", "NIFTY 50", key="global_ticker").upper()
-    global_period = global_cols[1].selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key="global_period")
-    global_interval = global_cols[2].selectbox("Interval", ["minute", "5minute", "day", "week"], index=2, key="global_interval")
-    global_chart_type = global_cols[3].selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"], key="global_chart_type")
-
-    # Fetch data once
-    global_token = get_instrument_token(global_ticker, instrument_df)
-    global_data = get_historical_data(global_token, global_interval, period=global_period)
-
-    # --- Chart Layout ---
+    
     num_charts = 4 # Fixed to 4 charts as requested
     
     chart_columns = st.columns(2, gap="large")
@@ -812,20 +799,31 @@ def page_advanced_charting():
     for i in range(num_charts):
         with chart_columns[i % 2]:
             st.subheader(f"Chart {i+1}")
-            if global_data.empty:
-                st.warning(f"No data to display for {global_ticker} with selected parameters.")
-            else:
-                st.plotly_chart(create_chart(global_data, global_ticker, global_chart_type), use_container_width=True, key=f"chart_{i}")
 
-                # --- New: Integrated B/S buttons for each chart ---
+            # --- Individual controls for each chart ---
+            chart_ticker = st.text_input("Symbol", "NIFTY 50" if i == 0 else "BANKNIFTY", key=f"chart_ticker_{i}").upper()
+            chart_period = st.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key=f"chart_period_{i}")
+            chart_interval = st.selectbox("Interval", ["minute", "5minute", "day", "week"], index=2, key=f"chart_interval_{i}")
+            chart_type = st.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"], key=f"chart_type_{i}")
+            
+            # Fetch data for this specific chart
+            chart_token = get_instrument_token(chart_ticker, instrument_df)
+            chart_data = get_historical_data(chart_token, chart_interval, period=chart_period)
+
+            if chart_data.empty:
+                st.warning(f"No data to display for {chart_ticker} with selected parameters.")
+            else:
+                st.plotly_chart(create_chart(chart_data, chart_ticker, chart_type), use_container_width=True, key=f"chart_{i}")
+
+                # --- Integrated B/S buttons for each chart ---
                 order_cols = st.columns(5)
                 order_cols[0].markdown("Quick Order:")
                 quantity = order_cols[1].number_input("Qty", min_value=1, step=1, key=f"qty_{i}", label_visibility="collapsed")
                 
                 if order_cols[2].button("Buy", key=f"buy_btn_{i}", use_container_width=True, type="primary"):
-                    place_order(instrument_df, global_ticker, quantity, 'MARKET', 'BUY', 'MIS')
+                    place_order(instrument_df, chart_ticker, quantity, 'MARKET', 'BUY', 'MIS')
                 if order_cols[3].button("Sell", key=f"sell_btn_{i}", use_container_width=True, type="secondary"):
-                    place_order(instrument_df, global_ticker, quantity, 'MARKET', 'SELL', 'MIS')
+                    place_order(instrument_df, chart_ticker, quantity, 'MARKET', 'SELL', 'MIS')
     
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News Sentiment"); query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
@@ -1993,8 +1991,6 @@ def qr_code_dialog():
     
     st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
     st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
-    
-    st.markdown("After scanning, click 'Continue' and enter the 6-digit code from your app.")
     
     if st.button("Continue", use_container_width=True):
         st.session_state.two_factor_setup_complete = True
