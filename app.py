@@ -1168,12 +1168,17 @@ def page_portfolio_analytics():
         st.info("No holdings found to analyze. Please check your portfolio.")
         return
     
+    # FIX: Check for empty holdings_df before performing operations
     if not holdings_df.empty:
         holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
         
         if sector_df is not None:
             holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-            holdings_df['Sector'].fillna('Uncategorized', inplace=True)
+            # FIX: Ensure 'Sector' column exists after merge before calling fillna
+            if 'Sector' in holdings_df.columns:
+                holdings_df['Sector'].fillna('Uncategorized', inplace=True)
+            else:
+                holdings_df['Sector'] = 'Uncategorized'
         else:
             holdings_df['Sector'] = 'Uncategorized'
         
