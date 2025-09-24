@@ -272,18 +272,35 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
         expiries = sorted(pd.to_datetime(options['expiry'].unique()))
         three_months_later = datetime.now() + timedelta(days=90)
         available_expiries = [e for e in expiries if datetime.now().date() <= e.date() <= three_months_later.date()]
-        if not expiry_date: expiry_date = available_expiries[0] if available_expiries else None
-        if not expiry_date: return pd.DataFrame(), None, underlying_ltp, available_expiries
+        if not available_expiries: return pd.DataFrame(), None, underlying_ltp, []
+        if not expiry_date: expiry_date = available_expiries[0]
+        
         chain_df = options[options['expiry'] == expiry_date].sort_values(by='strike')
         ce_df = chain_df[chain_df['instrument_type'] == 'CE'].copy()
         pe_df = chain_df[chain_df['instrument_type'] == 'PE'].copy()
         instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
         if not instruments_to_fetch: return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
-        quotes = client.quote(instruments_to_fetch)
-        ce_df['LTP'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
-        pe_df['LTP'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
-        final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP']], pe_df[['tradingsymbol', 'strike', 'LTP']], on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
-        return final_chain[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']], expiry_date, underlying_ltp, available_expiries
+        
+        # --- FIX: Fetch OI data and include it in the DataFrame ---
+        try:
+            quotes = client.quote(instruments_to_fetch)
+            ce_df['LTP'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
+            pe_df['LTP'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
+            
+            # Fetch OI and OI change
+            ce_df['open_interest_CE'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
+            ce_df['open_interest_CE_change'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('net_change_oi', 0))
+            pe_df['open_interest_PE'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
+            pe_df['open_interest_PE_change'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('net_change_oi', 0))
+
+            final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP', 'open_interest_CE', 'open_interest_CE_change']], 
+                                    pe_df[['tradingsymbol', 'strike', 'LTP', 'open_interest_PE', 'open_interest_PE_change']], 
+                                    on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
+            
+            return final_chain[['CALL', 'CALL LTP', 'open_interest_CE', 'STRIKE', 'PUT LTP', 'open_interest_PE', 'PUT', 'open_interest_CE_change', 'open_interest_PE_change']], expiry_date, underlying_ltp, available_expiries
+        except Exception as e:
+            st.error(f"Failed to fetch real-time OI data: {e}")
+            return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
     else:
         st.warning(f"Options chain for {st.session_state.broker} not implemented.")
         return pd.DataFrame(), None, 0.0, []
@@ -513,9 +530,13 @@ def get_sector_data():
 
 def style_option_chain(df, ltp):
     """Applies conditional styling to the options chain dataframe."""
-    atm_strike = abs(df['STRIKE'] - ltp).idxmin()
-    df_styled = df.style.apply(lambda x: ['background-color: #2c3e50' if x.name < atm_strike else '' for i in x], subset=pd.IndexSlice[:, ['CALL', 'CALL LTP']], axis=1)\
-                         .apply(lambda x: ['background-color: #2c3e50' if x.name > atm_strike else '' for i in x], subset=pd.IndexSlice[:, ['PUT', 'PUT LTP']], axis=1)
+    if df.empty or 'STRIKE' not in df.columns:
+        return df
+    atm_strike_index = abs(df['STRIKE'] - ltp).idxmin()
+    atm_strike_value = df.loc[atm_strike_index, 'STRIKE']
+    
+    df_styled = df.style.apply(lambda x: ['background-color: #2c3e50' if x['STRIKE'] < atm_strike_value else '' for i in x], axis=1, subset=pd.IndexSlice[:, ['CALL', 'CALL LTP', 'open_interest_CE']])\
+                         .apply(lambda x: ['background-color: #2c3e50' if x['STRIKE'] > atm_strike_value else '' for i in x], axis=1, subset=pd.IndexSlice[:, ['PUT', 'PUT LTP', 'open_interest_PE']])
     return df_styled
 
 @st.dialog("Most Active Options")
@@ -768,12 +789,12 @@ def page_advanced_charting():
         return
 
     # Chart Layout Selector
-    num_charts = st.radio("Select Chart Layout", [1, 2, 4], index=0, horizontal=True)
+    num_charts = st.radio("Select Chart Layout", [1, 2, 4], index=2, horizontal=True)
 
     def display_chart_widget(index):
         
         c1, c2, c3, c4 = st.columns(4)
-        ticker = c1.text_input("Symbol", "RELIANCE", key=f"ticker_{index}").upper()
+        ticker = c1.text_input("Symbol", "NIFTY 50", key=f"ticker_{index}").upper()
         period = c2.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key=f"period_{index}")
         interval = c3.selectbox("Interval", ["minute", "5minute", "day", "week"], index=2, key=f"interval_{index}")
         chart_type = c4.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"], key=f"chart_type_{index}")
@@ -783,6 +804,16 @@ def page_advanced_charting():
             data = get_historical_data(token, interval, period=period)
             if not data.empty:
                 st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True, key=f"chart_{index}")
+                
+                # --- New: Integrated B/S buttons ---
+                order_cols = st.columns(5)
+                order_cols[0].markdown("Quick Order:")
+                quantity = order_cols[1].number_input("Qty", min_value=1, step=1, key=f"qty_{index}", label_visibility="collapsed")
+                
+                if order_cols[2].button("Buy", key=f"buy_btn_{index}", use_container_width=True, type="primary"):
+                    place_order(instrument_df, ticker, quantity, 'MARKET', 'BUY', 'MIS')
+                if order_cols[3].button("Sell", key=f"sell_btn_{index}", use_container_width=True, type="secondary"):
+                    place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
             else:
                 st.warning(f"No chart data for {ticker}.")
         else:
@@ -797,77 +828,17 @@ def page_advanced_charting():
         with cols[1]:
             display_chart_widget(1)
     elif num_charts == 4:
-        row1 = st.columns(2)
+        row1 = st.columns(2, gap="large")
         with row1[0]:
             display_chart_widget(0)
         with row1[1]:
             display_chart_widget(1)
         st.markdown("---")
-        row2 = st.columns(2)
+        row2 = st.columns(2, gap="large")
         with row2[0]:
             display_chart_widget(2)
         with row2[1]:
             display_chart_widget(3)
-
-def page_options_hub():
-    display_header(); st.title("Options Hub"); instrument_df = get_instrument_df()
-    if instrument_df.empty: st.info("Please connect to a broker to use the Options Hub."); return
-    
-    col1, col2 = st.columns([1, 2]);
-    
-    with col1:
-        underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "SBIN", "GOLDM", "CRUDEOIL", "USDINR"])
-        
-        if st.button("Check Most Active Options", use_container_width=True):
-            show_most_active_dialog(underlying, instrument_df)
-
-        chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
-        
-        if available_expiries:
-            selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
-            if selected_expiry != expiry:
-                chain_df, expiry, underlying_ltp, _ = get_options_chain(underlying, instrument_df, selected_expiry)
-        else:
-            st.warning(f"No upcoming expiries found for {underlying}.")
-
-        if not chain_df.empty and expiry:
-            st.subheader("Greeks & Quick Trade")
-            option_list = ["-Select-"] + chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist()
-            option_selection = st.selectbox("Analyze or Trade an Option", option_list)
-
-            if option_selection and option_selection != "-Select-":
-                # Greeks calculation
-                option_details = instrument_df[instrument_df['tradingsymbol'] == option_selection].iloc[0]
-                strike_price, option_type = option_details['strike'], option_details['instrument_type'].lower()
-                ltp_col = 'CALL LTP' if option_type == 'ce' else 'PUT LTP'
-                symbol_col = 'CALL' if option_type == 'ce' else 'PUT'
-                ltp = chain_df[chain_df[symbol_col] == option_selection][ltp_col].iloc[0]
-                T = max((pd.to_datetime(expiry).date() - datetime.now().date()).days, 0) / 365.0
-                iv = implied_volatility(underlying_ltp, strike_price, T, 0.07, ltp, option_type)
-                
-                if not np.isnan(iv) and iv > 0:
-                    greeks = black_scholes(underlying_ltp, strike_price, T, 0.07, iv, option_type)
-                    c1, c2, c3 = st.columns(3); c1.metric("Delta", f"{greeks['delta']:.3f}"); c2.metric("IV", f"{iv*100:.2f}%"); c3.metric("Vega", f"{greeks['vega']:.3f}");
-                
-                # Quick Trade Form
-                with st.form(key="option_trade_form"):
-                    q_cols = st.columns([1,1,1])
-                    quantity = q_cols[0].number_input("Lots", min_value=1, step=1, key="opt_qty")
-                    buy_btn = q_cols[1].form_submit_button("Buy")
-                    sell_btn = q_cols[2].form_submit_button("Sell")
-
-                    if buy_btn:
-                        place_order(instrument_df, option_selection, quantity * option_details['lot_size'], 'MARKET', 'BUY', 'MIS')
-                    if sell_btn:
-                        place_order(instrument_df, option_selection, quantity * option_details['lot_size'], 'MARKET', 'SELL', 'MIS')
-
-    with col2:
-        st.subheader(f"{underlying} Options Chain")
-        if not chain_df.empty and expiry:
-            st.caption(f"Expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')} | Spot: {underlying_ltp:,.2f}")
-            st.dataframe(style_option_chain(chain_df, underlying_ltp), use_container_width=True, hide_index=True)
-        else:
-            st.warning("Could not fetch options chain.")
 
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News Sentiment"); query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
@@ -1271,7 +1242,11 @@ def page_option_strategy_builder():
         st.metric(f"{underlying} Spot Price", f"{underlying_ltp:,.2f}")
         
         # Input for Time to Expiry
-        total_days_to_expiry = (pd.to_datetime(expiry_date).date() - datetime.now().date()).days
+        if expiry_date:
+            total_days_to_expiry = (pd.to_datetime(expiry_date).date() - datetime.now().date()).days
+        else:
+            total_days_to_expiry = 0
+            
         days_to_expiry = st.number_input("Days to Expiry", min_value=0, max_value=total_days_to_expiry, value=total_days_to_expiry)
 
         # Strategy leg inputs
@@ -1564,7 +1539,10 @@ def page_oi_analysis():
         return
 
     # Filter for F&O instruments
-    fo_underlyings = instrument_df[instrument_df['segment'].isin(['NFO-FUT', 'NFO-OPT'])].sort_values(by='name')['name'].unique()
+    fo_underlyings = sorted(instrument_df[instrument_df['segment'].isin(['NFO-FUT', 'NFO-OPT'])]['name'].unique())
+    if not fo_underlyings:
+        st.warning("No F&O instruments found.")
+        return
     
     selected_underlying = st.selectbox("Select Underlying Symbol", fo_underlyings)
     
@@ -1599,16 +1577,28 @@ def page_oi_analysis():
             st.subheader("OI Gainers & Losers (Today)")
             oi_change_df = chain_df[['tradingsymbol_CE', 'STRIKE', 'open_interest_CE_change', 'tradingsymbol_PE', 'open_interest_PE_change']].dropna()
             
-            oi_gainers = oi_change_df.sort_values(by=['open_interest_CE_change', 'open_interest_PE_change'], ascending=False).head(5)
-            oi_losers = oi_change_df.sort_values(by=['open_interest_CE_change', 'open_interest_PE_change']).head(5)
+            oi_gainers = oi_change_df.sort_values(by=['open_interest_CE_change'], ascending=False).head(5)
+            oi_losers = oi_change_df.sort_values(by=['open_interest_CE_change'], ascending=True).head(5)
             
             col_g, col_l = st.columns(2)
             with col_g:
-                st.markdown("#### Top OI Gainers")
+                st.markdown("#### Top Call OI Gainers")
                 st.dataframe(oi_gainers[['tradingsymbol_CE', 'STRIKE', 'open_interest_CE_change']].rename(columns={'tradingsymbol_CE': 'Symbol', 'open_interest_CE_change': 'OI Change'}), hide_index=True)
             with col_l:
-                st.markdown("#### Top OI Losers")
-                st.dataframe(oi_losers[['tradingsymbol_PE', 'STRIKE', 'open_interest_PE_change']].rename(columns={'tradingsymbol_PE': 'Symbol', 'open_interest_PE_change': 'OI Change'}), hide_index=True)
+                st.markdown("#### Top Call OI Losers")
+                st.dataframe(oi_losers[['tradingsymbol_CE', 'STRIKE', 'open_interest_CE_change']].rename(columns={'tradingsymbol_CE': 'Symbol', 'open_interest_CE_change': 'OI Change'}), hide_index=True)
+
+            oi_gainers_pe = oi_change_df.sort_values(by=['open_interest_PE_change'], ascending=False).head(5)
+            oi_losers_pe = oi_change_df.sort_values(by=['open_interest_PE_change'], ascending=True).head(5)
+
+            st.markdown("---")
+            col_g_pe, col_l_pe = st.columns(2)
+            with col_g_pe:
+                 st.markdown("#### Top Put OI Gainers")
+                 st.dataframe(oi_gainers_pe[['tradingsymbol_PE', 'STRIKE', 'open_interest_PE_change']].rename(columns={'tradingsymbol_PE': 'Symbol', 'open_interest_PE_change': 'OI Change'}), hide_index=True)
+            with col_l_pe:
+                 st.markdown("#### Top Put OI Losers")
+                 st.dataframe(oi_losers_pe[['tradingsymbol_PE', 'STRIKE', 'open_interest_PE_change']].rename(columns={'tradingsymbol_PE': 'Symbol', 'open_interest_PE_change': 'OI Change'}), hide_index=True)
         else:
             st.warning("Could not fetch OI data for this symbol.")
 
@@ -1635,7 +1625,8 @@ def page_greeks_calculator():
         if underlying:
             fo_options = instrument_df[(instrument_df['name'] == underlying) & (instrument_df['segment'] == 'NFO-OPT')]
             expiries = sorted(pd.to_datetime(fo_options['expiry'].unique()))
-            if expiries.any():
+            # FIX: Check if expiries list is not empty before calling .any()
+            if expiries:
                 selected_expiry_date = st.selectbox("Select Expiry Date", expiries, format_func=lambda d: d.strftime('%d %b %Y'))
                 days_to_expiry = max((pd.to_datetime(selected_expiry_date).date() - datetime.now().date()).days, 0)
                 st.markdown(f"**Days to Expiry:** {days_to_expiry} days")
@@ -1688,6 +1679,122 @@ def page_greeks_calculator():
             st.metric("Vega", results['Vega'], help="Measures the sensitivity of the option's price to changes in the implied volatility of the underlying asset.")
             st.metric("Theta", results['Theta'], help="Measures the rate of decline in the option's value due to the passage of time.")
             st.metric("Rho", results['Rho'], help="Measures the sensitivity of the option's price to a change in the interest rate.")
+
+# --- Algo Strategy Maker Page ---
+def page_algo_strategy_maker():
+    display_header()
+    st.title("Algo Strategy Maker")
+    st.info("Build and backtest simple algorithmic strategies. This is for educational purposes and does not place live trades.")
+    
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use this feature.")
+        return
+
+    st.subheader("1. Define Your Strategy")
+    col1, col2 = st.columns(2)
+    with col1:
+        strategy_name = st.text_input("Strategy Name", "My Simple RSI Strategy")
+        signal_type = st.selectbox("Select Signal", ["RSI", "MACD Crossover"])
+        
+    with col2:
+        symbol = st.text_input("Symbol", "NIFTY", key="algo_symbol").upper()
+        timeframe = st.selectbox("Timeframe", ["day", "minute"])
+        
+    st.markdown("---")
+    st.subheader("2. Backtest")
+    
+    if st.button("Run Backtest", use_container_width=True, type="primary"):
+        with st.spinner("Running backtest..."):
+            token = get_instrument_token(symbol, instrument_df)
+            if not token:
+                st.error(f"Symbol '{symbol}' not found.")
+                st.stop()
+            
+            data = get_historical_data(token, timeframe, period='1y')
+            if data.empty:
+                st.error(f"Could not fetch data for {symbol}.")
+                st.stop()
+                
+            data['signal'] = 0
+            
+            # --- Simple RSI Strategy Logic ---
+            if signal_type == "RSI":
+                data.ta.rsi(append=True)
+                data.loc[data['RSI_14'] < 30, 'signal'] = 1  # Buy when oversold
+                data.loc[data['RSI_14'] > 70, 'signal'] = -1 # Sell when overbought
+            
+            # --- Simple MACD Strategy Logic ---
+            elif signal_type == "MACD Crossover":
+                data.ta.macd(append=True)
+                data.loc[(data['MACD_12_26_9'] > data['MACDs_12_26_9']) & (data['MACD_12_26_9'].shift(1) < data['MACDs_12_26_9'].shift(1)), 'signal'] = 1  # Bullish crossover
+                data.loc[(data['MACD_12_26_9'] < data['MACDs_12_26_9']) & (data['MACD_12_26_9'].shift(1) > data['MACDs_12_26_9'].shift(1)), 'signal'] = -1 # Bearish crossover
+
+            # --- Backtesting Logic ---
+            data['returns'] = data['close'].pct_change()
+            data['strategy_returns'] = data['signal'].shift(1) * data['returns']
+            data['cumulative_strategy_returns'] = (1 + data['strategy_returns']).cumprod()
+            data['cumulative_market_returns'] = (1 + data['returns']).cumprod()
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_strategy_returns'], mode='lines', name='Strategy Returns', line=dict(color='#28a745')))
+            fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_market_returns'], mode='lines', name='Market Returns', line=dict(color='gray', dash='dash')))
+            fig.update_layout(title=f"Backtest Results for {strategy_name}", yaxis_title="Cumulative Returns", xaxis_title="Date", template='plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white')
+            
+            st.session_state.backtest_fig = fig
+            
+    if 'backtest_fig' in st.session_state:
+        st.subheader("Backtest Results")
+        st.plotly_chart(st.session_state.backtest_fig, use_container_width=True)
+
+# --- Volatility Skew Page ---
+def page_volatility_skew():
+    display_header()
+    st.title("Implied Volatility (IV) Skew")
+    st.info("Analyze the relationship between implied volatility and strike prices for a selected options expiry.")
+    
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use this feature.")
+        return
+
+    # Filter for F&O instruments
+    fo_underlyings = sorted(instrument_df[instrument_df['segment'].isin(['NFO-FUT', 'NFO-OPT'])]['name'].unique())
+    if not fo_underlyings:
+        st.warning("No F&O instruments found.")
+        return
+        
+    selected_underlying = st.selectbox("Select Underlying Symbol", fo_underlyings)
+    
+    if selected_underlying:
+        with st.spinner("Fetching data..."):
+            chain_df, expiry_date, underlying_ltp, available_expiries = get_options_chain(selected_underlying, instrument_df)
+        
+        if available_expiries:
+            selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
+            chain_df, _, underlying_ltp, _ = get_options_chain(selected_underlying, instrument_df, selected_expiry)
+        
+        if not chain_df.empty and 'CALL' in chain_df.columns:
+            st.subheader(f"IV Skew for {selected_underlying} (Expiry: {selected_expiry.strftime('%d %b %Y')})")
+            st.caption(f"Underlying Spot Price: ₹{underlying_ltp:,.2f}")
+            
+            df_greeks = chain_df.copy()
+            df_greeks['iv_CE'] = df_greeks.apply(lambda row: implied_volatility(underlying_ltp, row['STRIKE'], (selected_expiry.date() - datetime.now().date()).days / 365.0, 0.07, row['CALL LTP'], 'call'), axis=1)
+            df_greeks['iv_PE'] = df_greeks.apply(lambda row: implied_volatility(underlying_ltp, row['STRIKE'], (selected_expiry.date() - datetime.now().date()).days / 365.0, 0.07, row['PUT LTP'], 'put'), axis=1)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df_greeks['STRIKE'], y=df_greeks['iv_CE'] * 100, mode='lines+markers', name='Call IV', marker=dict(color='cyan')))
+            fig.add_trace(go.Scatter(x=df_greeks['STRIKE'], y=df_greeks['iv_PE'] * 100, mode='lines+markers', name='Put IV', marker=dict(color='orange')))
+            fig.add_vline(x=underlying_ltp, line_dash="dash", line_color="red", annotation_text="Underlying LTP", annotation_position="top left")
+            
+            fig.update_layout(
+                title='Implied Volatility vs. Strike Price',
+                xaxis_title='Strike Price',
+                yaxis_title='Implied Volatility (%)',
+                template='plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white',
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 # --- New Futures Terminal Page ---
 def page_futures_terminal():
@@ -1768,11 +1875,15 @@ def page_futures_terminal():
     st.subheader("Your Open Futures Positions")
     positions_df, _, _, _ = get_portfolio()
     # Fix: Ensure positions_df is not empty before filtering
-    futures_positions = positions_df[positions_df['tradingsymbol'].str.contains('FUT', case=False, na=False)] if not positions_df.empty else pd.DataFrame()
-    if not futures_positions.empty:
-        st.dataframe(futures_positions, use_container_width=True, hide_index=True)
+    if not positions_df.empty:
+        futures_positions = positions_df[positions_df['tradingsymbol'].str.contains('FUT', case=False, na=False)]
+        if not futures_positions.empty:
+            st.dataframe(futures_positions, use_container_width=True, hide_index=True)
+        else:
+            st.info("You have no open futures positions.")
     else:
         st.info("You have no open futures positions.")
+
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -1873,9 +1984,10 @@ def main_app():
             "AI Assistant": page_ai_assistant
         },
         "Options": {
-            "Options Hub": page_options_hub,
+            "Algo Strategy Maker": page_algo_strategy_maker,
             "Strategy Builder": page_option_strategy_builder,
             "OI Analysis": page_oi_analysis,
+            "Volatility Skew": page_volatility_skew,
             "F&O Greeks": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Trading Journal": page_ai_trading_journal,
@@ -1885,6 +1997,7 @@ def main_app():
         "Futures": {
             "Futures Terminal": page_futures_terminal,
             "Advanced Charting": page_advanced_charting,
+            "Algo Strategy Maker": page_algo_strategy_maker,
             "OI Analysis": page_oi_analysis,
             "F&O Greeks": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
