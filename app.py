@@ -25,6 +25,10 @@ import io
 import time as a_time # Renaming to avoid conflict with datetime.time
 import re
 import yfinance as yf
+import pyotp
+import qrcode
+from PIL import Image
+import base64
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -788,58 +792,41 @@ def page_advanced_charting():
         st.info("Please connect to a broker to use the charting tools.")
         return
 
-    # Chart Layout Selector
-    num_charts = st.radio("Select Chart Layout", [1, 2, 4], index=2, horizontal=True)
+    # --- New: Global controls for all 4 charts ---
+    st.subheader("Global Chart Controls")
+    global_cols = st.columns(4)
+    global_ticker = global_cols[0].text_input("Symbol", "NIFTY 50", key="global_ticker").upper()
+    global_period = global_cols[1].selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key="global_period")
+    global_interval = global_cols[2].selectbox("Interval", ["minute", "5minute", "day", "week"], index=2, key="global_interval")
+    global_chart_type = global_cols[3].selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"], key="global_chart_type")
 
-    def display_chart_widget(index):
-        
-        c1, c2, c3, c4 = st.columns(4)
-        ticker = c1.text_input("Symbol", "NIFTY 50", key=f"ticker_{index}").upper()
-        period = c2.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key=f"period_{index}")
-        interval = c3.selectbox("Interval", ["minute", "5minute", "day", "week"], index=2, key=f"interval_{index}")
-        chart_type = c4.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"], key=f"chart_type_{index}")
+    # Fetch data once
+    global_token = get_instrument_token(global_ticker, instrument_df)
+    global_data = get_historical_data(global_token, global_interval, period=global_period)
 
-        token = get_instrument_token(ticker, instrument_df)
-        if token:
-            data = get_historical_data(token, interval, period=period)
-            if not data.empty:
-                st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True, key=f"chart_{index}")
-                
-                # --- New: Integrated B/S buttons ---
+    # --- Chart Layout ---
+    num_charts = 4 # Fixed to 4 charts as requested
+    
+    chart_columns = st.columns(2, gap="large")
+    
+    for i in range(num_charts):
+        with chart_columns[i % 2]:
+            st.subheader(f"Chart {i+1}")
+            if global_data.empty:
+                st.warning(f"No data to display for {global_ticker} with selected parameters.")
+            else:
+                st.plotly_chart(create_chart(global_data, global_ticker, global_chart_type), use_container_width=True, key=f"chart_{i}")
+
+                # --- New: Integrated B/S buttons for each chart ---
                 order_cols = st.columns(5)
                 order_cols[0].markdown("Quick Order:")
-                quantity = order_cols[1].number_input("Qty", min_value=1, step=1, key=f"qty_{index}", label_visibility="collapsed")
+                quantity = order_cols[1].number_input("Qty", min_value=1, step=1, key=f"qty_{i}", label_visibility="collapsed")
                 
-                if order_cols[2].button("Buy", key=f"buy_btn_{index}", use_container_width=True, type="primary"):
-                    place_order(instrument_df, ticker, quantity, 'MARKET', 'BUY', 'MIS')
-                if order_cols[3].button("Sell", key=f"sell_btn_{index}", use_container_width=True, type="secondary"):
-                    place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
-            else:
-                st.warning(f"No chart data for {ticker}.")
-        else:
-            st.error(f"Ticker '{ticker}' not found.")
-
-    if num_charts == 1:
-        display_chart_widget(0)
-    elif num_charts == 2:
-        cols = st.columns(2)
-        with cols[0]:
-            display_chart_widget(0)
-        with cols[1]:
-            display_chart_widget(1)
-    elif num_charts == 4:
-        row1 = st.columns(2, gap="large")
-        with row1[0]:
-            display_chart_widget(0)
-        with row1[1]:
-            display_chart_widget(1)
-        st.markdown("---")
-        row2 = st.columns(2, gap="large")
-        with row2[0]:
-            display_chart_widget(2)
-        with row2[1]:
-            display_chart_widget(3)
-
+                if order_cols[2].button("Buy", key=f"buy_btn_{i}", use_container_width=True, type="primary"):
+                    place_order(instrument_df, global_ticker, quantity, 'MARKET', 'BUY', 'MIS')
+                if order_cols[3].button("Sell", key=f"sell_btn_{i}", use_container_width=True, type="secondary"):
+                    place_order(instrument_df, global_ticker, quantity, 'MARKET', 'SELL', 'MIS')
+    
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News Sentiment"); query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
     with st.spinner("Fetching and analyzing news..."):
@@ -977,11 +964,15 @@ def page_forecasting_ml():
                     peak_period = cum_returns_period.cummax()
                     drawdown_period = (cum_returns_period - peak_period) / peak_period
                     max_drawdown_period = drawdown_period.min()
-
+                    
+                    # --- New: Calculate Max Gains % ---
+                    max_gains_period = ((display_df['Predicted'] / display_df['Predicted'].shift(1)).cumprod()).max()
+                    
                     c1, c2, c3 = st.columns(3)
                     c1.metric(f"Accuracy ({selected_period_name})", f"{accuracy_period:.2f}%")
                     c2.metric(f"MAPE ({selected_period_name})", f"{mape_period:.2f}%")
                     c3.metric(f"Max Drawdown ({selected_period_name})", f"{max_drawdown_period*100:.2f}%")
+                    st.metric(f"Max Gains ({selected_period_name})", f"{(max_gains_period-1)*100:.2f}%")
 
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Actual'], mode='lines', name='Actual Price'))
@@ -1360,11 +1351,35 @@ def page_premarket_pulse():
     display_header()
     st.title("Premarket Pulse")
     
+    # --- New: Real Indian Indices on top ---
+    st.subheader("Key Indian Indices (Live)")
+    indian_indices_symbols = [
+        {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
+        {'symbol': 'SENSEX', 'exchange': 'BSE'},
+        {'symbol': 'INDIA VIX', 'exchange': 'NSE'},
+    ]
+    indian_indices_data = get_watchlist_data(indian_indices_symbols)
+    
+    if not indian_indices_data.empty:
+        cols = st.columns(len(indian_indices_data))
+        for i, col in enumerate(cols):
+            with col:
+                change = indian_indices_data.iloc[i]['Change']
+                st.metric(
+                    label=indian_indices_data.iloc[i]['Ticker'],
+                    value=f"₹{indian_indices_data.iloc[i]['Price']:,.2f}",
+                    delta=f"₹{change:,.2f} ({indian_indices_data.iloc[i]['% Change']:.2f}%)"
+                )
+    else:
+        st.warning("Could not retrieve data for Indian indices.")
+    
+    st.markdown("---")
+
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Global Cues (Live)")
-        global_indices_tickers = {"NASDAQ": "^IXIC", "NIKKEI 225": "^N225", "Dow Jones": "^DJI", "Gold Futures": "GC=F", "Crude Oil": "CL=F", "EUR/USD": "EURUSD=X"}
+        st.subheader("Global Cues")
+        global_indices_tickers = {"NASDAQ": "^IXIC", "NIKKEI 225": "^N225", "Dow Jones": "^DJI", "Gold Futures": "GC=F", "Crude Oil": "CL=F"}
         global_indices_data = get_global_indices_data(list(global_indices_tickers.values()))
         
         if not global_indices_data.empty:
@@ -1374,7 +1389,6 @@ def page_premarket_pulse():
             positive_count = len(global_indices_data[global_indices_data['Change'] > 0])
             negative_count = len(global_indices_data[global_indices_data['Change'] < 0])
             
-            # --- FIX: Correcting delta_color logic for st.metric ---
             if positive_count > negative_count + 1:
                 market_score = "Positive"
                 delta_color = "normal"
@@ -1388,16 +1402,16 @@ def page_premarket_pulse():
                 delta_color = "normal"
                 delta_value = 0
             
-            st.metric("India Market Score", market_score, delta=delta_value, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
+            st.metric("Global Market Score", market_score, delta=delta_value, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
             
             for _, row in global_indices_data.iterrows():
-                st.metric(f"{row['Ticker']} Price", f"{row['Price']:,.2f}", delta=f"{row['Change']:,.2f} ({row['% Change']:.2f}%)")
+                st.metric(f"{row['Ticker']} Price", f"₹{row['Price']:,.2f}", delta=f"₹{row['Change']:,.2f} ({row['% Change']:.2f}%)")
         else:
             st.warning("Could not retrieve data for all global indices.")
 
     with col2:
-        st.subheader("GIFT NIFTY Chart (Proxy)")
-        st.caption("Displaying NIFTY 50 futures as a proxy for GIFT NIFTY. Data updates every minute.")
+        st.subheader("GIFT NIFTY Chart")
+        st.caption("Displaying a live chart for GIFT NIFTY from yfinance as a proxy. This data is not from Zerodha.")
         try:
             nifty_data = yf.download("^CNXNIFTY", period="1d", interval="1m")
             if not nifty_data.empty:
@@ -1625,8 +1639,8 @@ def page_greeks_calculator():
     st.title("F&O Greeks Calculator")
     st.info("Calculate the theoretical value and greeks (Delta, Gamma, Vega, Theta, Rho) for any option contract.")
     
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
+    instrument_df = get_broker_client()
+    if instrument_df is None:
         st.info("Please connect to a broker to use this feature.")
         return
 
@@ -1954,6 +1968,29 @@ def two_factor_dialog():
         else:
             st.warning("Please enter a code.")
 
+# --- New: QR Code generation dialog for first-time 2FA setup ---
+@st.dialog("Generate QR Code for 2FA")
+def qr_code_dialog():
+    st.subheader("Set up Two-Factor Authentication")
+    st.info("For a real-world app, you would use a library like `pyotp` to generate a secure key. For this demo, we will simulate the process.")
+
+    st.markdown("Please scan the QR code below with your authenticator app (e.g., Google Authenticator).")
+    
+    # Simulating QR code generation and display
+    placeholder_text = "Simulated QR Code"
+    qr_img = qrcode.make(placeholder_text)
+    
+    # Save QR code to a BytesIO object
+    buf = io.BytesIO()
+    qr_img.save(buf, format="PNG")
+    st.image(buf.getvalue(), caption="Scan this code", use_column_width=True)
+    
+    st.markdown("After scanning, click 'Continue' and enter the 6-digit code from your app.")
+    
+    if st.button("Continue", use_container_width=True):
+        st.session_state.two_factor_setup_complete = True
+        st.rerun()
+
 def show_login_animation():
     """--- UI ENHANCEMENT: Displays a boot-up animation after login ---"""
     st.title("BlockVista Terminal")
@@ -2017,9 +2054,14 @@ def main_app():
     """The main application interface after successful login."""
     st.markdown(f'<body class="{"light-theme" if st.session_state.get("theme") == "Light" else ""}"></body>', unsafe_allow_html=True)
     
-    if not st.session_state.get('authenticated', False):
-        two_factor_dialog()
-        st.stop()
+    # --- New: 2FA check before showing the main app ---
+    if st.session_state.get('profile'):
+        if not st.session_state.get('two_factor_setup_complete'):
+            qr_code_dialog()
+            st.stop()
+        if not st.session_state.get('authenticated', False):
+            two_factor_dialog()
+            st.stop()
 
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Cash'
