@@ -45,6 +45,7 @@ def load_css():
             padding: 10px;
             border-radius: 5px;
             text-align: center;
+            margin-bottom: 10px;
         }
         .positive-blink { color: #28a745; }
         .negative-blink { color: #FF4B4B; }
@@ -98,6 +99,20 @@ def get_sector_data():
             missing_cols = [col for col in required_columns if col not in sector_data.columns]
             st.error(f"sectors.csv is missing required columns: {', '.join(missing_cols)}")
             return pd.DataFrame(columns=required_columns)
+        # Validate weights and changes
+        sector_data['weight'] = sector_data['weight'].astype(float)
+        sector_data['change'] = sector_data['change'].astype(float)
+        # Check for invalid weights
+        invalid_weights = sector_data[sector_data['weight'] <= 0]
+        if not invalid_weights.empty:
+            st.warning(f"Invalid weights (<= 0) found for symbols: {invalid_weights['symbol'].tolist()}. Setting to 0.01.")
+            sector_data.loc[sector_data['weight'] <= 0, 'weight'] = 0.01
+        # Normalize weights per sector
+        for sector in sector_data['sector'].unique():
+            sector_df = sector_data[sector_data['sector'] == sector]
+            total_weight = sector_df['weight'].sum()
+            if total_weight > 0:
+                sector_data.loc[sector_data['sector'] == sector, 'weight'] = sector_df['weight'] / total_weight
         return sector_data
     except FileNotFoundError:
         st.warning("sectors.csv not found. Using default empty sector data.")
@@ -121,7 +136,7 @@ def setup_2fa():
 def authenticate_broker():
     st.subheader("Broker Authentication")
     if 'setup_2fa' not in st.session_state:
-        st.session_state['setup_2fa'] = True  # Show QR code on first visit
+        st.session_state['setup_2fa'] = True
     if '2fa_verified' not in st.session_state:
         st.session_state['2fa_verified'] = False
 
@@ -137,7 +152,7 @@ def authenticate_broker():
         with st.spinner("Verifying 2FA..."):
             if totp.verify(two_factor_code):
                 st.session_state['2fa_verified'] = True
-                st.session_state['setup_2fa'] = False  # Hide QR code after successful setup
+                st.session_state['setup_2fa'] = False
                 st.success("2FA Verified!")
                 st.rerun()
             else:
@@ -152,7 +167,7 @@ def authenticate_broker():
             st.error("API key and secret not found in Streamlit secrets. Please add 'zerodha_api_key' and 'zerodha_api_secret' in your Streamlit secrets.")
             return
         st.markdown("<div class='slide-in'>", unsafe_allow_html=True)
-        request_token = st.text_input("Enter Zerodha Request Token (Auth Code)", key="request_token")
+        request_token = st.text_input("Enter Zerodha Request Token", key="request_token")
         if st.button("Authenticate with Zerodha"):
             st.markdown("<span class='spinner'></span>", unsafe_allow_html=True)
             try:
@@ -473,11 +488,15 @@ def page_dashboard():
         st.subheader("Sector Performance")
         sector_data = get_sector_data()
         if not sector_data.empty and 'sector' in sector_data.columns:
-            for sector in sector_data['sector'].unique():
-                sector_df = sector_data[sector_data['sector'] == sector]
-                weighted_change = (sector_df['weight'] * sector_df['change']).sum()
-                change_class = "positive-blink" if weighted_change > 0 else "negative-blink"
-                st.markdown(f"<div class='metric-card'>{sector}: <span class='{change_class}'>{weighted_change:.2f}%</span></div>", unsafe_allow_html=True)
+            # Group by sector and calculate weighted change
+            sector_summary = sector_data.groupby('sector').apply(
+                lambda x: (x['weight'] * x['change']).sum()
+            ).reset_index(name='weighted_change')
+            # Limit to top 10 sectors for performance
+            sector_summary = sector_summary.sort_values('weighted_change', ascending=False).head(10)
+            for _, row in sector_summary.iterrows():
+                change_class = "positive-blink" if row['weighted_change'] > 0 else "negative-blink"
+                st.markdown(f"<div class='metric-card'>{row['sector']}: <span class='{change_class}'>{row['weighted_change']:.2f}%</span></div>", unsafe_allow_html=True)
         else:
             st.info("No sector data available or sectors.csv is missing required columns.")
 
