@@ -692,31 +692,67 @@ def get_most_active_options(underlying, instrument_df):
         st.error(f"Could not fetch most active options: {e}")
         return pd.DataFrame()
         
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=60)
 def get_global_indices_data(tickers):
     """Fetches real-time data for global indices using yfinance."""
     if not tickers:
         return pd.DataFrame()
     
     try:
-        df = yf.download(tickers, period="1d")['Close']
-        df_prev = yf.download(tickers, period="2d")['Close'].iloc[-2]
+        df = yf.download(tickers, period="2d")
+        if df.empty:
+            return pd.DataFrame()
+
+        close_data = df['Close'].iloc[-1]
+        prev_close_data = df['Close'].iloc[-2]
     except Exception as e:
         st.error(f"Failed to fetch data from yfinance: {e}")
         return pd.DataFrame()
     
     data = []
-    for ticker in tickers:
-        try:
-            last_price = df.get(ticker) if isinstance(df, pd.Series) else df.get(ticker).iloc[-1]
-            prev_close = df_prev.get(ticker)
+    if isinstance(close_data, pd.Series): # Handle multiple tickers
+        for ticker in tickers:
+            last_price = close_data.get(ticker, None)
+            prev_close = prev_close_data.get(ticker, None)
+
             if last_price is not None and prev_close is not None:
                 change = last_price - prev_close
-                pct_change = (change / prev_close) * 100
+                pct_change = (change / prev_close) * 100 if prev_close != 0 else 0
                 data.append({'Ticker': ticker, 'Price': last_price, 'Change': change, '% Change': pct_change})
-        except KeyError:
-            continue
+    else: # Handle single ticker case
+        ticker = tickers[0]
+        last_price = close_data
+        prev_close = prev_close_data
+        if last_price is not None and prev_close is not None:
+            change = last_price - prev_close
+            pct_change = (change / prev_close) * 100 if prev_close != 0 else 0
+            data.append({'Ticker': ticker, 'Price': last_price, 'Change': change, '% Change': pct_change})
+        
     return pd.DataFrame(data)
+
+@st.cache_data(ttl=60)
+def get_indian_indices_data(symbols_with_exchange):
+    """Fetches real-time data for Indian indices using the broker's API."""
+    client = get_broker_client()
+    if not client or not symbols_with_exchange: return pd.DataFrame()
+    
+    instrument_names = [f"{item['exchange']}:{item['symbol']}" for item in symbols_with_exchange]
+    try:
+        quotes = client.quote(instrument_names)
+        indices_data = []
+        for item in symbols_with_exchange:
+            instrument = f"{item['exchange']}:{item['symbol']}"
+            if instrument in quotes:
+                quote = quotes[instrument]
+                last_price = quote['last_price']
+                prev_close = quote['ohlc']['close']
+                change = last_price - prev_close
+                pct_change = (change / prev_close * 100) if prev_close != 0 else 0
+                indices_data.append({'Ticker': item['symbol'], 'Exchange': item['exchange'], 'Price': last_price, 'Change': change, '% Change': pct_change})
+        return pd.DataFrame(indices_data)
+    except Exception as e:
+        st.toast(f"Error fetching Indian indices data: {e}", icon="⚠️")
+        return pd.DataFrame()
 
 # ================ 5. PAGE DEFINITIONS ============
 
@@ -1357,21 +1393,21 @@ def page_portfolio_analytics():
     with col1:
         st.subheader("Stock-wise Allocation")
         fig_stock = go.Figure(data=[go.Pie(
-            labels=holdings_df['tradingsymbol'], 
-            values=holdings_df['current_value'], 
+            labels=holdings_df['tradingsymbol'],
+            values=holdings_df['current_value'],
             hole=.3,
             textinfo='label+percent'
         )])
         fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
         st.plotly_chart(fig_stock, use_container_width=True)
-    
+            
     if sector_df is not None:
         with col2:
             st.subheader("Sector-wise Allocation")
             sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
             fig_sector = go.Figure(data=[go.Pie(
-                labels=sector_allocation['Sector'], 
-                values=sector_allocation['current_value'], 
+                labels=sector_allocation['Sector'],
+                values=sector_allocation['current_value'],
                 hole=.3,
                 textinfo='label+percent'
             )])
@@ -1500,51 +1536,89 @@ def page_premarket_pulse():
     display_header()
     st.title("Premarket Pulse")
     
-    st.subheader("Global Cues")
+    # --- Live Global News & Global Market Sentiment Meter ---
+    st.subheader("Global Cues & Domestic Pulse")
     global_indices_tickers = {
         "NASDAQ": "^IXIC", "NIKKEI 225": "^N225", "Dow Jones": "^DJI",
         "Gold Futures": "GC=F", "Crude Oil": "CL=F"
     }
     
-    selected_global_indices = st.multiselect(
-        "Select global markets to track",
-        options=list(global_indices_tickers.keys()),
-        default=["NASDAQ", "NIKKEI 225", "Dow Jones"]
-    )
-    
-    selected_tickers = [global_indices_tickers[name] for name in selected_global_indices]
+    col1, col2 = st.columns(2)
 
-    global_indices_data = get_global_indices_data(selected_tickers)
-    
-    if not global_indices_data.empty:
-        global_indices_data['Ticker'] = global_indices_data['Ticker'].map({v: k for k, v in global_indices_tickers.items()})
+    # Global Market Score
+    with col1:
+        st.markdown("### Global Market Score")
+        selected_global_indices = ["NASDAQ", "NIKKEI 225", "Dow Jones"]
+        selected_tickers = [global_indices_tickers[name] for name in selected_global_indices]
+        global_indices_data = get_global_indices_data(selected_tickers)
         
-        positive_count = len(global_indices_data[global_indices_data['Change'] > 0])
-        negative_count = len(global_indices_data[global_indices_data['Change'] < 0])
-        
-        if positive_count > negative_count + 1:
-            market_score = "Positive"
-            delta_color = "normal"
-            delta_value = 1
-        elif negative_count > positive_count + 1:
-            market_score = "Negative"
-            delta_color = "normal"
-            delta_value = -1
+        if not global_indices_data.empty:
+            global_indices_data['Ticker'] = global_indices_data['Ticker'].map({v: k for k, v in global_indices_tickers.items()})
+            positive_count = len(global_indices_data[global_indices_data['Change'] > 0])
+            negative_count = len(global_indices_data[global_indices_data['Change'] < 0])
+            
+            if positive_count > negative_count + 1:
+                market_score = "Positive"
+                delta_color = "normal"
+                delta_value = 1
+            elif negative_count > positive_count + 1:
+                market_score = "Negative"
+                delta_color = "normal"
+                delta_value = -1
+            else:
+                market_score = "Neutral"
+                delta_color = "normal"
+                delta_value = 0
+            
+            st.metric("Overall Sentiment", market_score, delta=delta_value, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
+            
+            cols = st.columns(len(global_indices_data))
+            for i, row in global_indices_data.iterrows():
+                with cols[i]:
+                    change = row['Change']
+                    delta_color_global = 'normal' if change >= 0 else 'inverse'
+                    st.metric(f"{row['Ticker']}", f"₹{row['Price']:,.2f}", delta=f"₹{row['Change']:,.2f} ({row['% Change']:.2f}%)", delta_color=delta_color_global)
         else:
-            market_score = "Neutral"
-            delta_color = "normal"
-            delta_value = 0
-        
-        st.metric("Global Market Score", market_score, delta=delta_value, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
-        
-        cols = st.columns(len(global_indices_data))
-        for i, row in global_indices_data.iterrows():
-            with cols[i]:
-                change = row['Change']
-                delta_color_global = 'normal' if change >= 0 else 'inverse'
-                st.metric(f"{row['Ticker']}", f"₹{row['Price']:,.2f}", delta=f"₹{row['Change']:,.2f} ({row['% Change']:.2f}%)", delta_color=delta_color_global)
-    else:
-        st.warning("Could not retrieve data for all global indices.")
+            st.warning("Could not retrieve data for all global indices.")
+
+    # Indian Market Open Score (Domestic Pulse Score)
+    with col2:
+        st.markdown("### Domestic Pulse Score")
+        instrument_df = get_instrument_df()
+        if not instrument_df.empty:
+            indian_indices_symbols = [
+                {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
+                {'symbol': 'NIFTY BANK', 'exchange': 'NSE'},
+                {'symbol': 'NIFTY FIN SERVICE', 'exchange': 'NSE'}
+            ]
+            indian_indices_data = get_indian_indices_data(indian_indices_symbols)
+            
+            if not indian_indices_data.empty:
+                positive_count = len(indian_indices_data[indian_indices_data['Change'] > 0])
+                negative_count = len(indian_indices_data[indian_indices_data['Change'] < 0])
+                
+                if positive_count > negative_count:
+                    domestic_score = "Positive"
+                    delta_value = 1
+                elif negative_count > positive_count:
+                    domestic_score = "Negative"
+                    delta_value = -1
+                else:
+                    domestic_score = "Neutral"
+                    delta_value = 0
+
+                st.metric("Overall Sentiment", domestic_score, delta=delta_value, help="An indicative score based on major Indian market indices.")
+                
+                cols = st.columns(len(indian_indices_data))
+                for i, row in indian_indices_data.iterrows():
+                    with cols[i]:
+                        change = row['Change']
+                        delta_color_domestic = 'normal' if change >= 0 else 'inverse'
+                        st.metric(f"{row['Ticker']}", f"₹{row['Price']:,.2f}", delta=f"₹{row['Change']:,.2f} ({row['% Change']:.2f}%)", delta_color=delta_color_domestic)
+            else:
+                st.warning("Could not retrieve data for Indian indices.")
+        else:
+            st.warning("Broker not connected.")
 
     st.markdown("---")
 
@@ -2084,8 +2158,9 @@ def page_momentum_and_trend_finder():
         selected_list = watchlists[selected_watchlist_name]
         if not selected_list:
             st.warning(f"The watchlist '{selected_watchlist_name}' is empty.")
-            return
-
+            st.session_state['signals_data'] = None
+            st.rerun()
+        
         signals_data = []
         with st.spinner(f"Analyzing {len(selected_list)} stocks for signals..."):
             for item in selected_list:
