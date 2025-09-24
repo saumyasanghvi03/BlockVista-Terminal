@@ -1167,16 +1167,16 @@ def page_portfolio_analytics():
     if sector_df is None:
         st.warning("`sectors.csv` not found. Cannot perform sector-wise analysis. Please create this file.")
 
-    holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
-    
-    if sector_df is not None:
-        holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-        holdings_df['Sector'].fillna('Uncategorized', inplace=True)
-    else: # FIX: if sector_df is None, still proceed with calculations but without sector column
-        holdings_df['Sector'] = 'Uncategorized'
-    
-    # FIX: Check for empty holdings_df before calculating total value
+    # FIX: Check for empty holdings_df before performing operations
     if not holdings_df.empty:
+        holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
+        
+        if sector_df is not None:
+            holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
+            holdings_df['Sector'].fillna('Uncategorized', inplace=True)
+        else:
+            holdings_df['Sector'] = 'Uncategorized'
+        
         st.metric("Total Portfolio Value", f"₹{holdings_df['current_value'].sum():,.2f}")
 
         col1, col2 = st.columns(2)
@@ -1334,7 +1334,6 @@ def page_premarket_pulse():
         {'symbol': 'SENSEX', 'exchange': 'BSE'},
         {'symbol': 'INDIA VIX', 'exchange': 'NSE'},
     ]
-    # FIX: Use a more reliable way to fetch live indices data
     try:
         indian_indices_data = get_watchlist_data(indian_indices_symbols)
         if not indian_indices_data.empty:
@@ -1342,10 +1341,12 @@ def page_premarket_pulse():
             for i, col in enumerate(cols):
                 with col:
                     change = indian_indices_data.iloc[i]['Change']
+                    delta_color = 'normal' if change == 0 else 'inverse' if change < 0 else 'normal'
                     st.metric(
                         label=indian_indices_data.iloc[i]['Ticker'],
                         value=f"₹{indian_indices_data.iloc[i]['Price']:,.2f}",
-                        delta=f"₹{change:,.2f} ({indian_indices_data.iloc[i]['% Change']:.2f}%)"
+                        delta=f"₹{change:,.2f} ({indian_indices_data.iloc[i]['% Change']:.2f}%)",
+                        delta_color=delta_color
                     )
         else:
             st.warning("Could not retrieve data for Indian indices.")
@@ -1383,7 +1384,9 @@ def page_premarket_pulse():
             st.metric("Global Market Score", market_score, delta=delta_value, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
             
             for _, row in global_indices_data.iterrows():
-                st.metric(f"{row['Ticker']} Price", f"₹{row['Price']:,.2f}", delta=f"₹{row['Change']:,.2f} ({row['% Change']:.2f}%)")
+                change = row['Change']
+                delta_color_global = 'normal' if change == 0 else 'inverse' if change < 0 else 'normal'
+                st.metric(f"{row['Ticker']} Price", f"₹{row['Price']:,.2f}", delta=f"₹{row['Change']:,.2f} ({row['% Change']:.2f}%)", delta_color=delta_color_global)
         else:
             st.warning("Could not retrieve data for all global indices.")
 
