@@ -2098,8 +2098,8 @@ def page_momentum_and_trend_finder():
                 try:
                     # Fetch 3 months of data to get meaningful indicators
                     data = get_historical_data(token, 'day', period='3mo')
-                    if data.empty:
-                        st.warning(f"Could not get historical data for {ticker}. Skipping.")
+                    if data.empty or len(data) < 2:
+                        st.warning(f"Could not get sufficient historical data for {ticker}. Skipping.")
                         continue
                         
                     data.ta.rsi(append=True)
@@ -2108,6 +2108,7 @@ def page_momentum_and_trend_finder():
                     data.ta.ema(length=200, append=True)
                     
                     latest_data = data.iloc[-1]
+                    previous_data = data.iloc[-2]
                     
                     # Logic for signal generation
                     signal = "Hold"
@@ -2126,12 +2127,17 @@ def page_momentum_and_trend_finder():
                     # MACD signal
                     macd_line = latest_data.get('MACD_12_26_9')
                     signal_line = latest_data.get('MACDs_12_26_9')
-                    if macd_line is not None and signal_line is not None:
-                        if macd_line > signal_line and latest_data.get('MACD_12_26_9').iloc[-2] < latest_data.get('MACDs_12_26_9').iloc[-2]:
+                    prev_macd_line = previous_data.get('MACD_12_26_9')
+                    prev_signal_line = previous_data.get('MACDs_12_26_9')
+                    
+                    # Fix: Check for None and sufficient data before performing comparison
+                    if (macd_line is not None and signal_line is not None and
+                        prev_macd_line is not None and prev_signal_line is not None):
+                        if macd_line > signal_line and prev_macd_line < prev_signal_line:
                             if signal == "Hold":
                                 signal = "Buy"
                                 reasons.append("MACD bullish crossover.")
-                        elif macd_line < signal_line and latest_data.get('MACD_12_26_9').iloc[-2] > latest_data.get('MACDs_12_26_9').iloc[-2]:
+                        elif macd_line < signal_line and prev_macd_line > prev_signal_line:
                             if signal == "Hold":
                                 signal = "Sell"
                                 reasons.append("MACD bearish crossover.")
