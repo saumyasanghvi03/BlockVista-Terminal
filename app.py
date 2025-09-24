@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -48,6 +49,44 @@ def load_css():
         }
         .positive-blink { color: #28a745; }
         .negative-blink { color: #FF4B4B; }
+        /* 2FA Animation */
+        .qr-pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .fade-in {
+            animation: fadeIn 1s ease-in;
+        }
+        @keyframes fadeIn {
+            0% { opacity: 0; transform: translateY(10px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        /* Zerodha Login Animation */
+        .slide-in {
+            animation: slideIn 0.5s ease-out;
+        }
+        @keyframes slideIn {
+            0% { opacity: 0; transform: translateX(-20px); }
+            100% { opacity: 1; transform: translateX(0); }
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
         </style>
         """, unsafe_allow_html=True)
 
@@ -72,34 +111,52 @@ def setup_2fa():
 
 def authenticate_broker():
     st.subheader("Broker Authentication")
-    api_key = st.text_input("Zerodha API Key")
-    api_secret = st.text_input("Zerodha API Secret", type="password")
+    if 'setup_2fa' not in st.session_state:
+        st.session_state['setup_2fa'] = True  # Show QR code on first visit
     if '2fa_verified' not in st.session_state:
         st.session_state['2fa_verified'] = False
-    if not st.session_state['2fa_verified']:
-        qr_code, totp = setup_2fa()
-        st.image(f"data:image/png;base64,{qr_code}", caption="Scan with Authenticator App")
-        two_factor_code = st.text_input("Enter 2FA Code")
-        if st.button("Verify 2FA"):
+
+    # 2FA Verification
+    qr_code, totp = setup_2fa()
+    if st.session_state['setup_2fa']:
+        st.markdown("<div class='qr-pulse'>", unsafe_allow_html=True)
+        st.image(f"data:image/png;base64,{qr_code}", caption="Scan with Authenticator App (One-Time Setup)")
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<div class='fade-in'>", unsafe_allow_html=True)
+    two_factor_code = st.text_input("Enter 2FA Code", key="2fa_code")
+    if st.button("Verify 2FA"):
+        with st.spinner("Verifying 2FA..."):
             if totp.verify(two_factor_code):
                 st.session_state['2fa_verified'] = True
+                st.session_state['setup_2fa'] = False  # Hide QR code after successful setup
                 st.success("2FA Verified!")
                 st.rerun()
             else:
                 st.error("Invalid 2FA Code")
-    if st.session_state['2fa_verified'] and api_key and api_secret:
-        try:
-            kite = KiteConnect(api_key=api_key)
-            request_token = st.text_input("Enter Request Token")
-            if st.button("Authenticate"):
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Zerodha Login
+    if st.session_state['2fa_verified']:
+        api_key = st.secrets.get("zerodha_api_key")
+        api_secret = st.secrets.get("zerodha_api_secret")
+        if not api_key or not api_secret:
+            st.error("API key and secret not found in Streamlit secrets. Please add 'zerodha_api_key' and 'zerodha_api_secret' in your Streamlit secrets.")
+            return
+        st.markdown("<div class='slide-in'>", unsafe_allow_html=True)
+        request_token = st.text_input("Enter Zerodha Request Token (Auth Code)", key="request_token")
+        if st.button("Authenticate with Zerodha"):
+            st.markdown("<span class='spinner'></span>", unsafe_allow_html=True)
+            try:
+                kite = KiteConnect(api_key=api_key)
                 data = kite.generate_session(request_token, api_secret)
                 kite.set_access_token(data["access_token"])
                 st.session_state['kite'] = kite
                 st.session_state['broker'] = "Zerodha"
                 st.success("Authenticated with Zerodha!")
                 st.rerun()
-        except Exception as e:
-            st.error(f"Authentication failed: {e}")
+            except Exception as e:
+                st.error(f"Authentication failed: {e}")
+        st.markdown("</div>", unsafe_allow_html=True)
 
 def get_instrument_df():
     if 'kite' not in st.session_state or not st.session_state['kite']:
