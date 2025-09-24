@@ -966,7 +966,7 @@ def page_forecasting_ml():
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Actual'], mode='lines', name='Actual Price'))
                     fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                    template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+                    template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
                     fig.update_layout(title=f"Backtest Results ({selected_period_name})", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig, use_container_width=True)
                 else:
@@ -1332,6 +1332,7 @@ def page_premarket_pulse():
     display_header()
     st.title("Premarket Pulse")
     
+    # --- Live Indian Indices ---
     st.subheader("Key Indian Indices (Live)")
     indian_indices_symbols = [
         {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
@@ -1362,6 +1363,7 @@ def page_premarket_pulse():
     col1, col2 = st.columns(2)
 
     with col1:
+        # --- Global Cues and Sentiment Meter ---
         st.subheader("Global Cues")
         global_indices_tickers = {"NASDAQ": "^IXIC", "NIKKEI 225": "^N225", "Dow Jones": "^DJI", "Gold Futures": "GC=F", "Crude Oil": "CL=F"}
         global_indices_data = get_global_indices_data(list(global_indices_tickers.values()))
