@@ -91,9 +91,19 @@ def load_css():
 
 def get_sector_data():
     try:
-        return pd.read_csv("sectors.csv")
+        sector_data = pd.read_csv("sectors.csv")
+        # Verify required columns
+        required_columns = ['sector', 'symbol', 'weight', 'change']
+        if not all(col in sector_data.columns for col in required_columns):
+            missing_cols = [col for col in required_columns if col not in sector_data.columns]
+            st.error(f"sectors.csv is missing required columns: {', '.join(missing_cols)}")
+            return pd.DataFrame(columns=required_columns)
+        return sector_data
     except FileNotFoundError:
-        st.warning("sectors.csv not found. Sector data unavailable.")
+        st.warning("sectors.csv not found. Using default empty sector data.")
+        return pd.DataFrame(columns=['sector', 'symbol', 'weight', 'change'])
+    except Exception as e:
+        st.error(f"Failed to load sectors.csv: {e}")
         return pd.DataFrame(columns=['sector', 'symbol', 'weight', 'change'])
 
 def setup_2fa():
@@ -462,14 +472,14 @@ def page_dashboard():
     with col2:
         st.subheader("Sector Performance")
         sector_data = get_sector_data()
-        if not sector_data.empty:
+        if not sector_data.empty and 'sector' in sector_data.columns:
             for sector in sector_data['sector'].unique():
                 sector_df = sector_data[sector_data['sector'] == sector]
                 weighted_change = (sector_df['weight'] * sector_df['change']).sum()
                 change_class = "positive-blink" if weighted_change > 0 else "negative-blink"
                 st.markdown(f"<div class='metric-card'>{sector}: <span class='{change_class}'>{weighted_change:.2f}%</span></div>", unsafe_allow_html=True)
         else:
-            st.info("No sector data available.")
+            st.info("No sector data available or sectors.csv is missing required columns.")
 
 def page_advanced_charting():
     display_header()
