@@ -522,8 +522,9 @@ def place_basket_order(orders, variety):
 def get_sector_data():
     """Loads stock-to-sector mapping from a local CSV file."""
     try:
-        return pd.read_csv("sectors.csv")
+        return pd.read_csv("sensex_sectors.csv")
     except FileNotFoundError:
+        st.warning(f"Sector data file not found. Please provide a 'sensex_sectors.csv' file for sector analysis.")
         return None
 
 def style_option_chain(df, ltp):
