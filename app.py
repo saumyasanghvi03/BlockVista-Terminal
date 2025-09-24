@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -11,7 +10,6 @@ import base64
 from datetime import datetime, timedelta
 import requests
 import yfinance as yf
-import pandas_ta as ta
 from sklearn.preprocessing import MinMaxScaler
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.arima.model import ARIMA
@@ -21,9 +19,12 @@ from streamlit_autorefresh import st_autorefresh
 from scipy.optimize import newton
 import pytz
 import tabulate
+from scipy.stats import norm
+from math import log, sqrt, exp
 
 # Constants
-TWO_FACTOR_SECRET = "YOUR_2FA_SECRET"  # Replace with your secret
+TWO_FACTOR_SECRET = "JBSWY3DPEHPK3PXP"  # Replace with your actual 2FA secret
+
 ML_DATA_SOURCES = {
     "NIFTY 50": {"github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/data/NIFTY50.csv"},
     "BANK NIFTY": {"github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/data/BANKNIFTY.csv"},
@@ -55,7 +56,7 @@ def get_sector_data():
         return pd.read_csv("sectors.csv")
     except FileNotFoundError:
         st.warning("sectors.csv not found. Sector data unavailable.")
-        return pd.DataFrame(columns=['sector', 'symbol', 'weight'])
+        return pd.DataFrame(columns=['sector', 'symbol', 'weight', 'change'])
 
 def setup_2fa():
     totp = pyotp.TOTP(TWO_FACTOR_SECRET)
@@ -130,7 +131,7 @@ def get_options_chain(underlying, instrument_df):
         expiry = sorted(set([pd.to_datetime(s.split()[-1]).date() for s in symbols if 'CE' in s or 'PE' in s]))[0]
         chain = []
         kite = st.session_state['kite']
-        quotes = kite.quote([f"{s}" for s in symbols])
+        quotes = kite.quote([f"NFO:{s}" for s in symbols])
         underlying_quote = kite.quote(f"NSE:{underlying}")["NSE:" + underlying]
         underlying_ltp = underlying_quote['last_price']
         for symbol in symbols:
@@ -138,7 +139,7 @@ def get_options_chain(underlying, instrument_df):
                 strike = float(symbol.split()[-2])
                 option_type = 'CE' if 'CE' in symbol else 'PE' if 'PE' in symbol else None
                 if option_type:
-                    quote = quotes.get(symbol, {})
+                    quote = quotes.get(f"NFO:{symbol}", {})
                     chain.append({
                         'STRIKE': strike,
                         'CALL' if option_type == 'CE' else 'PUT': symbol,
@@ -156,16 +157,16 @@ def get_futures_chain(underlying, instrument_df):
         expiry = sorted(set([pd.to_datetime(s.split()[-1]).date() for s in symbols]))[0]
         chain = []
         kite = st.session_state['kite']
-        quotes = kite.quote([f"{s}" for s in symbols])
+        quotes = kite.quote([f"NFO:{s}" for s in symbols])
         for symbol in symbols:
             if pd.to_datetime(symbol.split()[-1]).date() == expiry:
-                quote = quotes.get(symbol, {})
+                quote = quotes.get(f"NFO:{symbol}", {})
                 chain.append({
                     'SYMBOL': symbol,
                     'LTP': quote.get('last_price', 0),
-                    'OPEN': quote.get('open', 0),
-                    'HIGH': quote.get('high', 0),
-                    'LOW': quote.get('low', 0),
+                    'OPEN': quote.get('ohlc', {}).get('open', 0),
+                    'HIGH': quote.get('ohlc', {}).get('high', 0),
+                    'LOW': quote.get('ohlc', {}).get('low', 0),
                     'VOLUME': quote.get('volume', 0)
                 })
         chain_df = pd.DataFrame(chain)
@@ -180,14 +181,16 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
         st.error("Broker not connected.")
         return
     try:
+        exchange = instrument_df[instrument_df['tradingsymbol'] == symbol]['exchange'].iloc[0]
         order_id = kite.place_order(
             variety="regular",
-            exchange=instrument_df[instrument_df['tradingsymbol'] == symbol]['exchange'].iloc[0],
+            exchange=exchange,
             tradingsymbol=symbol,
             transaction_type=transaction_type,
             quantity=quantity,
             product=product,
-            order_type=order_type
+            order_type=order_type,
+            price=0
         )
         st.session_state['order_history'] = st.session_state.get('order_history', []) + [{
             'id': order_id,
@@ -206,27 +209,19 @@ def place_basket_order(orders, variety='regular'):
         st.error("Broker not connected.")
         return
     try:
-        order_ids = []
-        for order in orders:
-            order_id = kite.place_order(
-                variety=variety,
-                exchange=order['exchange'],
-                tradingsymbol=order['tradingsymbol'],
-                transaction_type=order['transaction_type'],
-                quantity=order['quantity'],
-                product=order['product'],
-                order_type=order['order_type'],
-                price=order.get('price', 0)
-            )
-            order_ids.append(order_id)
+        order_ids = kite.place_order(
+            variety=variety,
+            orders=orders
+        )
+        for order_id in order_ids:
             st.session_state['order_history'] = st.session_state.get('order_history', []) + [{
                 'id': order_id,
-                'symbol': order['tradingsymbol'],
-                'qty': order['quantity'],
-                'type': order['transaction_type'],
+                'symbol': 'BASKET',
+                'qty': 1,
+                'type': 'BASKET',
                 'status': 'PLACED'
             }]
-        st.success(f"Placed {len(order_ids)} orders in basket.")
+        st.success(f"Placed basket order: {len(order_ids)} orders")
     except Exception as e:
         st.error(f"Failed to place basket order: {e}")
 
@@ -248,8 +243,6 @@ def get_global_indices_data():
 
 def black_scholes(S, K, T, r, sigma, option_type):
     try:
-        from math import log, sqrt, exp
-        from scipy.stats import norm
         d1 = (log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * sqrt(T))
         d2 = d1 - sigma * sqrt(T)
         if option_type.lower() == 'ce':
@@ -275,6 +268,29 @@ def implied_volatility(S, K, T, r, option_price, option_type):
     except Exception:
         return np.nan
 
+def rsi(close, window=14):
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0).rolling(window=window).mean()
+    loss = -delta.where(delta < 0, 0).rolling(window=window).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def macd(close, fast=12, slow=26, signal=9):
+    ema_fast = close.ewm(span=fast).mean()
+    ema_slow = close.ewm(span=slow).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal).mean()
+    histogram = macd_line - signal_line
+    return {'MACD': macd_line, 'Signal': signal_line, 'Histogram': histogram}
+
+def bbands(close, window=20, std=2):
+    rolling_mean = close.rolling(window=window).mean()
+    rolling_std = close.rolling(window=window).std()
+    upper = rolling_mean + (rolling_std * std)
+    lower = rolling_mean - (rolling_std * std)
+    middle = rolling_mean
+    return {'Upper': upper, 'Middle': middle, 'Lower': lower}
+
 def create_chart(df, symbol, timeframe, indicators):
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
@@ -286,16 +302,17 @@ def create_chart(df, symbol, timeframe, indicators):
         name=symbol
     ))
     if 'RSI' in indicators:
-        df['RSI'] = ta.rsi(df['close'], length=14)
+        df['RSI'] = rsi(df['close'])
         fig.add_trace(go.Scatter(x=df['date'], y=df['RSI'], name='RSI', yaxis='y2'))
     if 'MACD' in indicators:
-        macd = ta.macd(df['close'])
-        fig.add_trace(go.Scatter(x=df['date'], y=macd['MACD_12_26_9'], name='MACD', yaxis='y3'))
-        fig.add_trace(go.Scatter(x=df['date'], y=macd['MACDs_12_26_9'], name='Signal', yaxis='y3'))
+        macd_data = macd(df['close'])
+        fig.add_trace(go.Scatter(x=df['date'], y=macd_data['MACD'], name='MACD', yaxis='y3'))
+        fig.add_trace(go.Scatter(x=df['date'], y=macd_data['Signal'], name='Signal', yaxis='y3'))
     if 'BBANDS' in indicators:
-        bbands = ta.bbands(df['close'], length=20)
-        fig.add_trace(go.Scatter(x=df['date'], y=bbands['BBU_20_2.0'], name='Upper BB', line=dict(dash='dash')))
-        fig.add_trace(go.Scatter(x=df['date'], y=bbands['BBL_20_2.0'], name='Lower BB', line=dict(dash='dash')))
+        bbands_data = bbands(df['close'])
+        fig.add_trace(go.Scatter(x=df['date'], y=bbands_data['Upper'], name='Upper BB', line=dict(dash='dash')))
+        fig.add_trace(go.Scatter(x=df['date'], y=bbands_data['Lower'], name='Lower BB', line=dict(dash='dash')))
+        fig.add_trace(go.Scatter(x=df['date'], y=bbands_data['Middle'], name='Middle BB', line=dict(color='gray')))
     fig.update_layout(
         title=f"{symbol} - {timeframe}",
         yaxis=dict(title="Price"),
@@ -314,14 +331,16 @@ def load_and_combine_data(instrument_name):
         response = requests.get(source_info['github_url'])
         response.raise_for_status()
         hist_df = pd.read_csv(io.StringIO(response.text))
+        hist_df['date'] = pd.to_datetime(hist_df['date'] if 'date' in hist_df.columns else hist_df.index)
     except Exception:
         ticker_map = {"NIFTY 50": "^NSEI", "BANK NIFTY": "^NSEBANK", "S&P 500": "^GSPC"}
         if instrument_name in ticker_map:
             hist_df = yf.download(ticker_map[instrument_name], period="1y")
+            hist_df.reset_index(inplace=True)
+            hist_df['date'] = pd.to_datetime(hist_df['Date'])
         else:
             st.error(f"Failed to load historical data for {instrument_name}")
             return pd.DataFrame()
-    hist_df['date'] = pd.to_datetime(hist_df['date'] if 'date' in hist_df.columns else hist_df.index)
     return hist_df.sort_values('date')
 
 def train_seasonal_arima_model(data, forecast_date):
@@ -393,6 +412,8 @@ def page_dashboard():
                 weighted_change = (sector_df['weight'] * sector_df['change']).sum()
                 change_class = "positive-blink" if weighted_change > 0 else "negative-blink"
                 st.markdown(f"<div class='metric-card'>{sector}: <span class='{change_class}'>{weighted_change:.2f}%</span></div>", unsafe_allow_html=True)
+        else:
+            st.info("No sector data available.")
 
 def page_advanced_charting():
     display_header()
@@ -405,9 +426,12 @@ def page_advanced_charting():
     timeframe = st.selectbox("Timeframe", ["1minute", "5minute", "15minute", "day"])
     indicators = st.multiselect("Indicators", ["RSI", "MACD", "BBANDS"])
     if symbol:
-        df = get_historical_data(symbol, datetime.now() - timedelta(days=30), datetime.now(), timeframe)
+        from_date = datetime.now() - timedelta(days=30)
+        df = get_historical_data(symbol, from_date, datetime.now(), timeframe)
         if not df.empty:
             st.plotly_chart(create_chart(df, symbol, timeframe, indicators), use_container_width=True)
+        else:
+            st.info("No data available for the selected timeframe.")
 
 def page_options_hub():
     display_header()
@@ -552,8 +576,9 @@ def page_ai_assistant():
                     response = "Please connect to a broker to view funds."
                 else:
                     try:
-                        funds = kite.margins()['equity']['available']['cash']
-                        response = f"Available Funds: ₹{funds:.2f}"
+                        margins = kite.margins()
+                        cash = margins['equity']['available']['cash']
+                        response = f"Available Funds: ₹{cash:.2f}"
                     except Exception as e:
                         response = f"Failed to fetch funds: {e}"
             elif "price" in prompt_lower:
@@ -572,15 +597,15 @@ def page_ai_assistant():
                     if symbol:
                         df = get_historical_data(symbol, datetime.now() - timedelta(days=30), datetime.now(), "day")
                         if not df.empty:
-                            df['RSI'] = ta.rsi(df['close'], length=14)
-                            macd = ta.macd(df['close'])
-                            bbands = ta.bbands(df['close'], length=20)
+                            df['RSI'] = rsi(df['close'])
+                            macd_data = macd(df['close'])
+                            bbands_data = bbands(df['close'])
                             latest = df.iloc[-1]
                             response = (
                                 f"**Technical Indicators for {symbol}**\n"
                                 f"- RSI: {latest['RSI']:.2f}\n"
-                                f"- MACD: {macd['MACD_12_26_9'].iloc[-1]:.2f}, Signal: {macd['MACDs_12_26_9'].iloc[-1]:.2f}\n"
-                                f"- Bollinger Bands: Upper {bbands['BBU_20_2.0'].iloc[-1]:.2f}, Lower {bbands['BBL_20_2.0'].iloc[-1]:.2f}"
+                                f"- MACD: {macd_data['MACD'].iloc[-1]:.2f}, Signal: {macd_data['Signal'].iloc[-1]:.2f}\n"
+                                f"- Bollinger Bands: Upper {bbands_data['Upper'].iloc[-1]:.2f}, Lower {bbands_data['Lower'].iloc[-1]:.2f}"
                             )
                         else:
                             response = f"No data available for {symbol}."
