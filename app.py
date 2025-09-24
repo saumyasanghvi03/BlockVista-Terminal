@@ -1173,7 +1173,6 @@ def page_portfolio_analytics():
         
         if sector_df is not None:
             holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-            # FIX: Check if 'Sector' column exists after merge before calling fillna
             if 'Sector' in holdings_df.columns:
                 holdings_df['Sector'].fillna('Uncategorized', inplace=True)
             else:
