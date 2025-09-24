@@ -1316,7 +1316,8 @@ def page_option_strategy_builder():
                     title=f"{strategy} Payoff (Time to Expiry: {days_to_expiry} days)",
                     xaxis_title="Underlying Price at Expiry",
                     yaxis_title="Profit / Loss",
-                    template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
+                    template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 
@@ -1332,71 +1333,61 @@ def page_premarket_pulse():
     display_header()
     st.title("Premarket Pulse")
     
-    # --- Live Indian Indices ---
-    st.subheader("Key Indian Indices (Live)")
-    indian_indices_symbols = [
-        {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
-        {'symbol': 'SENSEX', 'exchange': 'BSE'},
-        {'symbol': 'INDIA VIX', 'exchange': 'NSE'},
-    ]
-    try:
-        indian_indices_data = get_watchlist_data(indian_indices_symbols)
-        if not indian_indices_data.empty:
-            cols = st.columns(len(indian_indices_data))
-            for i, col in enumerate(cols):
-                with col:
-                    change = indian_indices_data.iloc[i]['Change']
-                    delta_color = 'normal' if change >= 0 else 'inverse'
-                    st.metric(
-                        label=indian_indices_data.iloc[i]['Ticker'],
-                        value=f"₹{indian_indices_data.iloc[i]['Price']:,.2f}",
-                        delta=f"₹{change:,.2f} ({indian_indices_data.iloc[i]['% Change']:.2f}%)",
-                        delta_color=delta_color
-                    )
-        else:
-            st.warning("Could not retrieve data for Indian indices.")
-    except Exception as e:
-        st.error(f"Error fetching Indian indices data: {e}")
+    # --- Live Global News & Global Market Sentiment Meter ---
+    st.subheader("Global Cues")
+    global_indices_tickers = {
+        "NASDAQ": "^IXIC", "NIKKEI 225": "^N225", "Dow Jones": "^DJI",
+        "Gold Futures": "GC=F", "Crude Oil": "CL=F"
+    }
     
+    # User can select which global indices to track
+    selected_global_indices = st.multiselect(
+        "Select global markets to track",
+        options=list(global_indices_tickers.keys()),
+        default=["NASDAQ", "NIKKEI 225", "Dow Jones"]
+    )
+    
+    # Map selected names to their tickers
+    selected_tickers = [global_indices_tickers[name] for name in selected_global_indices]
+
+    global_indices_data = get_global_indices_data(selected_tickers)
+    
+    if not global_indices_data.empty:
+        global_indices_data['Ticker'] = global_indices_data['Ticker'].map({v: k for k, v in global_indices_tickers.items()})
+        
+        # Calculate overall market score
+        positive_count = len(global_indices_data[global_indices_data['Change'] > 0])
+        negative_count = len(global_indices_data[global_indices_data['Change'] < 0])
+        
+        if positive_count > negative_count + 1:
+            market_score = "Positive"
+            delta_color = "normal"
+            delta_value = 1
+        elif negative_count > positive_count + 1:
+            market_score = "Negative"
+            delta_color = "normal"
+            delta_value = -1
+        else:
+            market_score = "Neutral"
+            delta_color = "normal"
+            delta_value = 0
+        
+        st.metric("Global Market Score", market_score, delta=delta_value, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
+        
+        cols = st.columns(len(global_indices_data))
+        for i, row in global_indices_data.iterrows():
+            with cols[i]:
+                change = row['Change']
+                delta_color_global = 'normal' if change >= 0 else 'inverse'
+                st.metric(f"{row['Ticker']}", f"₹{row['Price']:,.2f}", delta=f"₹{row['Change']:,.2f} ({row['% Change']:.2f}%)", delta_color=delta_color_global)
+    else:
+        st.warning("Could not retrieve data for all global indices.")
+
     st.markdown("---")
 
     col1, col2 = st.columns(2)
-
     with col1:
-        # --- Global Cues and Sentiment Meter ---
-        st.subheader("Global Cues")
-        global_indices_tickers = {"NASDAQ": "^IXIC", "NIKKEI 225": "^N225", "Dow Jones": "^DJI", "Gold Futures": "GC=F", "Crude Oil": "CL=F"}
-        global_indices_data = get_global_indices_data(list(global_indices_tickers.values()))
-        
-        if not global_indices_data.empty:
-            global_indices_data['Ticker'] = global_indices_data['Ticker'].map({v: k for k, v in global_indices_tickers.items()})
-            
-            positive_count = len(global_indices_data[global_indices_data['Change'] > 0])
-            negative_count = len(global_indices_data[global_indices_data['Change'] < 0])
-            
-            if positive_count > negative_count + 1:
-                market_score = "Positive"
-                delta_color = "normal"
-                delta_value = 1
-            elif negative_count > positive_count + 1:
-                market_score = "Negative"
-                delta_color = "normal"
-                delta_value = -1
-            else:
-                market_score = "Neutral"
-                delta_color = "normal"
-                delta_value = 0
-            
-            st.metric("Global Market Score", market_score, delta=delta_value, label_visibility="visible", help="An indicative score based on global market performance.", delta_color=delta_color)
-            
-            for _, row in global_indices_data.iterrows():
-                change = row['Change']
-                delta_color_global = 'normal' if change >= 0 else 'inverse'
-                st.metric(f"{row['Ticker']} Price", f"₹{row['Price']:,.2f}", delta=f"₹{row['Change']:,.2f} ({row['% Change']:.2f}%)", delta_color=delta_color_global)
-        else:
-            st.warning("Could not retrieve data for all global indices.")
-
-    with col2:
+        # Placeholder for other Indian premarket data if needed
         st.subheader("GIFT NIFTY Chart")
         st.caption("Displaying a live chart for GIFT NIFTY from yfinance as a proxy. This data is not from Zerodha.")
         try:
@@ -1407,6 +1398,16 @@ def page_premarket_pulse():
                 st.warning("Could not load GIFT NIFTY chart.")
         except Exception as e:
             st.error(f"Error fetching GIFT NIFTY data: {e}")
+    with col2:
+        # Placeholder for Indian premarket news or other data
+        st.subheader("Live Market News")
+        news_df = fetch_and_analyze_news("Indian Markets")
+        if not news_df.empty:
+            for index, row in news_df.head(5).iterrows():
+                st.markdown(f"**[{row['title']}]({row['link']})** - _{row['source']}_")
+        else:
+            st.info("No recent news found.")
+
 
 def page_ai_trading_journal():
     """An AI-powered trading journal for self-reflection and well-being checks."""
