@@ -25,6 +25,9 @@ import io
 import time as a_time # Renaming to avoid conflict with datetime.time
 import re
 import yfinance as yf
+import pyotp
+import qrcode
+from io import BytesIO
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -286,6 +289,37 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
         return final_chain[['CALL', 'CALL LTP', 'STRIKE', 'PUT LTP', 'PUT']], expiry_date, underlying_ltp, available_expiries
     else:
         st.warning(f"Options chain for {st.session_state.broker} not implemented.")
+        return pd.DataFrame(), None, 0.0, []
+
+@st.cache_data(ttl=30)
+def get_futures_chain(underlying, instrument_df, expiry_date=None):
+    client = get_broker_client()
+    if not client or instrument_df.empty: return pd.DataFrame(), None, 0.0, []
+    if st.session_state.broker == "Zerodha":
+        exchange_map = {"GOLDM": "MCX", "CRUDEOIL": "MCX", "SILVERM": "MCX", "NATURALGAS": "MCX", "USDINR": "CDS"}
+        exchange = exchange_map.get(underlying, 'NFO')
+        ltp_symbol = {"NIFTY": "NIFTY 50", "BANKNIFTY": "BANK NIFTY", "FINNIFTY": "FINNIFTY"}.get(underlying, underlying)
+        ltp_exchange = "NSE" if exchange == "NFO" else exchange
+        underlying_instrument_name = f"{ltp_exchange}:{ltp_symbol}"
+        try:
+            underlying_ltp = client.ltp(underlying_instrument_name)[underlying_instrument_name]['last_price']
+        except Exception:
+            underlying_ltp = 0.0
+        futures = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange) & (instrument_df['instrument_type'] == 'FUT')]
+        if futures.empty: return pd.DataFrame(), None, underlying_ltp, []
+        expiries = sorted(pd.to_datetime(futures['expiry'].unique()))
+        three_months_later = datetime.now() + timedelta(days=90)
+        available_expiries = [e for e in expiries if datetime.now().date() <= e.date() <= three_months_later.date()]
+        if not expiry_date: expiry_date = available_expiries[0] if available_expiries else None
+        if not expiry_date: return pd.DataFrame(), None, underlying_ltp, available_expiries
+        chain_df = futures[futures['expiry'] == expiry_date].sort_values(by='expiry')
+        instruments_to_fetch = [f"{exchange}:{s}" for s in chain_df['tradingsymbol']]
+        if not instruments_to_fetch: return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
+        quotes = client.quote(instruments_to_fetch)
+        chain_df['LTP'] = chain_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
+        return chain_df[['tradingsymbol', 'expiry', 'LTP']], expiry_date, underlying_ltp, available_expiries
+    else:
+        st.warning(f"Futures chain for {st.session_state.broker} not implemented.")
         return pd.DataFrame(), None, 0.0, []
 
 @st.cache_data(ttl=10)
@@ -869,6 +903,52 @@ def page_options_hub():
         else:
             st.warning("Could not fetch options chain.")
 
+def page_futures_hub():
+    display_header(); st.title("Futures Hub"); instrument_df = get_instrument_df()
+    if instrument_df.empty: st.info("Please connect to a broker to use the Futures Hub."); return
+    
+    col1, col2 = st.columns([1, 2]);
+    
+    with col1:
+        underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY", "GOLD", "CRUDEOIL", "USDINR"])
+        
+        chain_df, expiry, underlying_ltp, available_expiries = get_futures_chain(underlying, instrument_df)
+        
+        if available_expiries:
+            selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
+            if selected_expiry != expiry:
+                chain_df, expiry, underlying_ltp, _ = get_futures_chain(underlying, instrument_df, selected_expiry)
+        else:
+            st.warning(f"No upcoming expiries found for {underlying}.")
+
+        if not chain_df.empty and underlying_ltp > 0 and expiry:
+            st.subheader("Quick Trade")
+            future_list = ["-Select-"] + chain_df['tradingsymbol'].dropna().tolist()
+            future_selection = st.selectbox("Trade a Future", future_list)
+
+            if future_selection and future_selection != "-Select-":
+                # Quick Trade Form
+                with st.form(key="future_trade_form"):
+                    q_cols = st.columns([1,1,1])
+                    quantity = q_cols[0].number_input("Lots", min_value=1, step=1, key="fut_qty")
+                    buy_btn = q_cols[1].form_submit_button("Buy")
+                    sell_btn = q_cols[2].form_submit_button("Sell")
+
+                    if buy_btn:
+                        option_details = instrument_df[instrument_df['tradingsymbol'] == future_selection].iloc[0]
+                        place_order(instrument_df, future_selection, quantity * option_details['lot_size'], 'MARKET', 'BUY', 'MIS')
+                    if sell_btn:
+                        option_details = instrument_df[instrument_df['tradingsymbol'] == future_selection].iloc[0]
+                        place_order(instrument_df, future_selection, quantity * option_details['lot_size'], 'MARKET', 'SELL', 'MIS')
+
+    with col2:
+        st.subheader(f"{underlying} Futures Chain")
+        if not chain_df.empty and expiry:
+            st.caption(f"Expiry: {pd.to_datetime(expiry).strftime('%d %b %Y')} | Spot: {underlying_ltp:,.2f}")
+            st.dataframe(chain_df, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Could not fetch futures chain.")
+
 
 def page_alpha_engine():
     display_header(); st.title("Alpha Engine: News Sentiment"); query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
@@ -1420,7 +1500,7 @@ def page_ai_trading_journal():
     """An AI-powered trading journal for self-reflection and well-being checks."""
     display_header()
     st.title("AI Trading Journal")
-    st.info("This journal helps you reflect on your trading psychology throughout the day. It will ask you questions at regular intervals to check your mental state and decision-making process.")
+    st.info("This journal helps you reflect on your trading psychology throughout the day. It will ask you questions at regular intervals to check your mental state and decision-making process to check your mental state and decision-making process.")
     
     if "journal_prompts" not in st.session_state:
         st.session_state.journal_prompts = [
@@ -1583,42 +1663,74 @@ def show_login_animation():
 def login_page():
     """Displays the login page for broker authentication."""
     st.title("BlockVista Terminal")
-    st.subheader("Broker Login")
+    st.subheader("2FA Authentication")
+
+    if '2fa_secret' not in st.session_state:
+        st.subheader("Setup 2FA")
+        secret = pyotp.random_base32()
+        uri = pyotp.totp.TOTP(secret).provisioning_uri(name='BlockVista', issuer_name='xAI')
+        qr = qrcode.make(uri)
+        buf = BytesIO()
+        qr.save(buf, format="PNG")
+        buf.seek(0)
+        st.image(buf)
+        st.write("Scan this QR with Google/Microsoft Authenticator")
+        code = st.text_input("Enter code to verify setup")
+        if st.button("Verify Setup"):
+            if pyotp.TOTP(secret).verify(code):
+                st.session_state['2fa_secret'] = secret
+                st.success("2FA setup complete")
+                st.rerun()
+            else:
+                st.error("Invalid code")
+    elif '2fa_verified' not in st.session_state:
+        st.subheader("Enter 2FA Code")
+        code = st.text_input("Code")
+        if st.button("Verify"):
+            if pyotp.TOTP(st.session_state['2fa_secret']).verify(code):
+                st.session_state['2fa_verified'] = True
+                st.success("Verified")
+                st.rerun()
+            else:
+                st.error("Invalid")
+    else:
+        st.subheader("Broker Login")
     
-    broker = st.selectbox("Select Your Broker", ["Zerodha"])
+        broker = st.selectbox("Select Your Broker", ["Zerodha"])
     
-    if broker == "Zerodha":
-        try:
-            api_key = st.secrets["ZERODHA_API_KEY"]
-            api_secret = st.secrets["ZERODHA_API_SECRET"]
-        except (FileNotFoundError, KeyError):
-            st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
-            st.stop()
-            
-        kite = KiteConnect(api_key=api_key)
-        request_token = st.query_params.get("request_token")
-        
-        if request_token:
+        if broker == "Zerodha":
             try:
-                data = kite.generate_session(request_token, api_secret=api_secret)
-                st.session_state.access_token = data["access_token"]
-                kite.set_access_token(st.session_state.access_token)
-                st.session_state.kite = kite
-                st.session_state.profile = kite.profile()
-                st.session_state.broker = "Zerodha"
-                st.query_params.clear()
-                st.rerun() # Rerun to trigger the animation
-            except Exception as e:
-                st.error(f"Authentication failed: {e}")
-        else:
-            st.link_button("Login with Zerodha Kite", kite.login_url())
+                api_key = st.secrets["ZERODHA_API_KEY"]
+                api_secret = st.secrets["ZERODHA_API_SECRET"]
+            except (FileNotFoundError, KeyError):
+                st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
+                st.stop()
+                
+            kite = KiteConnect(api_key=api_key)
+            request_token = st.query_params.get("request_token")
+            
+            if request_token:
+                request_token = request_token[0] if isinstance(request_token, list) else request_token
+                try:
+                    data = kite.generate_session(request_token, api_secret=api_secret)
+                    st.session_state.access_token = data["access_token"]
+                    kite.set_access_token(st.session_state.access_token)
+                    st.session_state.kite = kite
+                    st.session_state.profile = kite.profile()
+                    st.session_state.broker = "Zerodha"
+                    st.query_params.clear()
+                    st.rerun() # Rerun to trigger the animation
+                except Exception as e:
+                    st.error(f"Authentication failed: {e}")
+            else:
+                st.link_button("Login with Zerodha Kite", kite.login_url())
 
 def main_app():
     """The main application interface after successful login."""
     st.markdown(f'<body class="{"light-theme" if st.session_state.get("theme") == "Light" else ""}"></body>', unsafe_allow_html=True)
 
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
-    if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
+    if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Cash'
     if 'order_history' not in st.session_state: st.session_state.order_history = []
     
     st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
@@ -1627,7 +1739,7 @@ def main_app():
     
     st.sidebar.header("Terminal Controls")
     st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], horizontal=True)
+    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options"], horizontal=True)
     st.sidebar.divider()
     
     st.sidebar.header("Live Data")
@@ -1639,7 +1751,7 @@ def main_app():
     
     st.sidebar.header("Navigation")
     pages = {
-        "Intraday": {
+        "Cash": {
             "Dashboard": page_dashboard,
             "Premarket Pulse": page_premarket_pulse,
             "Advanced Charting": page_advanced_charting,
@@ -1648,6 +1760,13 @@ def main_app():
             "Alpha Engine": page_alpha_engine,
             "Portfolio & Risk": page_portfolio_and_risk,
             "Forecasting & ML": page_forecasting_ml,
+            "AI Trading Journal": page_ai_trading_journal,
+            "AI Discovery": page_ai_discovery,
+            "AI Assistant": page_ai_assistant
+        },
+        "Futures": {
+            "Futures Hub": page_futures_hub,
+            "Portfolio & Risk": page_portfolio_and_risk,
             "AI Trading Journal": page_ai_trading_journal,
             "AI Discovery": page_ai_discovery,
             "AI Assistant": page_ai_assistant
