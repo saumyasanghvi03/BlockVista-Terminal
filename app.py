@@ -1552,6 +1552,143 @@ def page_ai_discovery():
     else:
         st.info("Please add stocks to your watchlist to generate trade ideas.")
 
+# --- New Innovative F&O pages ---
+def page_oi_analysis():
+    display_header()
+    st.title("Open Interest (OI) Analysis")
+    st.info("Visualize the call and put Open Interest for a selected F&O symbol. This can help identify key support and resistance levels.")
+
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use this feature.")
+        return
+
+    # Filter for F&O instruments
+    fo_underlyings = instrument_df[instrument_df['segment'].isin(['NFO-FUT', 'NFO-OPT'])].sort_values(by='name')['name'].unique()
+    
+    selected_underlying = st.selectbox("Select Underlying Symbol", fo_underlyings)
+    
+    if selected_underlying:
+        chain_df, expiry_date, underlying_ltp, available_expiries = get_options_chain(selected_underlying, instrument_df)
+        
+        if available_expiries:
+            selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
+            chain_df, _, underlying_ltp, _ = get_options_chain(selected_underlying, instrument_df, selected_expiry)
+        
+        if not chain_df.empty and 'open_interest_CE' in chain_df.columns and 'open_interest_PE' in chain_df.columns:
+            st.subheader(f"OI Chart for {selected_underlying} (Expiry: {selected_expiry.strftime('%d %b %Y')})")
+            st.caption(f"Underlying LTP: ₹{underlying_ltp:,.2f}")
+            
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['open_interest_CE'], name='Call OI', marker_color='#FF4B4B'))
+            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['open_interest_PE'], name='Put OI', marker_color='#28a745'))
+
+            fig.update_layout(
+                barmode='overlay',
+                title='Call vs. Put Open Interest by Strike Price',
+                xaxis_title='Strike Price',
+                yaxis_title='Open Interest',
+                xaxis_rangeslider_visible=False,
+                template='plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white',
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Add OI Gainers/Losers
+            st.markdown("---")
+            st.subheader("OI Gainers & Losers (Today)")
+            oi_change_df = chain_df[['tradingsymbol_CE', 'STRIKE', 'open_interest_CE_change', 'tradingsymbol_PE', 'open_interest_PE_change']].dropna()
+            
+            oi_gainers = oi_change_df.sort_values(by=['open_interest_CE_change', 'open_interest_PE_change'], ascending=False).head(5)
+            oi_losers = oi_change_df.sort_values(by=['open_interest_CE_change', 'open_interest_PE_change']).head(5)
+            
+            col_g, col_l = st.columns(2)
+            with col_g:
+                st.markdown("#### Top OI Gainers")
+                st.dataframe(oi_gainers[['tradingsymbol_CE', 'STRIKE', 'open_interest_CE_change']].rename(columns={'tradingsymbol_CE': 'Symbol', 'open_interest_CE_change': 'OI Change'}), hide_index=True)
+            with col_l:
+                st.markdown("#### Top OI Losers")
+                st.dataframe(oi_losers[['tradingsymbol_PE', 'STRIKE', 'open_interest_PE_change']].rename(columns={'tradingsymbol_PE': 'Symbol', 'open_interest_PE_change': 'OI Change'}), hide_index=True)
+        else:
+            st.warning("Could not fetch OI data for this symbol.")
+
+def page_greeks_calculator():
+    display_header()
+    st.title("F&O Greeks Calculator")
+    st.info("Calculate the theoretical value and greeks (Delta, Gamma, Vega, Theta, Rho) for any option contract.")
+    
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use this feature.")
+        return
+
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        st.subheader("Option Details")
+        underlying = st.text_input("Underlying Symbol", "NIFTY", key="greeks_underlying").upper()
+        strike_price = st.number_input("Strike Price", min_value=0.0, key="greeks_strike")
+        option_type = st.radio("Option Type", ["Call", "Put"], horizontal=True, key="greeks_type")
+        
+        # --- Time to Expiry Calculation ---
+        # Find available expiries for the selected underlying
+        if underlying:
+            fo_options = instrument_df[(instrument_df['name'] == underlying) & (instrument_df['segment'] == 'NFO-OPT')]
+            expiries = sorted(pd.to_datetime(fo_options['expiry'].unique()))
+            if expiries.any():
+                selected_expiry_date = st.selectbox("Select Expiry Date", expiries, format_func=lambda d: d.strftime('%d %b %Y'))
+                days_to_expiry = max((pd.to_datetime(selected_expiry_date).date() - datetime.now().date()).days, 0)
+                st.markdown(f"**Days to Expiry:** {days_to_expiry} days")
+            else:
+                st.warning(f"No options found for {underlying}.")
+                days_to_expiry = 0
+                selected_expiry_date = None
+        else:
+            days_to_expiry = 0
+            selected_expiry_date = None
+
+        if st.button("Calculate Greeks"):
+            if days_to_expiry > 0 and strike_price > 0:
+                with st.spinner("Calculating..."):
+                    # Get live LTP of underlying
+                    ltp_data = get_watchlist_data([{'symbol': underlying, 'exchange': 'NSE'}])
+                    if not ltp_data.empty:
+                        underlying_ltp = ltp_data.iloc[0]['Price']
+                        # Assuming a standard risk-free rate and implied volatility for calculation
+                        r = 0.07 
+                        iv_estimate = 0.25 # A rough estimate, a real-world app would calculate this
+                        T = days_to_expiry / 365.0
+
+                        greeks = black_scholes(underlying_ltp, strike_price, T, r, iv_estimate, option_type.lower())
+                        
+                        st.session_state.greeks_result = {
+                            "Underlying Price": underlying_ltp,
+                            "Strike Price": strike_price,
+                            "Time to Expiry": days_to_expiry,
+                            "Option Type": option_type,
+                            "Delta": f"{greeks['delta']:.4f}",
+                            "Gamma": f"{greeks['gamma']:.4f}",
+                            "Vega": f"{greeks['vega']:.4f}",
+                            "Theta": f"{greeks['theta']:.4f}",
+                            "Rho": f"{greeks['rho']:.4f}"
+                        }
+                    else:
+                        st.error(f"Could not fetch live price for {underlying}.")
+            else:
+                st.warning("Please select a valid underlying and expiry.")
+
+
+    with col2:
+        st.subheader("Results")
+        if 'greeks_result' in st.session_state:
+            results = st.session_state.greeks_result
+            st.metric("Underlying Price", f"₹{results['Underlying Price']:,.2f}")
+            st.metric("Delta", results['Delta'], help="Measures the rate of change of the option value with respect to the underlying asset's price.")
+            st.metric("Gamma", results['Gamma'], help="Measures the rate of change in the delta with respect to the underlying asset's price.")
+            st.metric("Vega", results['Vega'], help="Measures the sensitivity of the option's price to changes in the implied volatility of the underlying asset.")
+            st.metric("Theta", results['Theta'], help="Measures the rate of decline in the option's value due to the passage of time.")
+            st.metric("Rho", results['Rho'], help="Measures the sensitivity of the option's price to a change in the interest rate.")
+
 # --- New Futures Terminal Page ---
 def page_futures_terminal():
     display_header()
@@ -1630,7 +1767,8 @@ def page_futures_terminal():
     st.markdown("---")
     st.subheader("Your Open Futures Positions")
     positions_df, _, _, _ = get_portfolio()
-    futures_positions = positions_df[positions_df['tradingsymbol'].str.contains('FUT', case=False, na=False)]
+    # Fix: Ensure positions_df is not empty before filtering
+    futures_positions = positions_df[positions_df['tradingsymbol'].str.contains('FUT', case=False, na=False)] if not positions_df.empty else pd.DataFrame()
     if not futures_positions.empty:
         st.dataframe(futures_positions, use_container_width=True, hide_index=True)
     else:
@@ -1700,7 +1838,7 @@ def main_app():
     st.markdown(f'<body class="{"light-theme" if st.session_state.get("theme") == "Light" else ""}"></body>', unsafe_allow_html=True)
 
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
-    if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Intraday'
+    if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Cash'
     if 'order_history' not in st.session_state: st.session_state.order_history = []
     
     st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
@@ -1709,7 +1847,7 @@ def main_app():
     
     st.sidebar.header("Terminal Controls")
     st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Futures", "Options"], horizontal=True)
+    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options"], horizontal=True)
     st.sidebar.divider()
     
     st.sidebar.header("Live Data")
@@ -1721,7 +1859,7 @@ def main_app():
     
     st.sidebar.header("Navigation")
     pages = {
-        "Intraday": {
+        "Cash": {
             "Dashboard": page_dashboard,
             "Premarket Pulse": page_premarket_pulse,
             "Advanced Charting": page_advanced_charting,
@@ -1737,6 +1875,8 @@ def main_app():
         "Options": {
             "Options Hub": page_options_hub,
             "Strategy Builder": page_option_strategy_builder,
+            "OI Analysis": page_oi_analysis,
+            "F&O Greeks": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Trading Journal": page_ai_trading_journal,
             "AI Discovery": page_ai_discovery,
@@ -1745,8 +1885,8 @@ def main_app():
         "Futures": {
             "Futures Terminal": page_futures_terminal,
             "Advanced Charting": page_advanced_charting,
-            "Basket Orders": page_basket_orders,
-            "Portfolio Analytics": page_portfolio_analytics,
+            "OI Analysis": page_oi_analysis,
+            "F&O Greeks": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant
         }
