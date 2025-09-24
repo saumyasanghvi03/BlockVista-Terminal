@@ -524,7 +524,7 @@ def get_sector_data():
     try:
         return pd.read_csv("sensex_sectors.csv")
     except FileNotFoundError:
-        st.warning(f"Sector data file not found. Please provide a 'sensex_sectors.csv' file for sector analysis.")
+        st.warning(f"Sector data file 'sensex_sectors.csv' not found. Sector analysis will not be available.")
         return None
 
 def style_option_chain(df, ltp):
@@ -966,7 +966,7 @@ def page_forecasting_ml():
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Actual'], mode='lines', name='Actual Price'))
                     fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                    template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
+                    template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
                     fig.update_layout(title=f"Backtest Results ({selected_period_name})", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig, use_container_width=True)
                 else:
