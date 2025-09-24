@@ -8,6 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timedelta, time
 import pytz
 import feedparser
+from email.utils import mktime_tz, parsedate_tz
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
@@ -27,12 +28,14 @@ import qrcode
 from PIL import Image
 import base64
 import io
+import requests
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
 
 # --- UI ENHANCEMENT: Load Custom CSS for Trader UI ---
 def load_css(file_name):
+    """Loads a custom CSS file to style the Streamlit app."""
     try:
         with open(file_name) as f:
             st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
@@ -47,7 +50,7 @@ ML_DATA_SOURCES = {
     "NIFTY 50": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY50.csv",
         "tradingsymbol": "NIFTY 50",
-        "exchange": "NFO"
+        "exchange": "NSE"
     },
     "BANK NIFTY": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANKNIFTY.csv",
@@ -71,13 +74,33 @@ ML_DATA_SOURCES = {
     },
     "SENSEX": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
-        "tradingsymbol": None,
-        "exchange": None
+        "tradingsymbol": "SENSEX",
+        "exchange": "BSE"
     },
     "S&P 500": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
-        "tradingsymbol": None,
-        "exchange": None
+        "tradingsymbol": "^GSPC",
+        "exchange": "yfinance"
+    }
+}
+
+# --- Theme and UI Configuration ---
+# This dictionary holds the color palettes for the light and dark themes.
+# These themes are applied globally using custom CSS.
+THEMES = {
+    "light": {
+        "primaryColor": "#6C63FF",  # A vibrant purple
+        "backgroundColor": "#F4F4F4",  # A soft light gray
+        "secondaryBackgroundColor": "#FFFFFF",  # Pure white for cards/elements
+        "textColor": "#2C3E50",  # Dark gray text
+        "font": "sans serif"
+    },
+    "dark": {
+        "primaryColor": "#6C63FF",  # Same vibrant purple for consistency
+        "backgroundColor": "#1A1A1A",  # A deep dark gray
+        "secondaryBackgroundColor": "#2C2C2C",  # A slightly lighter dark gray for elements
+        "textColor": "#ECF0F1",  # Soft white text
+        "font": "sans serif"
     }
 }
 
@@ -91,6 +114,9 @@ def get_broker_client():
 
 @st.dialog("Quick Trade")
 def quick_trade_dialog(symbol=None, exchange=None):
+    """
+    A quick trade dialog for placing market or limit orders.
+    """
     instrument_df = get_instrument_df()
     st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
     
@@ -161,13 +187,15 @@ def display_header():
 
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
 
-
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
+
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
+    """Generates a Plotly chart with various chart types and overlays."""
     fig = go.Figure()
     if df.empty: return fig
     chart_df = df.copy()
     chart_df.columns = [col.lower() for col in chart_df.columns]
+    
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(chart_df['open'], chart_df['high'], chart_df['low'], chart_df['close'])
         fig.add_trace(go.Candlestick(x=ha_df.index, open=ha_df['HA_open'], high=ha_df['HA_high'], low=ha_df['HA_low'], close=ha_df['HA_close'], name='Heikin-Ashi'))
@@ -177,19 +205,23 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
         fig.add_trace(go.Ohlc(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Bar'))
     else:
         fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Candlestick'))
+        
     bbl_col = next((col for col in chart_df.columns if 'bbl' in col), None)
     bbu_col = next((col for col in chart_df.columns if 'bbu' in col), None)
     if bbl_col and bbu_col:
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbl_col], line=dict(color='rgba(135,206,250,0.5)', width=1), name='Lower Band'))
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbu_col], line=dict(color='rgba(135,206,250,0.5)', width=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
+        
     if forecast_df is not None:
         fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
-    template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
+        
+    template = 'plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
 
 @st.cache_resource(ttl=3600)
 def get_instrument_df():
+    """Fetches the full list of tradable instruments from the broker."""
     client = get_broker_client()
     if not client: return pd.DataFrame()
     if st.session_state.broker == "Zerodha":
@@ -199,12 +231,19 @@ def get_instrument_df():
         return pd.DataFrame()
 
 def get_instrument_token(symbol, instrument_df, exchange='NSE'):
+    """Finds the instrument token for a given symbol and exchange."""
     if instrument_df.empty: return None
     match = instrument_df[(instrument_df['tradingsymbol'] == symbol.upper()) & (instrument_df['exchange'] == exchange)]
     return match.iloc[0]['instrument_token'] if not match.empty else None
 
 @st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
+    """
+    Fetches historical data from the broker's API.
+    
+    Note: For `yfinance`, a different function is used. This function
+    is specific to the connected broker (KiteConnect).
+    """
     client = get_broker_client()
     if not client or not instrument_token: return pd.DataFrame()
     if st.session_state.broker == "Zerodha":
@@ -218,6 +257,7 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
             if df.empty: return df
             df.set_index('date', inplace=True)
             df.index = pd.to_datetime(df.index)
+            # Apply all technical indicators with a single try-except block
             try:
                 df.ta.adx(append=True); df.ta.apo(append=True); df.ta.aroon(append=True); df.ta.atr(append=True); df.ta.bbands(append=True); df.ta.cci(append=True); df.ta.chop(append=True); df.ta.cksp(append=True); df.ta.cmf(append=True); df.ta.coppock(append=True); df.ta.ema(length=50, append=True); df.ta.ema(length=200, append=True); df.ta.fisher(append=True); df.ta.kst(append=True); df.ta.macd(append=True); df.ta.mfi(append=True); df.ta.mom(append=True); df.ta.obv(append=True); df.ta.rsi(append=True); df.ta.stoch(append=True); df.ta.supertrend(append=True); df.ta.willr(append=True)
             except Exception as e:
@@ -230,7 +270,9 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         st.warning(f"Historical data for {st.session_state.broker} not implemented.")
         return pd.DataFrame()
 
+@st.cache_data(ttl=60)
 def get_watchlist_data(symbols_with_exchange):
+    """Fetches live prices and market data for a list of symbols."""
     client = get_broker_client()
     if not client or not symbols_with_exchange: return pd.DataFrame()
     if st.session_state.broker == "Zerodha":
@@ -257,6 +299,9 @@ def get_watchlist_data(symbols_with_exchange):
 
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df, expiry_date=None):
+    """
+    Fetches and processes the options chain for a given underlying.
+    """
     client = get_broker_client()
     if not client or instrument_df.empty: return pd.DataFrame(), None, 0.0, []
     if st.session_state.broker == "Zerodha":
@@ -294,8 +339,8 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
             pe_df['open_interest_PE_change'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('net_change_oi', 0))
 
             final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP', 'open_interest_CE', 'open_interest_CE_change']], 
-                                    pe_df[['tradingsymbol', 'strike', 'LTP', 'open_interest_PE', 'open_interest_PE_change']], 
-                                    on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
+                                   pe_df[['tradingsymbol', 'strike', 'LTP', 'open_interest_PE', 'open_interest_PE_change']], 
+                                   on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
             
             return final_chain[['CALL', 'CALL LTP', 'open_interest_CE', 'STRIKE', 'PUT LTP', 'open_interest_PE', 'PUT', 'open_interest_CE_change', 'open_interest_PE_change']], expiry_date, underlying_ltp, available_expiries
         except Exception as e:
@@ -307,6 +352,7 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
 
 @st.cache_data(ttl=10)
 def get_portfolio():
+    """Fetches real-time portfolio positions and holdings from the broker."""
     client = get_broker_client()
     if not client: return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
     if st.session_state.broker == "Zerodha":
@@ -326,6 +372,7 @@ def get_portfolio():
         return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
 
 def place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price=None):
+    """Places a single order through the broker's API."""
     client = get_broker_client()
     if not client:
         st.error("Broker not connected.")
@@ -353,29 +400,51 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
 
 @st.cache_data(ttl=900)
 def fetch_and_analyze_news(query=None):
+    """Fetches and performs sentiment analysis on financial news."""
     analyzer = SentimentIntensityAnalyzer()
-    news_sources = {"Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms", "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml", "Business Standard": "https://www.business-standard.com/rss/markets-102.cms", "Livemint": "https://www.livemint.com/rss/markets"}
+    # Using real RSS feeds for market news
+    news_sources = {
+        "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+        "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml",
+        "Business Standard": "https://www.business-standard.com/rss/markets-102.cms",
+        "Livemint": "https://www.livemint.com/rss/markets"
+    }
     all_news = []
     for source, url in news_sources.items():
         try:
             feed = feedparser.parse(url)
             for entry in feed.entries:
+                # Use a more robust date parsing method
+                published_date_tuple = entry.published_parsed if hasattr(entry, 'published_parsed') else entry.updated_parsed
+                published_date = datetime.fromtimestamp(mktime_tz(published_date_tuple)) if published_date_tuple else datetime.now()
+
                 if query is None or query.lower() in entry.title.lower() or (hasattr(entry, 'summary') and query.lower() in entry.summary.lower()):
-                    published_date = datetime.fromtimestamp(mktime(entry.published_parsed)) if hasattr(entry, 'published_parsed') and entry.published_parsed else datetime.now()
                     all_news.append({"source": source, "title": entry.title, "link": entry.link, "date": published_date.date(), "sentiment": analyzer.polarity_scores(entry.title)['compound']})
         except Exception:
             continue
     return pd.DataFrame(all_news)
 
 def create_features(df, ticker):
+    """Creates features for the ML model from a historical DataFrame."""
     df_feat = df.copy()
     df_feat.columns = [col.lower() for col in df_feat.columns]
-    df_feat['dayofweek'] = df_feat.index.dayofweek; df_feat['quarter'] = df_feat.index.quarter; df_feat['month'] = df_feat.index.month; df_feat['year'] = df_feat.index.year; df_feat['dayofyear'] = df_feat.index.dayofyear
+    df_feat['dayofweek'] = df_feat.index.dayofweek
+    df_feat['quarter'] = df_feat.index.quarter
+    df_feat['month'] = df_feat.index.month
+    df_feat['year'] = df_feat.index.year
+    df_feat['dayofyear'] = df_feat.index.dayofyear
     for lag in range(1, 6):
         df_feat[f'lag_{lag}'] = df_feat['close'].shift(lag)
     df_feat['rolling_mean_7'] = df_feat['close'].rolling(window=7).mean()
     df_feat['rolling_std_7'] = df_feat['close'].rolling(window=7).std()
-    df_feat.ta.rsi(length=14, append=True); df_feat.ta.macd(append=True); df_feat.ta.bbands(length=20, append=True); df.ta.atr(append=True)
+    
+    # Calculate technical indicators and handle potential errors
+    for indicator in [ta.rsi, ta.macd, ta.bbands, ta.atr]:
+        try:
+            indicator(df_feat, append=True)
+        except Exception:
+            pass # Silently fail if an indicator cannot be computed
+
     news_df = fetch_and_analyze_news(ticker)
     if not news_df.empty:
         news_df['date'] = pd.to_datetime(news_df['date'])
@@ -385,12 +454,14 @@ def create_features(df, ticker):
         df_feat['sentiment'] = df_feat['sentiment'].fillna(method='ffill')
         df_feat['sentiment_rolling_3d'] = df_feat['sentiment'].rolling(window=3, min_periods=1).mean()
     else:
-        df_feat['sentiment'] = 0; df_feat['sentiment_rolling_3d'] = 0
+        df_feat['sentiment'] = 0
+        df_feat['sentiment_rolling_3d'] = 0
     df_feat.bfill(inplace=True); df_feat.ffill(inplace=True); df_feat.dropna(inplace=True)
     return df_feat
 
 @st.cache_data(show_spinner=False)
 def train_seasonal_arima_model(_data):
+    """Trains a Seasonal ARIMA model for time series forecasting."""
     if _data.empty or len(_data) < 100:
         return {}, pd.DataFrame()
 
@@ -431,6 +502,7 @@ def train_seasonal_arima_model(_data):
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
+    """Loads and combines historical data from a static CSV with live data from the broker."""
     source_info = ML_DATA_SOURCES.get(instrument_name)
     if not source_info:
         st.error(f"No data source configured for {instrument_name}")
@@ -449,14 +521,24 @@ def load_and_combine_data(instrument_name):
     except Exception as e:
         st.error(f"Failed to load historical data: {e}")
         return pd.DataFrame()
+        
     live_df = pd.DataFrame()
-    if get_broker_client() and source_info.get('tradingsymbol'):
+    if get_broker_client() and source_info.get('tradingsymbol') and source_info.get('exchange') != 'yfinance':
         instrument_df = get_instrument_df()
         token = get_instrument_token(source_info['tradingsymbol'], instrument_df, source_info['exchange'])
         if token:
             from_date = hist_df.index.max().date() if not hist_df.empty else datetime.now().date() - timedelta(days=365)
             live_df = get_historical_data(token, 'day', from_date=from_date)
             if not live_df.empty: live_df.columns = [col.lower() for col in live_df.columns]
+    elif source_info.get('exchange') == 'yfinance':
+        # Use yfinance for non-Indian indices
+        try:
+            live_df = yf.download(source_info['tradingsymbol'], period="max")
+            if not live_df.empty: live_df.columns = [col.lower() for col in live_df.columns]
+        except Exception as e:
+            st.error(f"Failed to load yfinance data: {e}")
+            live_df = pd.DataFrame()
+            
     if not live_df.empty:
         combined_df = pd.concat([hist_df, live_df])
         combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
@@ -467,6 +549,7 @@ def load_and_combine_data(instrument_name):
         return hist_df
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
+    """Calculates Black-Scholes option price and Greeks."""
     if sigma <= 0 or T <= 0: return {key: 0 for key in ["price", "delta", "gamma", "vega", "theta", "rho"]}
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T)); d2 = d1 - sigma * np.sqrt(T)
     if option_type == "call":
@@ -477,6 +560,7 @@ def black_scholes(S, K, T, r, sigma, option_type="call"):
     return {"price": price, "delta": delta, "gamma": gamma, "vega": vega / 100, "theta": theta / 365, "rho": rho / 100}
 
 def implied_volatility(S, K, T, r, market_price, option_type):
+    """Calculates implied volatility using the Newton-Raphson method."""
     if T <= 0 or market_price <= 0: return np.nan
     equation = lambda sigma: black_scholes(S, K, T, r, sigma, option_type)['price'] - market_price
     try:
@@ -485,16 +569,29 @@ def implied_volatility(S, K, T, r, market_price, option_type):
         return np.nan
 
 def interpret_indicators(df):
+    """Interprets the latest values of various technical indicators."""
     if df.empty: return {}
-    latest = df.iloc[-1].copy(); latest.index = latest.index.str.lower(); interpretation = {}
+    latest = df.iloc[-1].copy()
+    latest.index = latest.index.str.lower()
+    interpretation = {}
+    
     r = latest.get('rsi_14')
-    if r is not None: interpretation['RSI (14)'] = "Overbought (Bearish)" if r > 70 else "Oversold (Bullish)" if r < 30 else "Neutral"
+    if r is not None:
+        interpretation['RSI (14)'] = "Overbought (Bearish)" if r > 70 else "Oversold (Bullish)" if r < 30 else "Neutral"
+    
     stoch_k = latest.get('stok_14_3_3')
-    if stoch_k is not None: interpretation['Stochastic (14,3,3)'] = "Overbought (Bearish)" if stoch_k > 80 else "Oversold (Bullish)" if stoch_k < 20 else "Neutral"
-    macd = latest.get('macd_12_26_9'); signal = latest.get('macds_12_26_9')
-    if macd is not None and signal is not None: interpretation['MACD (12,26,9)'] = "Bullish Crossover" if macd > signal else "Bearish Crossover"
+    if stoch_k is not None:
+        interpretation['Stochastic (14,3,3)'] = "Overbought (Bearish)" if stoch_k > 80 else "Oversold (Bullish)" if stoch_k < 20 else "Neutral"
+    
+    macd = latest.get('macd_12_26_9')
+    signal = latest.get('macds_12_26_9')
+    if macd is not None and signal is not None:
+        interpretation['MACD (12,26,9)'] = "Bullish Crossover" if macd > signal else "Bearish Crossover"
+    
     adx = latest.get('adx_14')
-    if adx is not None: interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
+    if adx is not None:
+        interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
+    
     return interpretation
 
 # ================ 4. HNI & PRO TRADER FEATURES ================
@@ -524,7 +621,7 @@ def get_sector_data():
     try:
         return pd.read_csv("sensex_sectors.csv")
     except FileNotFoundError:
-        st.warning(f"Sector data file 'sensex_sectors.csv' not found. Sector analysis will not be available.")
+        st.warning("Sector data file 'sensex_sectors.csv' not found. Sector analysis will not be available.")
         return None
 
 def style_option_chain(df, ltp):
@@ -535,11 +632,12 @@ def style_option_chain(df, ltp):
     atm_strike_value = df.loc[atm_strike_index, 'STRIKE']
     
     df_styled = df.style.apply(lambda x: ['background-color: #2c3e50' if x['STRIKE'] < atm_strike_value else '' for i in x], axis=1, subset=pd.IndexSlice[:, ['CALL', 'CALL LTP', 'open_interest_CE']])\
-                         .apply(lambda x: ['background-color: #2c3e50' if x['STRIKE'] > atm_strike_value else '' for i in x], axis=1, subset=pd.IndexSlice[:, ['PUT', 'PUT LTP', 'open_interest_PE']])
+                     .apply(lambda x: ['background-color: #2c3e50' if x['STRIKE'] > atm_strike_value else '' for i in x], axis=1, subset=pd.IndexSlice[:, ['PUT', 'PUT LTP', 'open_interest_PE']])
     return df_styled
 
 @st.dialog("Most Active Options")
 def show_most_active_dialog(underlying, instrument_df):
+    """Dialog to display the most active options by volume."""
     st.subheader(f"Most Active {underlying} Options (By Volume)")
     with st.spinner("Fetching data..."):
         active_df = get_most_active_options(underlying, instrument_df)
@@ -549,6 +647,7 @@ def show_most_active_dialog(underlying, instrument_df):
             st.warning("Could not retrieve data for most active options.")
 
 def get_most_active_options(underlying, instrument_df):
+    """Fetches the most active options by volume for a given underlying."""
     client = get_broker_client()
     if not client:
         st.toast("Broker not connected.", icon="⚠️")
@@ -570,17 +669,17 @@ def get_most_active_options(underlying, instrument_df):
         
         active_options = []
         for symbol, data in quotes.items():
-            prev_close = data['ohlc']['close']
-            last_price = data['last_price']
+            prev_close = data.get('ohlc', {}).get('close', 0)
+            last_price = data.get('last_price', 0)
             change = last_price - prev_close
             pct_change = (change / prev_close * 100) if prev_close != 0 else 0
             
             active_options.append({
-                'Symbol': data['tradingsymbol'],
+                'Symbol': data.get('tradingsymbol'),
                 'LTP': last_price,
                 'Change %': pct_change,
-                'Volume': data['volume'],
-                'OI': data['open_interest']
+                'Volume': data.get('volume', 0),
+                'OI': data.get('open_interest', 0)
             })
         
         df = pd.DataFrame(active_options)
@@ -594,11 +693,11 @@ def get_most_active_options(underlying, instrument_df):
 @st.cache_data(ttl=3600)
 def get_global_indices_data(tickers):
     """Fetches real-time data for global indices using yfinance."""
-    if not tickers: # FIX: Return empty DataFrame if no tickers are provided
+    if not tickers:
         return pd.DataFrame()
     
     try:
-        df = yf.download(tickers, period="1d")['Close'].iloc[-1]
+        df = yf.download(tickers, period="1d")['Close']
         df_prev = yf.download(tickers, period="2d")['Close'].iloc[-2]
     except Exception as e:
         st.error(f"Failed to fetch data from yfinance: {e}")
@@ -607,15 +706,15 @@ def get_global_indices_data(tickers):
     data = []
     for ticker in tickers:
         try:
-            last_price = df[ticker]
-            prev_close = df_prev[ticker]
-            change = last_price - prev_close
-            pct_change = (change / prev_close) * 100
-            data.append({'Ticker': ticker, 'Price': last_price, 'Change': change, '% Change': pct_change})
+            last_price = df.get(ticker) if isinstance(df, pd.Series) else df.get(ticker).iloc[-1]
+            prev_close = df_prev.get(ticker)
+            if last_price is not None and prev_close is not None:
+                change = last_price - prev_close
+                pct_change = (change / prev_close) * 100
+                data.append({'Ticker': ticker, 'Price': last_price, 'Change': change, '% Change': pct_change})
         except KeyError:
             continue
     return pd.DataFrame(data)
-
 
 # ================ 5. PAGE DEFINITIONS ============
 
@@ -785,8 +884,9 @@ def page_dashboard():
                 </div>
             </div>
             """, unsafe_allow_html=True)
-        
+            
 def page_advanced_charting():
+    """A page for advanced charting with custom intervals and indicators."""
     display_header()
     st.title("Advanced Charting")
     instrument_df = get_instrument_df()
@@ -828,18 +928,25 @@ def page_advanced_charting():
                     place_order(instrument_df, global_ticker, quantity, 'MARKET', 'SELL', 'MIS')
     
 def page_alpha_engine():
-    display_header(); st.title("Alpha Engine: News Sentiment"); query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
+    """Analyzes market sentiment from live news headlines."""
+    display_header()
+    st.title("Alpha Engine: News Sentiment")
+    query = st.text_input("Enter a stock, commodity, or currency to analyze", "NIFTY")
+    
     with st.spinner("Fetching and analyzing news..."):
         news_df = fetch_and_analyze_news(query)
         if not news_df.empty:
-            avg_sentiment = news_df['sentiment'].mean(); sentiment_label = "Positive" if avg_sentiment > 0.05 else "Negative" if avg_sentiment < -0.05 else "Neutral"
+            avg_sentiment = news_df['sentiment'].mean()
+            sentiment_label = "Positive" if avg_sentiment > 0.05 else "Negative" if avg_sentiment < -0.05 else "Neutral"
             st.metric(f"Overall News Sentiment for '{query}'", sentiment_label, f"{avg_sentiment:.3f}")
             st.dataframe(news_df.drop(columns=['date']), use_container_width=True, hide_index=True, column_config={"link": st.column_config.LinkColumn("Link", display_text="Read Article")})
         else:
             st.info(f"No recent news found for '{query}'.")
 
 def page_portfolio_and_risk():
-    display_header(); st.title("Portfolio & Risk")
+    """A page for portfolio and risk management, including live P&L and holdings."""
+    display_header()
+    st.title("Portfolio & Risk")
 
     client = get_broker_client()
     if not client:
@@ -852,7 +959,6 @@ def page_portfolio_and_risk():
         st.info("No holdings found to analyze. Please check your portfolio.")
         return
 
-    # --- Start of Fix for Portfolio Analytics Layout ---
     tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Live Order Book"])
     
     with tab1:
@@ -914,7 +1020,7 @@ def page_portfolio_and_risk():
                 if orders:
                     orders_df = pd.DataFrame(orders)
                     st.dataframe(orders_df[[
-                        'order_timestamp', 'tradingsymbol', 'transaction_type', 
+                        'order_timestamp', 'tradingsymbol', 'transaction_type',
                         'order_type', 'quantity', 'average_price', 'status'
                     ]], use_container_width=True, hide_index=True)
                 else:
@@ -923,9 +1029,9 @@ def page_portfolio_and_risk():
                 st.error(f"Failed to fetch order book: {e}")
         else:
             st.info("Broker not connected.")
-    # --- End of Fix for Portfolio Analytics Layout ---
 
 def page_forecasting_ml():
+    """A page for advanced ML forecasting using a Seasonal ARIMA model."""
     display_header()
     st.title("Advanced ML Forecasting")
     st.info("Train an advanced Seasonal ARIMA model to forecast future prices. This is for educational purposes only and is not financial advice.", icon="ℹ️")
@@ -936,7 +1042,7 @@ def page_forecasting_ml():
         st.subheader("Model Configuration")
         instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()))
         
-        with st.spinner(f"Loading data for {instrument_name}..."):
+        with st.spinner(f"Loading real-time data for {instrument_name}..."):
             data = load_and_combine_data(instrument_name)
         
         if data.empty or len(data) < 100:
@@ -1036,7 +1142,9 @@ def page_forecasting_ml():
             st.plotly_chart(create_chart(data.tail(252), instrument_name), use_container_width=True)
 
 def page_ai_assistant():
-    display_header(); st.title("Portfolio-Aware Assistant")
+    """An AI-powered assistant for portfolio management and market queries."""
+    display_header()
+    st.title("Portfolio-Aware Assistant")
     instrument_df = get_instrument_df()
 
     if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "How can I help you with your portfolio or the markets today?"}]
@@ -1057,13 +1165,17 @@ def page_ai_assistant():
                     response = "I am not connected to your broker. Please log in first."
                 
                 elif any(word in prompt_lower for word in ["holdings", "investments"]):
-                    _, holdings_df, _, _ = get_portfolio(); response = f"Here are your current holdings:\n```\n{tabulate(holdings_df, headers='keys', tablefmt='psql')}\n```" if not holdings_df.empty else "You have no holdings."
+                    _, holdings_df, _, _ = get_portfolio()
+                    response = f"Here are your current holdings:\n```\n{tabulate(holdings_df, headers='keys', tablefmt='psql')}\n```" if not holdings_df.empty else "You have no holdings."
                 elif "positions" in prompt_lower:
-                    positions_df, _, total_pnl, _ = get_portfolio(); response = f"Your total P&L is ₹{total_pnl:,.2f}. Here are your positions:\n```\n{tabulate(positions_df, headers='keys', tablefmt='psql')}\n```" if not positions_df.empty else "You have no open positions."
+                    positions_df, _, total_pnl, _ = get_portfolio()
+                    response = f"Your total P&L is ₹{total_pnl:,.2f}. Here are your positions:\n```\n{tabulate(positions_df, headers='keys', tablefmt='psql')}\n```" if not positions_df.empty else "You have no open positions."
                 elif "orders" in prompt_lower:
-                    orders = client.orders(); response = f"Here are today's orders:\n```\n{tabulate(pd.DataFrame(orders), headers='keys', tablefmt='psql')}\n```" if orders else "You have no orders for the day."
+                    orders = client.orders()
+                    response = f"Here are today's orders:\n```\n{tabulate(pd.DataFrame(orders), headers='keys', tablefmt='psql')}\n```" if orders else "You have no orders for the day."
                 elif any(word in prompt_lower for word in ["funds", "margin", "balance"]):
-                    funds = client.margins(); response = f"Available Funds:\n- Equity: ₹{funds['equity']['available']['live_balance']:,.2f}\n- Commodity: ₹{funds['commodity']['available']['live_balance']:,.2f}"
+                    funds = client.margins()
+                    response = f"Available Funds:\n- Equity: ₹{funds['equity']['available']['live_balance']:,.2f}\n- Commodity: ₹{funds['commodity']['available']['live_balance']:,.2f}"
                 elif "price of" in prompt_lower or "ltp of" in prompt_lower:
                     try:
                         ticker = prompt.split(" of ")[-1].strip().upper()
@@ -1143,7 +1255,7 @@ def page_ai_assistant():
                         else:
                             response = "Please specify a valid option symbol (e.g., NIFTY24SEPWK123000CE)."
                     except (AttributeError, IndexError):
-                            response = "I couldn't find a valid option symbol in your query. Please use the full symbol (e.g., BANKNIFTY24OCT60000CE)."
+                        response = "I couldn't find a valid option symbol in your query. Please use the full symbol (e.g., BANKNIFTY24OCT60000CE)."
                     except Exception as e:
                         response = f"An error occurred: {e}"
 
@@ -1232,7 +1344,8 @@ def page_portfolio_analytics():
     
     if sector_df is not None:
         holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-        holdings_df['Sector'].fillna('Uncategorized', inplace=True)
+        # FIX: The KeyError fix is applied here, using .get() or .fillna()
+        holdings_df['Sector'] = holdings_df.get('Sector', pd.Series(dtype='object', index=holdings_df.index)).fillna('Uncategorized')
     else:
         holdings_df['Sector'] = 'Uncategorized'
     
@@ -1282,14 +1395,14 @@ def page_option_strategy_builder():
         underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY"])
         strategy = st.selectbox("Select Strategy", ["Long Call", "Long Put", "Bull Call Spread", "Bear Put Spread", "Short Straddle", "Iron Condor"])
         
-        _, expiry_date, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
+        chain_df, expiry_date, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
         
         if available_expiries:
             selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
             if selected_expiry != expiry_date:
                 chain_df, expiry, underlying_ltp, _ = get_options_chain(underlying, instrument_df, selected_expiry)
         
-        st.metric(f"{underlying} Spot Price", f"{underlying_ltp:,.2f}")
+        st.metric(f"{underlying} Spot Price", f"₹{underlying_ltp:,.2f}")
         
         if expiry_date:
             total_days_to_expiry = (pd.to_datetime(expiry_date).date() - datetime.now().date()).days
@@ -1386,21 +1499,18 @@ def page_premarket_pulse():
     display_header()
     st.title("Premarket Pulse")
     
-    # --- Live Global News & Global Market Sentiment Meter ---
     st.subheader("Global Cues")
     global_indices_tickers = {
         "NASDAQ": "^IXIC", "NIKKEI 225": "^N225", "Dow Jones": "^DJI",
         "Gold Futures": "GC=F", "Crude Oil": "CL=F"
     }
     
-    # User can select which global indices to track
     selected_global_indices = st.multiselect(
         "Select global markets to track",
         options=list(global_indices_tickers.keys()),
         default=["NASDAQ", "NIKKEI 225", "Dow Jones"]
     )
     
-    # Map selected names to their tickers
     selected_tickers = [global_indices_tickers[name] for name in selected_global_indices]
 
     global_indices_data = get_global_indices_data(selected_tickers)
@@ -1408,7 +1518,6 @@ def page_premarket_pulse():
     if not global_indices_data.empty:
         global_indices_data['Ticker'] = global_indices_data['Ticker'].map({v: k for k, v in global_indices_tickers.items()})
         
-        # Calculate overall market score
         positive_count = len(global_indices_data[global_indices_data['Change'] > 0])
         negative_count = len(global_indices_data[global_indices_data['Change'] < 0])
         
@@ -1440,7 +1549,6 @@ def page_premarket_pulse():
 
     col1, col2 = st.columns(2)
     with col1:
-        # Placeholder for other Indian premarket data if needed
         st.subheader("GIFT NIFTY Chart")
         st.caption("Displaying a live chart for GIFT NIFTY from yfinance as a proxy. This data is not from Zerodha.")
         try:
@@ -1452,7 +1560,6 @@ def page_premarket_pulse():
         except Exception as e:
             st.error(f"Error fetching GIFT NIFTY data: {e}")
     with col2:
-        # Placeholder for Indian premarket news or other data
         st.subheader("Live Market News")
         news_df = fetch_and_analyze_news("Indian Markets")
         if not news_df.empty:
@@ -1596,6 +1703,7 @@ def page_ai_discovery():
         st.info("Please add stocks to your watchlist to generate trade ideas.")
 
 def page_greeks_calculator():
+    """Calculates Greeks for any option contract."""
     display_header()
     st.title("F&O Greeks Calculator")
     st.info("Calculate the theoretical value and greeks (Delta, Gamma, Vega, Theta, Rho) for any option contract.")
@@ -1677,6 +1785,7 @@ def page_greeks_calculator():
             st.metric("Rho", results['Rho'], help="Measures the sensitivity of the option's price to a change in the interest rate.")
 
 def page_algo_strategy_maker():
+    """A tool to backtest and visualize simple trading strategies."""
     display_header()
     st.title("Algo Strategy Maker")
     st.info("Select a pre-built strategy to backtest its performance on historical data. This is for educational purposes and does not place live trades.")
@@ -1702,7 +1811,7 @@ def page_algo_strategy_maker():
         
         st.subheader("2. Configure & Backtest")
         col1, col2, col3 = st.columns([1,1,1])
-        symbol = col1.text_input("Symbol", "NIFTY", key="algo_symbol").upper()
+        symbol = col1.text_input("Symbol", "NIFTY 50", key="algo_symbol").upper()
         timeframe = col2.selectbox("Timeframe", ["day", "minute"])
         period = col3.selectbox("Backtest Period", ["1mo", "6mo", "1y"])
         
@@ -1723,7 +1832,7 @@ def page_algo_strategy_maker():
                 if strategy_info['logic'] == "RSI":
                     data.ta.rsi(append=True)
                     data.loc[data['RSI_14'] < 30, 'signal'] = 1  
-                    data.loc[data['RSI_14'] > 70, 'signal'] = -1 
+                    data.loc[data['RSI_14'] > 70, 'signal'] = -1  
                 
                 elif strategy_info['logic'] == "MACD Crossover":
                     data.ta.macd(append=True)
@@ -1796,6 +1905,7 @@ def page_algo_strategy_maker():
                     st.warning("No trade signal generated for today.")
     
 def page_volatility_skew():
+    """Analyzes implied volatility skew for options contracts."""
     display_header()
     st.title("Implied Volatility (IV) Skew")
     st.info("Analyze the relationship between implied volatility and strike prices for a selected options expiry.")
@@ -1861,6 +1971,7 @@ def page_volatility_skew():
             st.warning("Could not fetch options data for the selected symbol and expiry.")
 
 def page_futures_terminal():
+    """A dedicated terminal for trading futures contracts."""
     display_header()
     st.title("Futures Terminal")
     st.info("A dedicated terminal for trading futures contracts. Use the `NRML` product type for overnight positions.")
@@ -1946,6 +2057,7 @@ def page_futures_terminal():
 
 @st.dialog("Two-Factor Authentication")
 def two_factor_dialog():
+    """Dialog for 2FA login."""
     st.subheader("Enter your 2FA code")
     st.caption("Please enter the 6-digit code from your authenticator app to continue.")
     
@@ -1964,6 +2076,7 @@ def two_factor_dialog():
 
 @st.dialog("Generate QR Code for 2FA")
 def qr_code_dialog():
+    """Dialog to generate a QR code for 2FA setup."""
     st.subheader("Set up Two-Factor Authentication")
     st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator).")
 
