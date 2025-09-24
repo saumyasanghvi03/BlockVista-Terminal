@@ -1344,8 +1344,7 @@ def page_portfolio_analytics():
     
     if sector_df is not None:
         holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-        # FIX: The KeyError fix is applied here, using .get() or .fillna()
-        holdings_df['Sector'] = holdings_df.get('Sector', pd.Series(dtype='object', index=holdings_df.index)).fillna('Uncategorized')
+        holdings_df['Sector'].fillna('Uncategorized', inplace=True)
     else:
         holdings_df['Sector'] = 'Uncategorized'
     
@@ -2052,6 +2051,130 @@ def page_futures_terminal():
     else:
         st.info("You have no open futures positions.")
 
+def page_momentum_and_trend_finder():
+    """
+    A new page to generate stock signals based on technical indicators.
+    """
+    display_header()
+    st.title("Momentum and Trend Finder")
+    st.info("This tool generates real-time buy/sell signals for your watchlists based on a set of technical indicators.")
+
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.warning("Please connect to a broker to use this feature.")
+        return
+
+    # Use session state to get the list of watchlists
+    watchlists = st.session_state.get('watchlists', {})
+    watchlist_options = list(watchlists.keys())
+    
+    if not watchlist_options:
+        st.info("Please create a watchlist on the Dashboard page to use this feature.")
+        return
+
+    selected_watchlist_name = st.selectbox(
+        'Select a Watchlist to analyze',
+        options=watchlist_options,
+        index=0
+    )
+
+    if st.button('Generate Signals', use_container_width=True, type="primary"):
+        selected_list = watchlists[selected_watchlist_name]
+        if not selected_list:
+            st.warning(f"The watchlist '{selected_watchlist_name}' is empty.")
+            return
+
+        signals_data = []
+        with st.spinner(f"Analyzing {len(selected_list)} stocks for signals..."):
+            for item in selected_list:
+                ticker = item['symbol']
+                exchange = item['exchange']
+                token = get_instrument_token(ticker, instrument_df, exchange=exchange)
+
+                if not token:
+                    st.warning(f"Could not find instrument token for {ticker}. Skipping.")
+                    continue
+                
+                try:
+                    # Fetch 3 months of data to get meaningful indicators
+                    data = get_historical_data(token, 'day', period='3mo')
+                    if data.empty:
+                        st.warning(f"Could not get historical data for {ticker}. Skipping.")
+                        continue
+                        
+                    data.ta.rsi(append=True)
+                    data.ta.macd(append=True)
+                    data.ta.ema(length=50, append=True)
+                    data.ta.ema(length=200, append=True)
+                    
+                    latest_data = data.iloc[-1]
+                    
+                    # Logic for signal generation
+                    signal = "Hold"
+                    reasons = []
+
+                    # RSI signal
+                    rsi = latest_data.get('RSI_14')
+                    if rsi is not None:
+                        if rsi < 30:
+                            signal = "Buy"
+                            reasons.append("RSI is oversold.")
+                        elif rsi > 70:
+                            signal = "Sell"
+                            reasons.append("RSI is overbought.")
+
+                    # MACD signal
+                    macd_line = latest_data.get('MACD_12_26_9')
+                    signal_line = latest_data.get('MACDs_12_26_9')
+                    if macd_line is not None and signal_line is not None:
+                        if macd_line > signal_line and latest_data.get('MACD_12_26_9').iloc[-2] < latest_data.get('MACDs_12_26_9').iloc[-2]:
+                            if signal == "Hold":
+                                signal = "Buy"
+                                reasons.append("MACD bullish crossover.")
+                        elif macd_line < signal_line and latest_data.get('MACD_12_26_9').iloc[-2] > latest_data.get('MACDs_12_26_9').iloc[-2]:
+                            if signal == "Hold":
+                                signal = "Sell"
+                                reasons.append("MACD bearish crossover.")
+
+                    # Trend based on EMAs
+                    ema_50 = latest_data.get('EMA_50')
+                    ema_200 = latest_data.get('EMA_200')
+                    if ema_50 is not None and ema_200 is not None:
+                        if latest_data['close'] > ema_50 > ema_200:
+                            reasons.append("Price is in a strong uptrend.")
+                        elif latest_data['close'] < ema_50 < ema_200:
+                            reasons.append("Price is in a strong downtrend.")
+                        else:
+                             reasons.append("Price is in a neutral trend.")
+                    
+                    signals_data.append({
+                        'Ticker': ticker,
+                        'Exchange': exchange,
+                        'LTP': latest_data['close'],
+                        'RSI': f"{rsi:.2f}" if rsi else "N/A",
+                        'MACD': f"{macd_line:.2f}" if macd_line else "N/A",
+                        'Signal': signal,
+                        'Reason': ", ".join(reasons)
+                    })
+
+                except Exception as e:
+                    st.error(f"Error generating signal for {ticker}: {e}")
+                    signals_data.append({'Ticker': ticker, 'Exchange': exchange, 'LTP': 'N/A', 'RSI': 'N/A', 'MACD': 'N/A', 'Signal': 'Error', 'Reason': str(e)})
+
+        if signals_data:
+            df = pd.DataFrame(signals_data)
+            def color_signal(val):
+                if val == 'Buy':
+                    return 'background-color: #28a745; color: white;'
+                elif val == 'Sell':
+                    return 'background-color: #FF4B4B; color: white;'
+                else:
+                    return ''
+            
+            st.markdown("### Generated Signals")
+            st.dataframe(df.style.applymap(color_signal, subset=['Signal']), use_container_width=True)
+        else:
+            st.info("No signals could be generated for the selected watchlist.")
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -2201,6 +2324,7 @@ def main_app():
             "Forecasting & ML": page_forecasting_ml,
             "AI Trading Journal": page_ai_trading_journal,
             "AI Discovery": page_ai_discovery,
+            "Momentum and Trend Finder": page_momentum_and_trend_finder,
             "AI Assistant": page_ai_assistant
         },
         "Options": {
