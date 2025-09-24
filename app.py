@@ -830,7 +830,7 @@ def page_options_hub():
         else:
             st.warning(f"No upcoming expiries found for {underlying}.")
 
-        if not chain_df.empty and underlying_ltp > 0 and expiry:
+        if not chain_df.empty and expiry:
             st.subheader("Greeks & Quick Trade")
             option_list = ["-Select-"] + chain_df['CALL'].dropna().tolist() + chain_df['PUT'].dropna().tolist()
             option_selection = st.selectbox("Analyze or Trade an Option", option_list)
@@ -1241,7 +1241,7 @@ def page_portfolio_analytics():
                 textinfo='label+percent'
             )])
             fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
-            st.plotly_chart(fig_sector, use_container_width=True)
+        st.plotly_chart(fig_sector, use_container_width=True)
 
 def page_option_strategy_builder():
     """A tool to build and visualize option strategy payoffs."""
@@ -1266,7 +1266,7 @@ def page_option_strategy_builder():
         if available_expiries:
             selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
             if selected_expiry != expiry_date:
-                _, expiry_date, underlying_ltp, _ = get_options_chain(underlying, instrument_df, selected_expiry)
+                chain_df, expiry, underlying_ltp, _ = get_options_chain(underlying, instrument_df, selected_expiry)
         
         st.metric(f"{underlying} Spot Price", f"{underlying_ltp:,.2f}")
         
@@ -1552,6 +1552,89 @@ def page_ai_discovery():
     else:
         st.info("Please add stocks to your watchlist to generate trade ideas.")
 
+# --- New Futures Terminal Page ---
+def page_futures_terminal():
+    display_header()
+    st.title("Futures Terminal")
+    st.info("A dedicated terminal for trading futures contracts. Use the `NRML` product type for overnight positions.")
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use the Futures Terminal.")
+        return
+
+    # Find futures contracts
+    futures_contracts = instrument_df[instrument_df['segment'] == 'NFO-FUT'].sort_values(by='tradingsymbol')['tradingsymbol'].unique()
+    if not futures_contracts.any():
+        st.warning("No futures contracts found. The market might be closed or data is unavailable.")
+        return
+
+    # Sidebar for controls
+    with st.sidebar:
+        st.subheader("Futures Controls")
+        selected_future = st.selectbox("Select Futures Contract", futures_contracts)
+        period = st.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4)
+        interval = st.selectbox("Interval", ["minute", "5minute", "day", "week"], index=2)
+
+    st.markdown("---")
+
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        st.subheader(f"{selected_future} Live Data")
+        
+        # Fetch live data for the selected future
+        token = get_instrument_token(selected_future, instrument_df, exchange='NFO')
+        live_data = get_watchlist_data([{'symbol': selected_future, 'exchange': 'NFO'}])
+        
+        if not live_data.empty:
+            st.metric(f"LTP", f"₹{live_data.iloc[0]['Price']:,.2f}", delta=f"₹{live_data.iloc[0]['Change']:,.2f} ({live_data.iloc[0]['% Change']:.2f}%)")
+            
+            # Find lot size for order entry
+            lot_size = instrument_df[instrument_df['tradingsymbol'] == selected_future]['lot_size'].iloc[0] if not instrument_df[instrument_df['tradingsymbol'] == selected_future].empty else 1
+            st.caption(f"Lot Size: {lot_size} units")
+
+            st.markdown("---")
+
+            # Futures Order Entry
+            with st.form(key="futures_order_form"):
+                st.subheader("Place Order")
+                order_col1, order_col2 = st.columns(2)
+                
+                trans_type = order_col1.radio("Transaction", ["BUY", "SELL"], horizontal=True, key="fut_trans_type")
+                product = order_col2.radio("Product", ["MIS", "NRML"], horizontal=True, key="fut_prod_type")
+                
+                lot_quantity = st.number_input("Lots", min_value=1, step=1)
+                order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="fut_order_type")
+                price = st.number_input("Price", min_value=0.01) if order_type == "LIMIT" else 0
+                
+                if st.form_submit_button("Submit Order", use_container_width=True):
+                    total_quantity = lot_quantity * lot_size
+                    place_order(instrument_df, selected_future, total_quantity, order_type, trans_type, product, price if price > 0 else None)
+                    st.rerun()
+        else:
+            st.warning("Could not fetch live data for this contract.")
+    
+    with col2:
+        st.subheader(f"{selected_future} Price Chart")
+        
+        # Get historical data for the chart
+        if token:
+            chart_data = get_historical_data(token, interval, period=period)
+            if not chart_data.empty:
+                st.plotly_chart(create_chart(chart_data, selected_future), use_container_width=True)
+            else:
+                st.warning("Could not load chart data.")
+        else:
+            st.error(f"Ticker '{selected_future}' not found.")
+    
+    st.markdown("---")
+    st.subheader("Your Open Futures Positions")
+    positions_df, _, _, _ = get_portfolio()
+    futures_positions = positions_df[positions_df['tradingsymbol'].str.contains('FUT', case=False, na=False)]
+    if not futures_positions.empty:
+        st.dataframe(futures_positions, use_container_width=True, hide_index=True)
+    else:
+        st.info("You have no open futures positions.")
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -1626,7 +1709,7 @@ def main_app():
     
     st.sidebar.header("Terminal Controls")
     st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Options"], horizontal=True)
+    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Intraday", "Futures", "Options"], horizontal=True)
     st.sidebar.divider()
     
     st.sidebar.header("Live Data")
@@ -1657,6 +1740,14 @@ def main_app():
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Trading Journal": page_ai_trading_journal,
             "AI Discovery": page_ai_discovery,
+            "AI Assistant": page_ai_assistant
+        },
+        "Futures": {
+            "Futures Terminal": page_futures_terminal,
+            "Advanced Charting": page_advanced_charting,
+            "Basket Orders": page_basket_orders,
+            "Portfolio Analytics": page_portfolio_analytics,
+            "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant
         }
     }
