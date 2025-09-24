@@ -2549,14 +2549,15 @@ def page_portfolio_and_risk():
 
     tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Analytics & Allocation"])
     
+# The 'with' block is indented one level
     with tab1:
-        st.subheader("Live Intraday Positions")
-        if not positions_df.empty:
-            st.dataframe(positions_df, use_container_width=True, hide_index=True)
-            st.metric("Total Day P&L", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}", delta_color='normal' if total_pnl >= 0 else 'inverse')
-        else:
-            st.info("No open positions for the day.")
-    
+    # The code inside the 'with' block is indented another level
+    st.subheader("Live Intraday Positions")
+    if not positions_df.empty:
+        st.dataframe(positions_df, use_container_width=True, hide_index=True)
+        st.metric("Total Day P&L", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}", delta_color='normal' if total_pnl >= 0 else 'inverse')
+    else:
+        st.info("No open positions for the day.")
     with tab2:
         st.subheader("Investment Holdings")
         st.dataframe(holdings_df, use_container_width=True, hide_index=True)
