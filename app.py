@@ -723,7 +723,10 @@ def page_dashboard():
             st.metric("Total Investment", f"₹{total_investment:,.2f}")
             st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}")
             with st.expander("View Holdings"):
-                st.dataframe(holdings_df, use_container_width=True, hide_index=True)
+                if not holdings_df.empty:
+                    st.dataframe(holdings_df, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No holdings found.")
 
     with col2:
         st.subheader("NIFTY 50 Live Chart (1-min)")
@@ -1163,43 +1166,46 @@ def page_portfolio_analytics():
     if holdings_df.empty:
         st.info("No holdings found to analyze. Please check your portfolio.")
         return
+    # --- FIX: Check if holdings_df is empty before trying to access columns ---
+    if not holdings_df.empty:
+        if sector_df is None:
+            st.warning("`sectors.csv` not found. Cannot perform sector-wise analysis. Please create this file.")
+
+        holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
         
-    if sector_df is None:
-        st.warning("`sectors.csv` not found. Cannot perform sector-wise analysis. Please create this file.")
+        if sector_df is not None:
+            holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
+            holdings_df['Sector'].fillna('Uncategorized', inplace=True)
 
-    holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
-    
-    if sector_df is not None:
-        holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-        holdings_df['Sector'].fillna('Uncategorized', inplace=True)
+        st.metric("Total Portfolio Value", f"₹{holdings_df['current_value'].sum():,.2f}")
 
-    st.metric("Total Portfolio Value", f"₹{holdings_df['current_value'].sum():,.2f}")
+        col1, col2 = st.columns(2)
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("Stock-wise Allocation")
-        fig_stock = go.Figure(data=[go.Pie(
-            labels=holdings_df['tradingsymbol'], 
-            values=holdings_df['current_value'], 
-            hole=.3,
-            textinfo='label+percent'
-        )])
-        fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
-        st.plotly_chart(fig_stock, use_container_width=True)
-    
-    if sector_df is not None:
-        with col2:
-            st.subheader("Sector-wise Allocation")
-            sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
-            fig_sector = go.Figure(data=[go.Pie(
-                labels=sector_allocation['Sector'], 
-                values=sector_allocation['current_value'], 
+        with col1:
+            st.subheader("Stock-wise Allocation")
+            fig_stock = go.Figure(data=[go.Pie(
+                labels=holdings_df['tradingsymbol'], 
+                values=holdings_df['current_value'], 
                 hole=.3,
                 textinfo='label+percent'
             )])
-            fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
-        st.plotly_chart(fig_sector, use_container_width=True)
+            fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
+            st.plotly_chart(fig_stock, use_container_width=True)
+        
+        if sector_df is not None:
+            with col2:
+                st.subheader("Sector-wise Allocation")
+                sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
+                fig_sector = go.Figure(data=[go.Pie(
+                    labels=sector_allocation['Sector'], 
+                    values=sector_allocation['current_value'], 
+                    hole=.3,
+                    textinfo='label+percent'
+                )])
+                fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
+            st.plotly_chart(fig_sector, use_container_width=True)
+    else:
+        st.info("No holdings found to analyze. Please check your portfolio.")
 
 def page_option_strategy_builder():
     """A tool to build and visualize option strategy payoffs."""
@@ -1723,7 +1729,6 @@ def page_algo_strategy_maker():
                 else:
                     st.warning("No trade signal generated for today.")
     
-# --- Volatility Skew Page ---
 def page_volatility_skew():
     display_header()
     st.title("Implied Volatility (IV) Skew")
@@ -1780,7 +1785,7 @@ def page_volatility_skew():
                     title='Implied Volatility vs. Strike Price',
                     xaxis_title='Strike Price',
                     yaxis_title='Implied Volatility (%)',
-                    template='plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white',
+                    template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white',
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
                 st.plotly_chart(fig, use_container_width=True)
