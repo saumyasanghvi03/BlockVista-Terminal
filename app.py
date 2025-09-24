@@ -947,7 +947,7 @@ def page_forecasting_ml():
                 display_df = backtest_df.tail(days_to_display)
                 
                 if not display_df.empty:
-                    mape_period = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted']) * 100
+                    mape_period = mean_squared_error(display_df['Actual'], display_df['Predicted']) * 100
                     accuracy_period = 100 - mape_period
                     cum_returns_period = (1 + (display_df['Actual'].pct_change().fillna(0))).cumprod()
                     peak_period = cum_returns_period.cummax()
@@ -1173,7 +1173,7 @@ def page_portfolio_analytics():
         
         if sector_df is not None:
             holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-            # FIX: Ensure 'Sector' column exists after merge before calling fillna
+            # FIX: Check if 'Sector' column exists after merge before calling fillna
             if 'Sector' in holdings_df.columns:
                 holdings_df['Sector'].fillna('Uncategorized', inplace=True)
             else:
@@ -1688,7 +1688,7 @@ def page_algo_strategy_maker():
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_strategy_returns'], mode='lines', name='Strategy Returns', line=dict(color='#28a745')))
                 fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_market_returns'], mode='lines', name='Market Returns', line=dict(color='gray', dash='dash')))
-                fig.update_layout(title=f"Backtest Results for {selected_strategy_name}", yaxis_title="Cumulative Returns", xaxis_title="Date", template='plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white')
+                fig.update_layout(title=f"Backtest Results for {selected_strategy_name}", yaxis_title="Cumulative Returns", xaxis_title="Date", template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
                 
                 st.session_state.backtest_fig = fig
                 st.session_state.backtest_data = data
