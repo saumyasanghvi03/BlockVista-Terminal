@@ -35,12 +35,12 @@ BlockVista Terminal™ is the **next-gen financial command center**—Bloomberg 
 
 | Feature | 🚩 BlockVista Terminal™ | 🏢 Bloomberg Terminal |
 |---------|-------------------------|------------------------|
-| **Pricing** | ₹1,999-₹4,999/year | $24,000/year |
+| **Pricing** | Affordable | $24,000/year |
 | **Philosophy** | Fintech Innovation | Legacy Enterprise |
-| **Community** | Student & Community-Led | Closed Corporate |
+| **Community** | Community-Led | Closed Corporate |
 | **Market Focus** | Intraday-Optimized | Multi-market, Heavy |
 | **User Interface** | Modern Web-Based UI | Legacy Desktop Interface |
-| **Target Audience** | Gen Z Traders & Students | Institutional Professionals |
+| **Target Audience** | Gen Z Traders | Institutional Professionals |
 | **Innovation Approach** | Student-Led Innovation | Corporate Development |
 | **Setup Time** | 5 Minutes Quick Setup | Complex Installation & Training |
 | **Regional Support** | Indian Market Expertise | Global Focus |
@@ -49,7 +49,7 @@ BlockVista Terminal™ is the **next-gen financial command center**—Bloomberg 
 | **Compliance** | Indian Regulations (SEBI) | International Standards |
 | **Mobile Ready** | Progressive Web App | Desktop Only |
 | **Open Source** | Community Contributions | Proprietary Closed |
-| **Data Latency** | Real-time NSE/BSE | Multiple Global Exchanges |
+| **Data Latency** | Real-time NSE/BSE,MCX,CDS | Multiple Global Exchanges |
 | **Customization** | Full UI Customization | Limited Customization |
 
 ---
@@ -127,7 +127,7 @@ BlockVista Terminal™ — Open Source for authorized collaboration, under Creat
 • BlockVista Terminal™ is for analysis—not investment advice  
 • Trading involves risk  
 • All real-time data subject to exchange latency  
-• Beta software—student project, continuous development
+• Beta software—project, continuous development
 
 ---
 
@@ -143,4 +143,4 @@ If you find BlockVista Terminal useful, please consider giving it a ⭐ on GitHu
 
 ---
 
-© 2025 BlockVista Terminal™ | Saumya Sanghvi & Kanishk D | FinX Institute, Mumbai
+© 2025 BlockVista Terminal™ | Saumya Sanghvi & Kanishk | FinX Institute, Mumbai
