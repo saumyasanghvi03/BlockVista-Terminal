@@ -26,6 +26,7 @@ import pyotp
 import qrcode
 from PIL import Image
 import base64
+import io
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -1064,7 +1065,7 @@ def page_ai_assistant():
                 
                 elif "greeks for" in prompt_lower or "iv for" in prompt_lower:
                     try:
-                        option_symbol = re.search(r'\b([A-Z]+)(\d{2}[A-Z]{3}\d+)\b', prompt.upper()).group(0)
+                        option_symbol = re.search(r'\b([A-Z]+)(\d{2}[-a-zA-Z]{3}\d+)\b', prompt.upper()).group(0)
                         if option_symbol:
                             option_details = instrument_df[instrument_df['tradingsymbol'] == option_symbol].iloc[0]
                             expiry_date_from_symbol = option_details['expiry'].date() if hasattr(option_details['expiry'], 'date') else option_details['expiry']
@@ -1170,7 +1171,6 @@ def page_portfolio_analytics():
     if sector_df is None:
         st.warning("`sectors.csv` not found. Cannot perform sector-wise analysis. Please create this file.")
 
-    # FIX: Check for empty holdings_df before performing operations
     if not holdings_df.empty:
         holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
         
