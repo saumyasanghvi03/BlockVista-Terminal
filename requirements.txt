@@ -2,7 +2,7 @@ streamlit==1.38.0
 pandas==2.3.2
 numpy==2.3.3
 plotly==5.24.0
-kiteconnect==5.1.0
+kiteconnect
 pandas_ta==0.4.71b0
 yfinance==0.2.66
 scikit-learn==1.7.2
