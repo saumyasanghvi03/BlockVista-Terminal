@@ -594,8 +594,15 @@ def get_most_active_options(underlying, instrument_df):
 @st.cache_data(ttl=3600)
 def get_global_indices_data(tickers):
     """Fetches real-time data for global indices using yfinance."""
-    df = yf.download(tickers, period="1d")['Close'].iloc[-1]
-    df_prev = yf.download(tickers, period="2d")['Close'].iloc[-2]
+    if not tickers: # FIX: Return empty DataFrame if no tickers are provided
+        return pd.DataFrame()
+    
+    try:
+        df = yf.download(tickers, period="1d")['Close'].iloc[-1]
+        df_prev = yf.download(tickers, period="2d")['Close'].iloc[-2]
+    except Exception as e:
+        st.error(f"Failed to fetch data from yfinance: {e}")
+        return pd.DataFrame()
     
     data = []
     for ticker in tickers:
