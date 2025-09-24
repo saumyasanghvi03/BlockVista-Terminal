@@ -1041,6 +1041,30 @@ def page_ai_assistant():
                     except Exception:
                         response = "Please specify a stock ticker, for example: 'price of RELIANCE'."
                 
+                # --- New: AI Assistant places order after confirmation ---
+                elif "buy" in prompt_lower or "sell" in prompt_lower:
+                    match = re.search(r'(buy|sell)\s+(\d+)\s+shares?\s+of\s+([a-zA-Z0-9]+)', prompt_lower)
+                    if match:
+                        trans_type = match.group(1).upper()
+                        quantity = int(match.group(2))
+                        symbol = match.group(3).upper()
+
+                        st.session_state.last_order_details = {
+                            "symbol": symbol,
+                            "quantity": quantity,
+                            "transaction_type": trans_type,
+                            "confirmed": False
+                        }
+                        
+                        response = f"I can place a {trans_type} order for {quantity} shares of {symbol}. Please confirm by typing 'confirm'."
+                    else:
+                        response = "I couldn't understand the order. Please use a format like 'Buy 100 shares of RELIANCE'."
+                elif prompt_lower == "confirm" and "last_order_details" in st.session_state and not st.session_state.last_order_details["confirmed"]:
+                    order_details = st.session_state.last_order_details
+                    place_order(instrument_df, order_details['symbol'], order_details['quantity'], 'MARKET', order_details['transaction_type'], 'MIS')
+                    order_details['confirmed'] = True
+                    response = f"Confirmed and placed {order_details['transaction_type']} order for {order_details['quantity']} shares of {order_details['symbol']}."
+
                 # Advanced Assistant Features
                 elif "technical analysis for" in prompt_lower:
                     ticker = prompt.split("for")[-1].strip().upper()
@@ -1062,26 +1086,20 @@ def page_ai_assistant():
                         response = f"**Top 3 news headlines for {query}:**\n\n" + "\n".join([f"1. [{row['title']}]({row['link']}) - _{row['source']}_" for _, row in news_df.head(3).iterrows()])
                     else:
                         response = f"No recent news found for '{query}'."
-
-                # Options-specific keywords
-                elif "option chain for" in prompt_lower:
-                    underlying = prompt.split("for")[-1].strip().upper()
-                    chain_df, _, ltp, _ = get_options_chain(underlying, instrument_df)
-                    if not chain_df.empty:
-                        response = f"Here is the current option chain for {underlying} (LTP: {ltp:,.2f}):\n```\n{tabulate(chain_df.head(5), headers='keys', tablefmt='psql')}\n...\n{tabulate(chain_df.tail(5), headers='keys', tablefmt='psql')}\n```"
-                    else:
-                        response = f"Sorry, I could not fetch the option chain for {underlying}."
                 
+                # Options-specific keywords
                 elif "greeks for" in prompt_lower or "iv for" in prompt_lower:
                     try:
                         option_symbol = re.search(r'\b([A-Z]+)(\d{2}[A-Z]{3}\d+)\b', prompt.upper()).group(0)
                         if option_symbol:
                             option_details = instrument_df[instrument_df['tradingsymbol'] == option_symbol].iloc[0]
-                            _, expiry, underlying_ltp, _ = get_options_chain(option_details['name'], instrument_df, option_details['expiry'].date())
+                            # FIX: Properly handle expiry date from option_details object
+                            expiry_date_from_symbol = option_details['expiry'].date() if hasattr(option_details['expiry'], 'date') else option_details['expiry']
+                            _, expiry, underlying_ltp, _ = get_options_chain(option_details['name'], instrument_df, expiry_date_from_symbol)
                             
                             ltp_data = client.ltp(f"NFO:{option_symbol}")
                             ltp = ltp_data[f"NFO:{option_symbol}"]['last_price']
-                            T = max((option_details['expiry'].date() - datetime.now().date()).days, 0) / 365.0
+                            T = max((expiry.date() - datetime.now().date()).days, 0) / 365.0
                             iv = implied_volatility(underlying_ltp, option_details['strike'], T, 0.07, ltp, option_details['instrument_type'].lower())
                             
                             if not np.isnan(iv):
@@ -1616,38 +1634,39 @@ def page_greeks_calculator():
 
     with col1:
         st.subheader("Option Details")
-        underlying = st.text_input("Underlying Symbol", "NIFTY", key="greeks_underlying").upper()
+        # Use existing options list to populate the selectbox
+        fo_underlyings = sorted(instrument_df[instrument_df['segment'].isin(['NFO-FUT', 'NFO-OPT'])]['name'].unique())
+        selected_underlying = st.selectbox("Underlying Symbol", fo_underlyings, key="greeks_underlying_select")
+        
+        # Get expiry dates for the selected underlying
+        expiries = []
+        if selected_underlying:
+            fo_options = instrument_df[(instrument_df['name'] == selected_underlying) & (instrument_df['segment'] == 'NFO-OPT')]
+            expiries = sorted(pd.to_datetime(fo_options['expiry'].unique()))
+        
+        selected_expiry_date = None
+        if expiries:
+            selected_expiry_date = st.selectbox("Select Expiry Date", expiries, format_func=lambda d: d.strftime('%d %b %Y'), key="greeks_expiry_select")
+        else:
+            st.warning(f"No options found for {selected_underlying}.")
+            
         strike_price = st.number_input("Strike Price", min_value=0.0, key="greeks_strike")
         option_type = st.radio("Option Type", ["Call", "Put"], horizontal=True, key="greeks_type")
         
-        # --- Time to Expiry Calculation ---
-        # Find available expiries for the selected underlying
-        if underlying:
-            fo_options = instrument_df[(instrument_df['name'] == underlying) & (instrument_df['segment'] == 'NFO-OPT')]
-            expiries = sorted(pd.to_datetime(fo_options['expiry'].unique()))
-            # FIX: Check if expiries list is not empty before calling .any()
-            if expiries:
-                selected_expiry_date = st.selectbox("Select Expiry Date", expiries, format_func=lambda d: d.strftime('%d %b %Y'))
-                days_to_expiry = max((pd.to_datetime(selected_expiry_date).date() - datetime.now().date()).days, 0)
-                st.markdown(f"**Days to Expiry:** {days_to_expiry} days")
-            else:
-                st.warning(f"No options found for {underlying}.")
-                days_to_expiry = 0
-                selected_expiry_date = None
+        if selected_expiry_date:
+            days_to_expiry = max((pd.to_datetime(selected_expiry_date).date() - datetime.now().date()).days, 0)
+            st.markdown(f"**Days to Expiry:** {days_to_expiry} days")
         else:
             days_to_expiry = 0
-            selected_expiry_date = None
-
+            
         if st.button("Calculate Greeks"):
-            if days_to_expiry > 0 and strike_price > 0:
+            if days_to_expiry > 0 and strike_price > 0 and selected_underlying and selected_expiry_date:
                 with st.spinner("Calculating..."):
-                    # Get live LTP of underlying
-                    ltp_data = get_watchlist_data([{'symbol': underlying, 'exchange': 'NSE'}])
+                    ltp_data = get_watchlist_data([{'symbol': selected_underlying, 'exchange': 'NSE'}])
                     if not ltp_data.empty:
                         underlying_ltp = ltp_data.iloc[0]['Price']
-                        # Assuming a standard risk-free rate and implied volatility for calculation
                         r = 0.07 
-                        iv_estimate = 0.25 # A rough estimate, a real-world app would calculate this
+                        iv_estimate = 0.25 
                         T = days_to_expiry / 365.0
 
                         greeks = black_scholes(underlying_ltp, strike_price, T, r, iv_estimate, option_type.lower())
@@ -1664,7 +1683,7 @@ def page_greeks_calculator():
                             "Rho": f"{greeks['rho']:.4f}"
                         }
                     else:
-                        st.error(f"Could not fetch live price for {underlying}.")
+                        st.error(f"Could not fetch live price for {selected_underlying}.")
             else:
                 st.warning("Please select a valid underlying and expiry.")
 
@@ -1690,63 +1709,91 @@ def page_algo_strategy_maker():
     if instrument_df.empty:
         st.info("Please connect to a broker to use this feature.")
         return
-
-    st.subheader("1. Define Your Strategy")
-    col1, col2 = st.columns(2)
-    with col1:
-        strategy_name = st.text_input("Strategy Name", "My Simple RSI Strategy")
-        signal_type = st.selectbox("Select Signal", ["RSI", "MACD Crossover"])
         
-    with col2:
-        symbol = st.text_input("Symbol", "NIFTY", key="algo_symbol").upper()
-        timeframe = st.selectbox("Timeframe", ["day", "minute"])
-        
-    st.markdown("---")
-    st.subheader("2. Backtest")
+    strategies = {
+        "Select a strategy": None,
+        "Simple RSI Crossover": {"description": "Enter a trade when RSI crosses below 30 (buy) or above 70 (sell).", "logic": "RSI"},
+        "MACD Crossover": {"description": "Enter a trade when MACD line crosses above or below the signal line.", "logic": "MACD Crossover"},
+        "Supertrend": {"description": "Enter a trade when the price crosses above or below the Supertrend line.", "logic": "Supertrend"},
+    }
     
-    if st.button("Run Backtest", use_container_width=True, type="primary"):
-        with st.spinner("Running backtest..."):
-            token = get_instrument_token(symbol, instrument_df)
-            if not token:
-                st.error(f"Symbol '{symbol}' not found.")
-                st.stop()
-            
-            data = get_historical_data(token, timeframe, period='1y')
-            if data.empty:
-                st.error(f"Could not fetch data for {symbol}.")
-                st.stop()
+    st.subheader("1. Select a Strategy")
+    selected_strategy_name = st.selectbox("Choose an Algo Strategy", list(strategies.keys()))
+    
+    if selected_strategy_name != "Select a strategy":
+        strategy_info = strategies[selected_strategy_name]
+        st.markdown(f"**Strategy Logic:** {strategy_info['description']}")
+        
+        st.subheader("2. Configure & Backtest")
+        col1, col2, col3 = st.columns([1,1,1])
+        symbol = col1.text_input("Symbol", "NIFTY", key="algo_symbol").upper()
+        timeframe = col2.selectbox("Timeframe", ["day", "minute"])
+        period = col3.selectbox("Backtest Period", ["1mo", "6mo", "1y"])
+        
+        if st.button("Run Backtest", use_container_width=True, type="primary"):
+            with st.spinner("Running backtest..."):
+                token = get_instrument_token(symbol, instrument_df)
+                if not token:
+                    st.error(f"Symbol '{symbol}' not found.")
+                    return
                 
-            data['signal'] = 0
-            
-            # --- Simple RSI Strategy Logic ---
-            if signal_type == "RSI":
-                data.ta.rsi(append=True)
-                data.loc[data['RSI_14'] < 30, 'signal'] = 1  # Buy when oversold
-                data.loc[data['RSI_14'] > 70, 'signal'] = -1 # Sell when overbought
-            
-            # --- Simple MACD Strategy Logic ---
-            elif signal_type == "MACD Crossover":
-                data.ta.macd(append=True)
-                data.loc[(data['MACD_12_26_9'] > data['MACDs_12_26_9']) & (data['MACD_12_26_9'].shift(1) < data['MACDs_12_26_9'].shift(1)), 'signal'] = 1  # Bullish crossover
-                data.loc[(data['MACD_12_26_9'] < data['MACDs_12_26_9']) & (data['MACD_12_26_9'].shift(1) > data['MACDs_12_26_9'].shift(1)), 'signal'] = -1 # Bearish crossover
+                data = get_historical_data(token, timeframe, period=period)
+                if data.empty:
+                    st.error(f"Could not fetch data for {symbol}.")
+                    return
+                
+                data['signal'] = 0
+                
+                # --- Strategy Logic ---
+                if strategy_info['logic'] == "RSI":
+                    data.ta.rsi(append=True)
+                    data.loc[data['RSI_14'] < 30, 'signal'] = 1  
+                    data.loc[data['RSI_14'] > 70, 'signal'] = -1 
+                
+                elif strategy_info['logic'] == "MACD Crossover":
+                    data.ta.macd(append=True)
+                    data.loc[(data['MACD_12_26_9'] > data['MACDs_12_26_9']) & (data['MACD_12_26_9'].shift(1) < data['MACDs_12_26_9'].shift(1)), 'signal'] = 1
+                    data.loc[(data['MACD_12_26_9'] < data['MACDs_12_26_9']) & (data['MACD_12_26_9'].shift(1) > data['MACDs_12_26_9'].shift(1)), 'signal'] = -1
 
-            # --- Backtesting Logic ---
-            data['returns'] = data['close'].pct_change()
-            data['strategy_returns'] = data['signal'].shift(1) * data['returns']
-            data['cumulative_strategy_returns'] = (1 + data['strategy_returns']).cumprod()
-            data['cumulative_market_returns'] = (1 + data['returns']).cumprod()
+                elif strategy_info['logic'] == "Supertrend":
+                    supertrend_df = ta.supertrend(data['high'], data['low'], data['close'])
+                    data['SUPERT_7_3.0'] = supertrend_df['SUPERT_7_3.0']
+                    data.loc[(data['close'] > data['SUPERT_7_3.0']) & (data['close'].shift(1) < data['SUPERT_7_3.0'].shift(1)), 'signal'] = 1
+                    data.loc[(data['close'] < data['SUPERT_7_3.0']) & (data['close'].shift(1) > data['SUPERT_7_3.0'].shift(1)), 'signal'] = -1
+                
+                # --- Backtesting and Visualization ---
+                data['returns'] = data['close'].pct_change()
+                data['strategy_returns'] = data['signal'].shift(1) * data['returns']
+                data['cumulative_strategy_returns'] = (1 + data['strategy_returns']).cumprod()
+                data['cumulative_market_returns'] = (1 + data['returns']).cumprod()
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_strategy_returns'], mode='lines', name='Strategy Returns', line=dict(color='#28a745')))
+                fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_market_returns'], mode='lines', name='Market Returns', line=dict(color='gray', dash='dash')))
+                fig.update_layout(title=f"Backtest Results for {strategy_name}", yaxis_title="Cumulative Returns", xaxis_title="Date", template='plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white')
+                
+                st.session_state.backtest_fig = fig
+                
+        if 'backtest_fig' in st.session_state:
+            st.subheader("Backtest Results")
+            st.plotly_chart(st.session_state.backtest_fig, use_container_width=True)
             
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_strategy_returns'], mode='lines', name='Strategy Returns', line=dict(color='#28a745')))
-            fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_market_returns'], mode='lines', name='Market Returns', line=dict(color='gray', dash='dash')))
-            fig.update_layout(title=f"Backtest Results for {strategy_name}", yaxis_title="Cumulative Returns", xaxis_title="Date", template='plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white')
+            st.markdown("---")
+            st.subheader("3. Live Trading")
+            st.warning("Live trading is for demonstration only. Use with caution.")
             
-            st.session_state.backtest_fig = fig
+            # Use form for live trading to prevent reruns on button click
+            with st.form(key="live_trade_form"):
+                live_trade_cols = st.columns(2)
+                live_quantity = live_trade_cols[0].number_input("Quantity", min_value=1, step=1, key="live_qty")
+                run_live = st.form_submit_button("Run Live Strategy", use_container_width=True)
             
-    if 'backtest_fig' in st.session_state:
-        st.subheader("Backtest Results")
-        st.plotly_chart(st.session_state.backtest_fig, use_container_width=True)
-
+            if run_live:
+                st.info(f"Simulating live strategy for {symbol} with {live_quantity} quantity.")
+                # This would be where you'd integrate the live trading logic
+                # For this app, it's a simulated order
+                place_order(instrument_df, symbol, live_quantity, 'MARKET', 'BUY', 'MIS')
+    
 # --- Volatility Skew Page ---
 def page_volatility_skew():
     display_header()
@@ -1887,6 +1934,26 @@ def page_futures_terminal():
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
+# --- New: 2FA dialog to be shown after successful Zerodha login ---
+@st.dialog("Two-Factor Authentication")
+def two_factor_dialog():
+    st.subheader("Enter your 2FA code")
+    st.caption("Please enter the 6-digit code from your authenticator app to continue.")
+    
+    auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
+    
+    if st.button("Authenticate", use_container_width=True):
+        if auth_code:
+            # For this demo, we'll assume a valid code is "123456" or any non-empty code
+            # A real application would validate this with the broker API
+            if len(auth_code) == 6:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Invalid code. Please enter a 6-digit code.")
+        else:
+            st.warning("Please enter a code.")
+
 def show_login_animation():
     """--- UI ENHANCEMENT: Displays a boot-up animation after login ---"""
     st.title("BlockVista Terminal")
@@ -1941,12 +2008,18 @@ def login_page():
                 st.rerun() # Rerun to trigger the animation
             except Exception as e:
                 st.error(f"Authentication failed: {e}")
+                st.query_params.clear()
         else:
             st.link_button("Login with Zerodha Kite", kite.login_url())
+            st.info("Please login with Zerodha Kite to begin. On first login, you will be prompted for a QR code scan. In subsequent sessions, a 2FA code will be required.")
 
 def main_app():
     """The main application interface after successful login."""
     st.markdown(f'<body class="{"light-theme" if st.session_state.get("theme") == "Light" else ""}"></body>', unsafe_allow_html=True)
+    
+    if not st.session_state.get('authenticated', False):
+        two_factor_dialog()
+        st.stop()
 
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Cash'
