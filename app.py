@@ -402,8 +402,11 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
 def fetch_and_analyze_news(query=None):
     """Fetches and performs sentiment analysis on financial news."""
     analyzer = SentimentIntensityAnalyzer()
-    # Using real RSS feeds for market news
+    
+    # Updated and expanded news sources
     news_sources = {
+        "Reuters": "http://feeds.reuters.com/reuters/businessNews",
+        "Bloomberg": "https://www.bloomberg.com/feeds/bpol/markets.xml",
         "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
         "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml",
         "Business Standard": "https://www.business-standard.com/rss/markets-102.cms",
@@ -414,7 +417,6 @@ def fetch_and_analyze_news(query=None):
         try:
             feed = feedparser.parse(url)
             for entry in feed.entries:
-                # Use a more robust date parsing method
                 published_date_tuple = entry.published_parsed if hasattr(entry, 'published_parsed') else entry.updated_parsed
                 published_date = datetime.fromtimestamp(mktime_tz(published_date_tuple)) if published_date_tuple else datetime.now()
 
@@ -2064,7 +2066,6 @@ def page_momentum_and_trend_finder():
         st.warning("Please connect to a broker to use this feature.")
         return
 
-    # Use session state to get the list of watchlists
     watchlists = st.session_state.get('watchlists', {})
     watchlist_options = list(watchlists.keys())
     
@@ -2079,6 +2080,7 @@ def page_momentum_and_trend_finder():
     )
 
     if st.button('Generate Signals', use_container_width=True, type="primary"):
+        st.session_state['signals_generated'] = True
         selected_list = watchlists[selected_watchlist_name]
         if not selected_list:
             st.warning(f"The watchlist '{selected_watchlist_name}' is empty.")
@@ -2096,7 +2098,6 @@ def page_momentum_and_trend_finder():
                     continue
                 
                 try:
-                    # Fetch 3 months of data to get meaningful indicators
                     data = get_historical_data(token, 'day', period='3mo')
                     if data.empty or len(data) < 2:
                         st.warning(f"Could not get sufficient historical data for {ticker}. Skipping.")
@@ -2110,11 +2111,9 @@ def page_momentum_and_trend_finder():
                     latest_data = data.iloc[-1]
                     previous_data = data.iloc[-2]
                     
-                    # Logic for signal generation
                     signal = "Hold"
                     reasons = []
 
-                    # RSI signal
                     rsi = latest_data.get('RSI_14')
                     if rsi is not None:
                         if rsi < 30:
@@ -2124,13 +2123,11 @@ def page_momentum_and_trend_finder():
                             signal = "Sell"
                             reasons.append("RSI is overbought.")
 
-                    # MACD signal
                     macd_line = latest_data.get('MACD_12_26_9')
                     signal_line = latest_data.get('MACDs_12_26_9')
                     prev_macd_line = previous_data.get('MACD_12_26_9')
                     prev_signal_line = previous_data.get('MACDs_12_26_9')
                     
-                    # Fix: Check for None and sufficient data before performing comparison
                     if (macd_line is not None and signal_line is not None and
                         prev_macd_line is not None and prev_signal_line is not None):
                         if macd_line > signal_line and prev_macd_line < prev_signal_line:
@@ -2142,7 +2139,6 @@ def page_momentum_and_trend_finder():
                                 signal = "Sell"
                                 reasons.append("MACD bearish crossover.")
 
-                    # Trend based on EMAs
                     ema_50 = latest_data.get('EMA_50')
                     ema_200 = latest_data.get('EMA_200')
                     if ema_50 is not None and ema_200 is not None:
@@ -2167,6 +2163,13 @@ def page_momentum_and_trend_finder():
                     st.error(f"Error generating signal for {ticker}: {e}")
                     signals_data.append({'Ticker': ticker, 'Exchange': exchange, 'LTP': 'N/A', 'RSI': 'N/A', 'MACD': 'N/A', 'Signal': 'Error', 'Reason': str(e)})
 
+            if signals_data:
+                st.session_state['signals_data'] = signals_data
+            else:
+                st.session_state['signals_data'] = None
+
+    if st.session_state.get('signals_generated'):
+        signals_data = st.session_state.get('signals_data')
         if signals_data:
             df = pd.DataFrame(signals_data)
             def color_signal(val):
@@ -2181,6 +2184,7 @@ def page_momentum_and_trend_finder():
             st.dataframe(df.style.applymap(color_signal, subset=['Signal']), use_container_width=True)
         else:
             st.info("No signals could be generated for the selected watchlist.")
+
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
