@@ -2607,12 +2607,11 @@ def page_portfolio_and_risk():
 def page_options_chain():
     """An advanced options chain page with Greek calculations and OI analysis."""
     display_header()
-    st.title("Advanced Options Chain")
-
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Connect to a broker to view the options chain.")
-        return
+    st.title("Advanced Options Chain")
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Connect to a broker to view the options chain.")
+        return
 
     options_underlyings = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "GOLDM", "USDINR"]
     col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
