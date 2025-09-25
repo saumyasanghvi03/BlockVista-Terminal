@@ -1439,11 +1439,16 @@ def page_portfolio_analytics():
     
     sector_df = get_sector_data()
     
-    if sector_df is not None:
+    # --- FIX START ---
+    if not holdings_df.empty and sector_df is not None:
         holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
+        if 'Sector' not in holdings_df.columns:
+            # If the merge failed to produce a 'Sector' column, create one with a default
+            holdings_df['Sector'] = 'Uncategorized'
         holdings_df['Sector'].fillna('Uncategorized', inplace=True)
     else:
         holdings_df['Sector'] = 'Uncategorized'
+    # --- FIX END ---
     
     st.metric("Total Portfolio Value", f"₹{holdings_df['current_value'].sum():,.2f}")
 
@@ -1460,18 +1465,18 @@ def page_portfolio_analytics():
         fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
         st.plotly_chart(fig_stock, use_container_width=True)
             
-    if sector_df is not None:
-        with col2:
-            st.subheader("Sector-wise Allocation")
-            sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
-            fig_sector = go.Figure(data=[go.Pie(
-                labels=sector_allocation['Sector'],
-                values=sector_allocation['current_value'],
-                hole=.3,
-                textinfo='label+percent'
-            )])
-            fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
-            st.plotly_chart(fig_sector, use_container_width=True)
+    # The check `if sector_df is not None:` is already in place to prevent an error here
+    with col2:
+        st.subheader("Sector-wise Allocation")
+        sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
+        fig_sector = go.Figure(data=[go.Pie(
+            labels=sector_allocation['Sector'],
+            values=sector_allocation['current_value'],
+            hole=.3,
+            textinfo='label+percent'
+        )])
+        fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
+        st.plotly_chart(fig_sector, use_container_width=True)
 
 def page_option_strategy_builder():
     """A tool to build and visualize option strategy payoffs."""
