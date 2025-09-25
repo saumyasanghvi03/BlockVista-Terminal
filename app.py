@@ -853,8 +853,9 @@ def create_nifty_heatmap(instrument_df):
         values=full_data['size'],
         marker_colorscale='RdYlGn',
         marker_colors=full_data['% Change'],
-        textinfo="label+value+percent parent",
-        hoverinfo="label+value+percent",
+        # Fix for the ValueError: hoverinfo expects a specific format.
+        hovertemplate="<b>%{label}</b><br>Price: %{value:,.2f}<br>Change: %{customdata:.2f}%<extra></extra>",
+        customdata=full_data['% Change']
     ))
 
     fig.update_layout(title="NIFTY 50 Live Heatmap")
@@ -1052,39 +1053,43 @@ def page_advanced_charting():
     if instrument_df.empty:
         st.info("Please connect to a broker to use the charting tools.")
         return
-    
-    # Global controls for all 4 charts
-    with st.container():
-        st.subheader("Global Chart Controls")
-        global_cols = st.columns(4)
-        global_ticker = global_cols[0].text_input("Symbol", "NIFTY 50", key="global_ticker").upper()
-        global_period = global_cols[1].selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key="global_period")
-        global_interval = global_cols[2].selectbox("Interval", ["minute", "5minute", "day", "week"], index=2, key="global_interval")
-        global_chart_type = global_cols[3].selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"], key="global_chart_type")
 
-        global_token = get_instrument_token(global_ticker, instrument_df)
-        global_data = get_historical_data(global_token, global_interval, period=global_period)
+    chart_options = st.radio("Select Chart Layout", ["Single Chart", "Multi-Chart Grid (2)", "Multi-Chart Grid (4)"], horizontal=True, key="chart_layout_selector")
+    
+    num_charts = 0
+    if chart_options == "Single Chart":
+        num_charts = 1
+    elif chart_options == "Multi-Chart Grid (2)":
+        num_charts = 2
+    elif chart_options == "Multi-Chart Grid (4)":
+        num_charts = 4
 
-    st.markdown("---")
+    chart_columns = st.columns(min(2, num_charts))
     
-    chart_columns = st.columns(2, gap="large")
-    
-    for i in range(4):
+    for i in range(num_charts):
         with chart_columns[i % 2]:
             st.subheader(f"Chart {i+1}")
-            if global_data.empty:
-                st.warning(f"No data to display for {global_ticker} with selected parameters.")
-            else:
-                st.plotly_chart(create_chart(global_data, global_ticker, global_chart_type), use_container_width=True, key=f"chart_{i}")
+            chart_ticker = st.text_input("Symbol", "NIFTY 50" if i==0 else "HDFCBANK" if i==1 else "RELIANCE" if i==2 else "TCS", key=f"ticker_{i}").upper()
+            chart_period = st.selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key=f"period_{i}")
+            chart_interval = st.selectbox("Interval", ["minute", "5minute", "day", "week"], index=2, key=f"interval_{i}")
+            chart_type = st.selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"], key=f"chart_type_{i}")
+            
+            chart_token = get_instrument_token(chart_ticker, instrument_df)
+            chart_data = get_historical_data(chart_token, chart_interval, period=chart_period)
 
-                order_cols = st.columns(5)
-                order_cols[0].markdown("Quick Order:")
-                quantity = order_cols[1].number_input("Qty", min_value=1, step=1, key=f"qty_{i}", label_visibility="collapsed")
-                
-                if order_cols[2].button("Buy", key=f"buy_btn_{i}", use_container_width=True, type="primary"):
-                    place_order(instrument_df, global_ticker, quantity, 'MARKET', 'BUY', 'MIS')
-                if order_cols[3].button("Sell", key=f"sell_btn_{i}", use_container_width=True, type="secondary"):
-                    place_order(instrument_df, global_ticker, quantity, 'MARKET', 'SELL', 'MIS')
+            if chart_data.empty:
+                st.warning(f"No data to display for {chart_ticker} with selected parameters.")
+            else:
+                st.plotly_chart(create_chart(chart_data, chart_ticker, chart_type), use_container_width=True, key=f"chart_{i}")
+
+            order_cols = st.columns(5)
+            order_cols[0].markdown("Quick Order:")
+            quantity = order_cols[1].number_input("Qty", min_value=1, step=1, key=f"qty_{i}", label_visibility="collapsed")
+            
+            if order_cols[2].button("Buy", key=f"buy_btn_{i}", use_container_width=True, type="primary"):
+                place_order(instrument_df, chart_ticker, quantity, 'MARKET', 'BUY', 'MIS')
+            if order_cols[3].button("Sell", key=f"sell_btn_{i}", use_container_width=True, type="secondary"):
+                place_order(instrument_df, chart_ticker, quantity, 'MARKET', 'SELL', 'MIS')
     
 def page_alpha_engine():
     """Analyzes market sentiment from live news headlines."""
@@ -1291,7 +1296,7 @@ def page_forecasting_ml():
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Actual'], mode='lines', name='Actual Price'))
                     fig.add_trace(go.Scatter(x=display_df.index, y=display_df['Predicted'], mode='lines', name='Predicted Price', line=dict(dash='dash')))
-                    template = 'plotly_dark' if st.session_state.get('theme', 'Dark') == 'Dark' else 'plotly_white'
+                    template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
                     fig.update_layout(title=f"Backtest Results ({selected_period_name})", yaxis_title='Price (INR)', template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                     st.plotly_chart(fig, use_container_width=True)
                 else:
@@ -1772,355 +1777,12 @@ def page_premarket_pulse():
             st.info("No recent news found.")
 
 
-def page_ai_trading_journal():
-    """An AI-powered trading journal for self-reflection and well-being checks."""
+def page_fo_analytics():
+    """A new F&O analytics page for options traders."""
     display_header()
-    st.title("AI Trading Journal")
-    st.info("This journal helps you reflect on your trading psychology throughout the day. It will ask you questions at regular intervals to check your mental state and decision-making process.")
-    
-    if "journal_prompts" not in st.session_state:
-        st.session_state.journal_prompts = [
-            "How are you feeling right now, mentally and emotionally?",
-            "What is your current outlook on the market? Has it changed recently?",
-            "Have you followed your trading plan so far today?",
-            "Are you feeling a strong urge to make an impulsive trade?",
-            "What is the single most important lesson you have learned from today's trades?"
-        ]
-    
-    if "journal_log" not in st.session_state:
-        st.session_state.journal_log = []
+    st.title("F&O Analytics")
+    st.info("Analyze live Open Interest (OI), Implied Volatility (IV) metrics, and Greeks for informed F&O trading.")
 
-    if "current_prompt_index" not in st.session_state:
-        st.session_state.current_prompt_index = 0
-
-    st.subheader("Journal Settings")
-    prompt_interval = st.number_input("Prompt Interval (in minutes)", min_value=1, value=60)
-    
-    st_autorefresh(interval=prompt_interval * 60 * 1000, key="journal_refresher")
-
-    st.markdown("---")
-    
-    st.subheader("Journal Entry")
-    
-    current_prompt = st.session_state.journal_prompts[st.session_state.current_prompt_index]
-    st.markdown(f"**Question:** {current_prompt}")
-    
-    user_response = st.text_area("Your thoughts...", key="journal_response")
-    
-    if st.button("Submit Entry"):
-        if user_response:
-            st.session_state.journal_log.append({
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "prompt": current_prompt,
-                "response": user_response
-            })
-            st.success("Entry saved!")
-            st.session_state.current_prompt_index = (st.session_state.current_prompt_index + 1) % len(st.session_state.journal_prompts)
-            st.rerun()
-        else:
-            st.warning("Please write something before submitting.")
-
-    st.markdown("---")
-    st.subheader("Your Past Entries")
-    if st.session_state.journal_log:
-        for entry in reversed(st.session_state.journal_log):
-            st.expander(f"Entry on {entry['timestamp']}").write(f"**Prompt:** {entry['prompt']}\n\n**Response:** {entry['response']}")
-    else:
-        st.info("Your journal is currently empty.")
-
-def page_ai_discovery():
-    """Simulates an AI-driven discovery engine for patterns and trade ideas."""
-    display_header()
-    st.title("AI Discovery Engine")
-    st.info("This engine simulates advanced AI analysis by discovering technical patterns and suggesting high-conviction trade setups based on your active watchlist. The suggestions are for informational purposes only.", icon="🧠")
-    
-    active_list = st.session_state.get('watchlists', {}).get(st.session_state.get('active_watchlist', 'Watchlist 1'), [])
-    instrument_df = get_instrument_df()
-
-    if not active_list or instrument_df.empty:
-        st.warning("Please set up your watchlist on the Dashboard page to enable AI Discovery.")
-        return
-
-    st.markdown("---")
-    
-    st.subheader("Automated Pattern Discovery")
-    st.markdown("Scanning your watchlist for potential technical signals...")
-    
-    with st.spinner("Analyzing data..."):
-        discovery_results = {}
-        for item in active_list:
-            ticker = item['symbol']
-            exchange = item['exchange']
-            token = get_instrument_token(ticker, instrument_df, exchange=exchange)
-            if token:
-                data = get_historical_data(token, 'day', period='6mo')
-                if not data.empty:
-                    interpretation = interpret_indicators(data)
-                    signals = [f"{k}: {v}" for k, v in interpretation.items() if v in ["Overbought (Bearish)", "Oversold (Bullish)", "Bullish Crossover", "Bearish Crossover"]]
-                    if signals:
-                        discovery_results[ticker] = signals
-    
-    if discovery_results:
-        for ticker, signals in discovery_results.items():
-            st.markdown(f"**Potential Signals for {ticker}:**")
-            for signal in signals:
-                st.markdown(f"- {signal}")
-    else:
-        st.info("No significant technical patterns found in the last 6 months for your watchlist.")
-        
-    st.markdown("---")
-    
-    st.subheader("AI-Powered Trade Idea")
-    st.warning("This is a simulated trade idea for educational purposes. It does not constitute financial advice.")
-    
-    if active_list:
-        selected_ticker = active_list[0]['symbol']
-        ltp_data = get_watchlist_data([active_list[0]])
-        if not ltp_data.empty:
-            ltp = ltp_data.iloc[0]['Price']
-            
-            trade_setup = {
-                "title": f"High-Conviction Long Setup: {selected_ticker}",
-                "conviction": "High",
-                "score": 8.5,
-                "entry_range": [ltp * 0.99, ltp * 1.01],
-                "target": ltp * 1.05,
-                "stop_loss": ltp * 0.98,
-                "narrative": f"**{selected_ticker}** is showing a strong confluence of bullish signals, including a recent RSI crossover from the oversold region and a positive MACD divergence. A breakout above the 20-day EMA could confirm a move towards the target price."
-            }
-            
-            trade_idea_col = st.columns([1, 1, 1])
-            trade_idea_col[0].metric("Conviction Score", trade_setup['score'])
-            trade_idea_col[1].metric("Entry Range", f"₹{trade_setup['entry_range'][0]:.2f} - ₹{trade_setup['entry_range'][1]:.2f}")
-            trade_idea_col[2].metric("Target Price", f"₹{trade_setup['target']:.2f}")
-
-            st.markdown(f"""
-            <div class="trade-card">
-                <h4>{trade_setup['title']}</h4>
-                <p><strong>Narrative:</strong> {trade_setup['narrative']}</p>
-                <p style='color:#FF4B4B;'><strong>Stop Loss:</strong> ₹{trade_setup['stop_loss']:.2f}</p>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.info("Could not retrieve live price for the selected ticker.")
-    else:
-        st.info("Please add stocks to your watchlist to generate trade ideas.")
-
-def page_greeks_calculator():
-    """Calculates Greeks for any option contract."""
-    display_header()
-    st.title("F&O Greeks Calculator")
-    st.info("Calculate the theoretical value and greeks (Delta, Gamma, Vega, Theta, Rho) for any option contract.")
-    
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to use this feature.")
-        return
-
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        st.subheader("Option Details")
-        fo_underlyings = sorted(instrument_df[instrument_df['segment'].isin(['NFO-FUT', 'NFO-OPT'])]['name'].unique())
-        if not fo_underlyings:
-            st.warning("No F&O instruments found.")
-            st.stop()
-            
-        selected_underlying = st.selectbox("Underlying Symbol", fo_underlyings, key="greeks_underlying_select")
-        
-        expiries = []
-        if selected_underlying:
-            fo_options = instrument_df[(instrument_df['name'] == selected_underlying) & (instrument_df['segment'] == 'NFO-OPT')]
-            expiries = sorted(pd.to_datetime(fo_options['expiry'].unique()))
-        
-        selected_expiry_date = None
-        if expiries:
-            selected_expiry_date = st.selectbox("Select Expiry Date", expiries, format_func=lambda d: d.strftime('%d %b %Y'), key="greeks_expiry_select")
-        else:
-            st.warning(f"No options found for {selected_underlying}.")
-            
-        strike_price = st.number_input("Strike Price", min_value=0.0, key="greeks_strike")
-        option_type = st.radio("Option Type", ["Call", "Put"], horizontal=True, key="greeks_type")
-        
-        if selected_expiry_date:
-            days_to_expiry = max((pd.to_datetime(selected_expiry_date).date() - datetime.now().date()).days, 0)
-            st.markdown(f"**Days to Expiry:** {days_to_expiry} days")
-        else:
-            days_to_expiry = 0
-            
-        if st.button("Calculate Greeks"):
-            if days_to_expiry > 0 and strike_price > 0 and selected_underlying and selected_expiry_date:
-                with st.spinner("Calculating..."):
-                    ltp_data = get_watchlist_data([{'symbol': selected_underlying, 'exchange': 'NSE'}])
-                    if not ltp_data.empty:
-                        underlying_ltp = ltp_data.iloc[0]['Price']
-                        r = 0.07  
-                        iv_estimate = 0.25  
-                        T = days_to_expiry / 365.0
-
-                        greeks = black_scholes(underlying_ltp, strike_price, T, r, iv_estimate, option_type.lower())
-                        
-                        st.session_state.greeks_result = {
-                            "Underlying Price": underlying_ltp,
-                            "Strike Price": strike_price,
-                            "Time to Expiry": days_to_expiry,
-                            "Option Type": option_type,
-                            "Delta": f"{greeks['delta']:.4f}",
-                            "Gamma": f"{greeks['gamma']:.4f}",
-                            "Vega": f"{greeks['vega']:.4f}",
-                            "Theta": f"{greeks['theta']:.4f}",
-                            "Rho": f"{greeks['rho']:.4f}"
-                        }
-                    else:
-                        st.error(f"Could not fetch live price for {selected_underlying}.")
-            else:
-                st.warning("Please select a valid underlying and expiry.")
-
-
-    with col2:
-        st.subheader("Results")
-        if 'greeks_result' in st.session_state:
-            results = st.session_state.greeks_result
-            st.metric("Underlying Price", f"₹{results['Underlying Price']:,.2f}")
-            st.metric("Delta", results['Delta'], help="Measures the rate of change of the option value with respect to the underlying asset's price.")
-            st.metric("Gamma", results['Gamma'], help="Measures the rate of change in the delta with respect to the underlying asset's price.")
-            st.metric("Vega", results['Vega'], help="Measures the sensitivity of the option's price to changes in the implied volatility of the underlying asset.")
-            st.metric("Theta", results['Theta'], help="Measures the rate of decline in the option's value due to the passage of time.")
-            st.metric("Rho", results['Rho'], help="Measures the sensitivity of the option's price to a change in the interest rate.")
-
-def page_algo_strategy_maker():
-    """A tool to backtest and visualize simple trading strategies."""
-    display_header()
-    st.title("Algo Strategy Maker")
-    st.info("Select a pre-built strategy to backtest its performance on historical data. This is for educational purposes and does not place live trades.")
-
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to use this feature.")
-        return
-        
-    strategies = {
-        "Select a strategy": None,
-        "Simple RSI Crossover": {"description": "Enter a trade when RSI crosses below 30 (buy) or above 70 (sell).", "logic": "RSI"},
-        "MACD Crossover": {"description": "Enter a trade when MACD line crosses above or below the signal line.", "logic": "MACD Crossover"},
-        "Supertrend": {"description": "Enter a trade when the price crosses above or below the Supertrend line.", "logic": "Supertrend"},
-    }
-    
-    st.subheader("1. Select a Strategy")
-    selected_strategy_name = st.selectbox("Choose an Algo Strategy", list(strategies.keys()))
-    
-    if selected_strategy_name != "Select a strategy":
-        strategy_info = strategies[selected_strategy_name]
-        st.markdown(f"**Strategy Logic:** {strategy_info['description']}")
-        
-        st.subheader("2. Configure & Backtest")
-        col1, col2, col3 = st.columns([1,1,1])
-        symbol = col1.text_input("Symbol", "NIFTY 50", key="algo_symbol").upper()
-        timeframe = col2.selectbox("Timeframe", ["day", "minute"])
-        period = col3.selectbox("Backtest Period", ["1mo", "6mo", "1y"])
-        
-        if st.button("Run Backtest", use_container_width=True, type="primary"):
-            with st.spinner("Running backtest..."):
-                token = get_instrument_token(symbol, instrument_df)
-                if not token:
-                    st.error(f"Symbol '{symbol}' not found.")
-                    return
-                
-                data = get_historical_data(token, timeframe, period=period)
-                if data.empty:
-                    st.error(f"Could not fetch data for {symbol}.")
-                    return
-                
-                data['signal'] = 0
-                
-                if strategy_info['logic'] == "RSI":
-                    data.ta.rsi(append=True)
-                    data.loc[data['RSI_14'] < 30, 'signal'] = 1  
-                    data.loc[data['RSI_14'] > 70, 'signal'] = -1  
-                
-                elif strategy_info['logic'] == "MACD Crossover":
-                    data.ta.macd(append=True)
-                    data.loc[(data['MACD_12_26_9'] > data['MACDs_12_26_9']) & (data['MACD_12_26_9'].shift(1) < data['MACDs_12_26_9'].shift(1)), 'signal'] = 1
-                    data.loc[(data['MACD_12_26_9'] < data['MACDs_12_26_9']) & (data['MACD_12_26_9'].shift(1) > data['MACDs_12_26_9'].shift(1)), 'signal'] = -1
-
-                elif strategy_info['logic'] == "Supertrend":
-                    supertrend_df = ta.supertrend(data['high'], data['low'], data['close'])
-                    data['SUPERT_7_3.0'] = supertrend_df['SUPERT_7_3.0']
-                    data.loc[(data['close'] > data['SUPERT_7_3.0']) & (data['close'].shift(1) < data['SUPERT_7_3.0'].shift(1)), 'signal'] = 1
-                    data.loc[(data['close'] < data['SUPERT_7_3.0']) & (data['close'].shift(1) > data['SUPERT_7_3.0'].shift(1)), 'signal'] = -1
-                
-                data['returns'] = data['close'].pct_change()
-                data['strategy_returns'] = data['signal'].shift(1) * data['returns']
-                data['cumulative_strategy_returns'] = (1 + data['strategy_returns']).cumprod()
-                data['cumulative_market_returns'] = (1 + data['returns']).cumprod()
-                
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_strategy_returns'], mode='lines', name='Strategy Returns', line=dict(color='#28a745')))
-                fig.add_trace(go.Scatter(x=data.index, y=data['cumulative_market_returns'], mode='lines', name='Market Returns', line=dict(color='gray', dash='dash')))
-                fig.update_layout(title=f"Backtest Results for {selected_strategy_name}", yaxis_title="Cumulative Returns", xaxis_title="Date", template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
-                
-                st.session_state.backtest_fig = fig
-                st.session_state.backtest_data = data
-                st.rerun()
-
-        if 'backtest_fig' in st.session_state:
-            st.subheader("Backtest Results")
-            st.plotly_chart(st.session_state.backtest_fig, use_container_width=True)
-            
-            st.markdown("---")
-            st.subheader("3. Live Trading")
-            st.warning("Live trading is for demonstration only. Use with caution.")
-
-            backtest_data = st.session_state.backtest_data
-            latest_signal = backtest_data['signal'].iloc[-1]
-            latest_close = backtest_data['close'].iloc[-1]
-            
-            if latest_signal == 1:
-                direction = "BUY"
-                price_to_enter = latest_close * 1.001
-                confidence = "High"
-            elif latest_signal == -1:
-                direction = "SELL"
-                price_to_enter = latest_close * 0.999
-                confidence = "High"
-            else:
-                direction = "N/A"
-                price_to_enter = latest_close
-                confidence = "Neutral"
-
-            st.markdown(f"""
-            #### Ideal Price to Enter on Same Day
-            - **Latest Signal:** <span style='color:{"#28a745" if latest_signal == 1 else "#FF4B4B" if latest_signal == -1 else "white"}'>{direction}</span>
-            - **Entry Price:** ₹{price_to_enter:,.2f}
-            - **Confidence:** {confidence}
-            - **Rationale:** The strategy's most recent signal suggests a {direction} trade at this price point, following the historical pattern of the backtest.
-            """, unsafe_allow_html=True)
-            
-            with st.form(key="live_trade_form"):
-                live_trade_cols = st.columns(2)
-                live_quantity = live_trade_cols[0].number_input("Quantity", min_value=1, step=1, key="live_qty")
-                run_live = st.form_submit_button("Place Simulated Live Order", use_container_width=True, type="secondary")
-            
-            if run_live:
-                if direction != "N/A":
-                    st.info(f"Placing simulated {direction} order for {symbol} with {live_quantity} quantity.")
-                    place_order(instrument_df, symbol, live_quantity, 'MARKET', direction, 'MIS')
-                else:
-                    st.warning("No trade signal generated for today.")
-    
-def page_volatility_skew():
-    """Analyzes implied volatility skew for options contracts."""
-    display_header()
-    st.title("Implied Volatility (IV) Skew")
-    st.info("Analyze the relationship between implied volatility and strike prices for a selected options expiry.")
-    st.markdown("""
-        **How to use this feature:**
-        1.  Select an F&O symbol from the dropdown below.
-        2.  Choose an expiry date.
-        3.  The chart will plot the Implied Volatility for both Call and Put options across all available strike prices.
-        4.  A 'smile' or 'smirk' in the curve can indicate market expectations about future price moves.
-        """)
-    
     instrument_df = get_instrument_df()
     if instrument_df.empty:
         st.info("Please connect to a broker to use this feature.")
@@ -2130,29 +1792,51 @@ def page_volatility_skew():
     if not fo_underlyings:
         st.warning("No F&O instruments found.")
         return
-        
+
     selected_underlying = st.selectbox("Select Underlying Symbol", fo_underlyings)
     
-    if selected_underlying:
-        with st.spinner("Fetching data..."):
-            chain_df, expiry_date, underlying_ltp, available_expiries = get_options_chain(selected_underlying, instrument_df)
-        
-        if available_expiries:
-            selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
-            chain_df, _, underlying_ltp, _ = get_options_chain(selected_underlying, instrument_df, selected_expiry)
-        else:
-            st.warning("No expiry dates found for the selected symbol.")
-            return
-        
-        if not chain_df.empty and 'CALL' in chain_df.columns and 'PUT' in chain_df.columns:
-            st.subheader(f"IV Skew for {selected_underlying} (Expiry: {selected_expiry.strftime('%d %b %Y')})")
-            st.caption(f"Underlying Spot Price: ₹{underlying_ltp:,.2f}")
+    with st.spinner("Fetching data..."):
+        chain_df, expiry_date, underlying_ltp, available_expiries = get_options_chain(selected_underlying, instrument_df)
+    
+    if available_expiries:
+        selected_expiry = st.selectbox("Select Expiry Date", available_expiries, format_func=lambda d: d.strftime('%d %b %Y'))
+        chain_df, _, underlying_ltp, _ = get_options_chain(selected_underlying, instrument_df, selected_expiry)
+    else:
+        st.warning("No expiry dates found for the selected symbol.")
+        return
+
+    st.metric(f"Underlying {selected_underlying} Spot Price", f"₹{underlying_ltp:,.2f}")
+    
+    tab1, tab2, tab3 = st.tabs(["OI Analysis", "IV Skew", "Greeks Calculator"])
+    
+    with tab1:
+        st.subheader("Open Interest (OI) Analysis")
+        if not chain_df.empty:
+            oi_change_ce_total = chain_df['open_interest_CE_change'].sum()
+            oi_change_pe_total = chain_df['open_interest_PE_change'].sum()
             
-            df_greeks = chain_df.copy()
+            oi_col1, oi_col2 = st.columns(2)
+            oi_col1.metric("Total OI Change (Calls)", f"₹{oi_change_ce_total:,.0f}")
+            oi_col2.metric("Total OI Change (Puts)", f"₹{oi_change_pe_total:,.0f}")
+            
+            st.dataframe(chain_df[['STRIKE', 'CALL LTP', 'PUT LTP', 'open_interest_CE', 'open_interest_PE']].set_index('STRIKE'), use_container_width=True)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['open_interest_CE'], name='Call OI'))
+            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['open_interest_PE'], name='Put OI'))
+            fig.update_layout(barmode='overlay', title='Open Interest by Strike', xaxis_title='Strike Price', yaxis_title='Open Interest', template='plotly_dark')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No options data available for OI analysis.")
+
+    with tab2:
+        st.subheader("Implied Volatility (IV) Skew")
+        if not chain_df.empty:
             days_to_expiry = max((selected_expiry.date() - datetime.now().date()).days, 0)
             T = days_to_expiry / 365.0
             
             if T > 0:
+                df_greeks = chain_df.copy()
                 df_greeks['iv_CE'] = df_greeks.apply(lambda row: implied_volatility(underlying_ltp, row['STRIKE'], T, 0.07, row['CALL LTP'], 'call'), axis=1)
                 df_greeks['iv_PE'] = df_greeks.apply(lambda row: implied_volatility(underlying_ltp, row['STRIKE'], T, 0.07, row['PUT LTP'], 'put'), axis=1)
                 
@@ -2165,14 +1849,38 @@ def page_volatility_skew():
                     title='Implied Volatility vs. Strike Price',
                     xaxis_title='Strike Price',
                     yaxis_title='Implied Volatility (%)',
-                    template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white',
+                    template='plotly_dark',
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.warning("Cannot calculate IV for expired contracts.")
         else:
-            st.warning("Could not fetch options data for the selected symbol and expiry.")
+            st.info("No options data available for IV skew analysis.")
+            
+    with tab3:
+        st.subheader("Greeks Calculator")
+        strike_price = st.number_input("Strike Price", min_value=0.0, key="greeks_strike")
+        option_type = st.radio("Option Type", ["Call", "Put"], horizontal=True, key="greeks_type")
+        
+        if st.button("Calculate Greeks"):
+            if strike_price > 0 and expiry_date:
+                days_to_expiry = max((pd.to_datetime(selected_expiry).date() - datetime.now().date()).days, 0)
+                T = days_to_expiry / 365.0
+                if T > 0:
+                    with st.spinner("Calculating..."):
+                        iv_estimate = 0.25 # A simple estimate for calculation
+                        greeks = black_scholes(underlying_ltp, strike_price, T, 0.07, iv_estimate, option_type.lower())
+                        
+                        st.metric("Delta", f"{greeks['delta']:.4f}")
+                        st.metric("Gamma", f"{greeks['gamma']:.4f}")
+                        st.metric("Vega", f"{greeks['vega']:.4f}")
+                        st.metric("Theta", f"{greeks['theta']:.4f}")
+                        st.metric("Rho", f"{greeks['rho']:.4f}")
+                else:
+                    st.warning("Cannot calculate Greeks for expired contracts.")
+            else:
+                st.warning("Please enter a valid strike price and select an expiry.")
 
 def page_futures_terminal():
     """A dedicated terminal for trading futures contracts."""
@@ -2558,15 +2266,14 @@ def main_app():
             "Trading & Orders": page_basket_orders,
             "Algo Strategy Maker": page_algo_strategy_maker,
             "AI Discovery Engine": page_ai_discovery,
-            "F&O Research": page_volatility_skew,
+            "F&O Analytics": page_fo_analytics,
             "AI Assistant & Journal": page_ai_assistant,
             "Momentum & Trend Finder": page_momentum_and_trend_finder,
         },
         "Options": {
-            "F&O Research": page_volatility_skew,
+            "F&O Analytics": page_fo_analytics,
             "Algo Strategy Maker": page_algo_strategy_maker,
             "Strategy Builder": page_option_strategy_builder,
-            "F&O Greeks": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant & Journal": page_ai_assistant,
         },
