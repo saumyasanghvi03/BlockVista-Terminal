@@ -2605,8 +2605,8 @@ def page_portfolio_and_risk():
                 st.plotly_chart(fig_sector, use_container_width=True)
 
 def page_options_chain():
-    """An advanced options chain page with Greek calculations and OI analysis."""
-    display_header()
+    """An advanced options chain page with Greek calculations and OI analysis."""
+    display_header()
     st.title("Advanced Options Chain")
 
     instrument_df = get_instrument_df()
