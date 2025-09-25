@@ -2278,12 +2278,15 @@ def two_factor_dialog():
     
     if st.button("Authenticate", use_container_width=True):
         if auth_code:
-            totp = pyotp.TOTP(st.session_state.pyotp_secret)
-            if totp.verify(auth_code):
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Invalid code. Please try again.")
+            try:
+                totp = pyotp.TOTP(st.session_state.pyotp_secret)
+                if totp.verify(auth_code):
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Invalid code. Please try again.")
+            except Exception as e:
+                st.error(f"An error occurred during authentication: {e}")
         else:
             st.warning("Please enter a code.")
 
@@ -2342,10 +2345,10 @@ def login_page():
     broker = st.selectbox("Select Your Broker", ["Zerodha"])
     
     if broker == "Zerodha":
-        try:
-            api_key = st.secrets["ZERODHA_API_KEY"]
-            api_secret = st.secrets["ZERODHA_API_SECRET"]
-        except (FileNotFoundError, KeyError):
+        api_key = st.secrets.get("ZERODHA_API_KEY")
+        api_secret = st.secrets.get("ZERODHA_API_SECRET")
+        
+        if not api_key or not api_secret:
             st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
             st.stop()
             
