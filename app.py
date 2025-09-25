@@ -2550,7 +2550,7 @@ def page_portfolio_and_risk():
     tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Analytics & Allocation"])
     
 # The 'with' block is indented one level
-  with tab1:
+   with tab1:
     # The code inside the 'with' block is indented another level
     st.subheader("Live Intraday Positions")
     if not positions_df.empty:
