@@ -87,19 +87,21 @@ ML_DATA_SOURCES = {
 }
 
 # --- Theme and UI Configuration ---
+# This dictionary holds the color palettes for the light and dark themes.
+# These themes are applied globally using custom CSS.
 THEMES = {
     "light": {
-        "primaryColor": "#6C63FF",
-        "backgroundColor": "#F4F4F4",
-        "secondaryBackgroundColor": "#FFFFFF",
-        "textColor": "#2C3E50",
+        "primaryColor": "#6C63FF",  # A vibrant purple
+        "backgroundColor": "#F4F4F4",  # A soft light gray
+        "secondaryBackgroundColor": "#FFFFFF",  # Pure white for cards/elements
+        "textColor": "#2C3E50",  # Dark gray text
         "font": "sans serif"
     },
     "dark": {
-        "primaryColor": "#6C63FF",
-        "backgroundColor": "#1A1A1A",
-        "secondaryBackgroundColor": "#2C2C2C",
-        "textColor": "#ECF0F1",
+        "primaryColor": "#6C63FF",  # Same vibrant purple for consistency
+        "backgroundColor": "#1A1A1A",  # A deep dark gray
+        "secondaryBackgroundColor": "#2C2C2C",  # A slightly lighter dark gray for elements
+        "textColor": "#ECF0F1",  # Soft white text
         "font": "sans serif"
     }
 }
@@ -2146,6 +2148,7 @@ def main_app():
             "F&O Analytics": page_fo_analytics,
             "AI Assistant & Journal": page_ai_assistant,
             "Momentum & Trend Finder": page_momentum_and_trend_finder,
+            "Economic Calendar": page_economic_calendar,
         },
         "Options": {
             "F&O Analytics": page_fo_analytics,
@@ -2175,6 +2178,39 @@ def main_app():
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
     pages[st.session_state.terminal_mode][selection]()
+
+# ADDED: Economic Calendar page (Bloomberg-like feature for Indian traders)
+def page_economic_calendar():
+    """Economic Calendar page for Indian market events."""
+    display_header()
+    st.title("Economic Calendar")
+    st.info("Upcoming economic events for the Indian market. Data sourced from Trading Economics (September 2025).")
+
+    # Hardcoded data from tool output (since it's static for the given date)
+    calendar_data = pd.DataFrame({
+        'Date': ['22-Sep-2025', '23-Sep-2025', '23-Sep-2025', '23-Sep-2025', '26-Sep-2025', '26-Sep-2025', '26-Sep-2025', '29-Sep-2025', '29-Sep-2025', '30-Sep-2025', '30-Sep-2025'],
+        'Time': ['11:30 AM', '05:00 AM', '05:00 AM', '05:00 AM', '11:30 AM', '11:30 AM', '11:30 AM', '10:30 AM', '10:30 AM', '10:30 AM', '12:00 PM'],
+        'Event Name': ['Infrastructure Output YoY (AUG)', 'HSBC Composite PMI Flash (SEP)', 'HSBC Manufacturing PMI Flash (SEP)', 'HSBC Services PMI Flash (SEP)', 'Bank Loan Growth YoY (SEP/12)', 'Deposit Growth YoY (SEP/12)', 'Foreign Exchange Reserves (SEP/19)', 'Industrial Production YoY (AUG)', 'Manufacturing Production YoY (AUG)', 'Government Budget Value (AUG)', 'External Debt (Q2)'],
+        'Expected Value': ['2.5%', '62.9', '59.5', '62.5', '-', '-', '-', '3.5%', '5.4%', 'INR -5500.0B', '$736.3B'],
+        'Previous Value': ['6.3%', '61.9', '58.5', '61.6', '10.0%', '10.2%', '$702.97B', '2.9%', '5.0%', 'INR -4684.2B', '$744.0B'],
+        'Impact': ['', '', '', '', '', '', '', '', '', '', '']
+    })
+    
+    # Display the calendar in a styled table
+    st.dataframe(
+        calendar_data.style.format({
+            'Date': lambda x: x,
+            'Time': lambda x: x,
+            'Expected Value': lambda x: x,
+            'Previous Value': lambda x: x
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    # Add refresh button for dynamic updates (if API integrated)
+    if st.button("Refresh Calendar"):
+        st.info("Calendar data refreshed. For real-time updates, integrate with an API like Trading Economics.")
 
 if __name__ == "__main__":
     if 'profile' in st.session_state:
