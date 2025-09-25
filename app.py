@@ -624,6 +624,7 @@ def get_sector_data():
     try:
         return pd.read_csv("sensex_sectors.csv")
     except FileNotFoundError:
+        st.warning("Sector data file 'sensex_sectors.csv' not found. Sector analysis will not be available.")
         return None
 
 def style_option_chain(df, ltp):
@@ -800,66 +801,6 @@ def get_bmp_analysis(nifty_change, sensex_change, vix_value, lookback_df):
 
     return f"Today's BMP movement is driven by a {nifty_contribution} NIFTY trend and a {sensex_contribution} SENSEX trend. The VIX indicates a {vix_contribution} market sentiment."
 
-@st.cache_data(ttl=300)
-def get_nifty50_constituents(instrument_df):
-    """Fetches the list of NIFTY 50 stocks by filtering the Kite API instrument list."""
-    if instrument_df.empty:
-        return pd.DataFrame()
-    
-    # A hardcoded list of NIFTY 50 stocks for stability
-    # In a production environment, this list should be fetched dynamically
-    nifty50_symbols = [
-        'RELIANCE', 'HDFCBANK', 'ICICIBANK', 'INFY', 'TCS', 'HINDUNILVR', 'ITC', 
-        'LT', 'KOTAKBANK', 'SBIN', 'BAJFINANCE', 'BHARTIARTL', 'ASIANPAINT', 
-        'AXISBANK', 'HDFC', 'WIPRO', 'TITAN', 'ULTRACEMCO', 'M&M', 'NESTLEIND',
-        'ADANIENT', 'TATASTEEL', 'INDUSINDBK', 'TECHM', 'NTPC', 'MARUTI', 
-        'BAJAJ-AUTO', 'POWERGRID', 'HCLTECH', 'ADANIPORTS', 'BPCL', 'COALINDIA', 
-        'EICHERMOT', 'GRASIM', 'JSWSTEEL', 'SHREECEM', 'HEROMOTOCO', 'HINDALCO',
-        'DRREDDY', 'CIPLA', 'APOLLOHOSP', 'SBILIFE', 'TATACOMM', 'BHARTIAIRTEL',
-        'TATAMOTORS', 'BRITANNIA', 'DIVISLAB', 'BAJAJFINSV', 'SUNPHARMA', 'HDFCLIFE'
-    ]
-    
-    nifty_constituents = instrument_df[
-        (instrument_df['tradingsymbol'].isin(nifty50_symbols)) & 
-        (instrument_df['segment'] == 'NSE')
-    ].copy()
-
-    # Create a simple DataFrame with symbols and their names
-    constituents_df = pd.DataFrame({
-        'Symbol': nifty_constituents['tradingsymbol'],
-        'Name': nifty_constituents['tradingsymbol']
-    })
-    
-    return constituents_df.drop_duplicates(subset='Symbol').head(15) # Limiting for a cleaner heatmap display
-
-def create_nifty_heatmap(instrument_df):
-    """Generates a Plotly Treemap for NIFTY 50 stocks."""
-    constituents_df = get_nifty50_constituents(instrument_df)
-    if constituents_df.empty:
-        return go.Figure()
-    
-    symbols_with_exchange = [{'symbol': s, 'exchange': 'NSE'} for s in constituents_df['Symbol'].tolist()]
-    live_data = get_watchlist_data(symbols_with_exchange)
-    
-    if live_data.empty:
-        return go.Figure()
-        
-    full_data = pd.merge(live_data, constituents_df, left_on='Ticker', right_on='Symbol', how='left')
-    full_data['size'] = full_data['Price'].astype(float) * 1000 # Using price as a proxy for size
-    
-    fig = go.Figure(go.Treemap(
-        labels=full_data['Ticker'],
-        parents=[''] * len(full_data),
-        values=full_data['size'],
-        marker_colorscale='RdYlGn',
-        marker_colors=full_data['% Change'],
-        textinfo="label+value+percent parent",
-        hoverinfo="label+value+percent",
-    ))
-
-    fig.update_layout(title="NIFTY 50 Live Heatmap")
-    return fig
-
 def page_dashboard():
     """--- UI ENHANCEMENT: A completely redesigned 'Trader UI' Dashboard ---"""
     display_header()
@@ -877,7 +818,7 @@ def page_dashboard():
     index_data = get_watchlist_data(index_symbols)
     
     # BMP Calculation and Display
-    bmp_col, heatmap_col = st.columns([1, 1], gap="large")
+    bmp_col, info_col = st.columns([1, 3])
     with bmp_col:
         st.subheader("Bharatiya Market Pulse (BMP)")
         if not index_data.empty:
@@ -904,9 +845,6 @@ def page_dashboard():
                 st.info("BMP data is loading...")
         else:
             st.info("BMP data is loading...")
-    with heatmap_col:
-        st.subheader("NIFTY 50 Heatmap")
-        st.plotly_chart(create_nifty_heatmap(instrument_df), use_container_width=True)
 
     st.markdown("---")
     
@@ -1139,10 +1077,8 @@ def page_portfolio_and_risk():
         
         holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
         
-        if not holdings_df.empty and sector_df is not None:
+        if sector_df is not None and not holdings_df.empty:
             holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-            if 'Sector' not in holdings_df.columns:
-                holdings_df['Sector'] = 'Uncategorized'
             holdings_df['Sector'].fillna('Uncategorized', inplace=True)
         else:
             holdings_df['Sector'] = 'Uncategorized'
@@ -1160,7 +1096,7 @@ def page_portfolio_and_risk():
             fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
             st.plotly_chart(fig_stock, use_container_width=True)
             
-        if 'Sector' in holdings_df.columns:
+        if sector_df is not None:
             with col2_alloc:
                 st.subheader("Sector-wise Allocation")
                 sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
@@ -1503,10 +1439,8 @@ def page_portfolio_analytics():
     
     sector_df = get_sector_data()
     
-    if not holdings_df.empty and sector_df is not None:
+    if sector_df is not None:
         holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-        if 'Sector' not in holdings_df.columns:
-            holdings_df['Sector'] = 'Uncategorized'
         holdings_df['Sector'].fillna('Uncategorized', inplace=True)
     else:
         holdings_df['Sector'] = 'Uncategorized'
@@ -1526,7 +1460,7 @@ def page_portfolio_analytics():
         fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white')
         st.plotly_chart(fig_stock, use_container_width=True)
             
-    if 'Sector' in holdings_df.columns:
+    if sector_df is not None:
         with col2:
             st.subheader("Sector-wise Allocation")
             sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
@@ -2269,31 +2203,26 @@ def page_momentum_and_trend_finder():
         st.warning("Please connect to a broker to use this feature.")
         return
 
-    # User can select a watchlist or their own live holdings
-    watchlist_options = list(st.session_state.get('watchlists', {}).keys())
-    if 'Live Holdings' not in watchlist_options:
-        watchlist_options.insert(0, 'Live Holdings')
+    watchlists = st.session_state.get('watchlists', {})
+    watchlist_options = list(watchlists.keys())
     
-    selected_list_type = st.selectbox(
-        'Select a list to analyze',
+    if not watchlist_options:
+        st.info("Please create a watchlist on the Dashboard page to use this feature.")
+        return
+
+    selected_watchlist_name = st.selectbox(
+        'Select a Watchlist to analyze',
         options=watchlist_options,
         index=0
     )
 
-    if selected_list_type == 'Live Holdings':
-        _, holdings_df, _, _ = get_portfolio()
-        if holdings_df.empty:
-            st.info("Your live holdings are empty. Please select a watchlist or add holdings to your portfolio.")
-            return
-        selected_list = [{'symbol': row['tradingsymbol'], 'exchange': 'NSE'} for _, row in holdings_df.iterrows()]
-    else:
-        selected_list = st.session_state.get('watchlists', {}).get(selected_list_type, [])
-        if not selected_list:
-            st.info("The selected watchlist is empty.")
-            return
-
     if st.button('Generate Signals', use_container_width=True, type="primary"):
         st.session_state['signals_generated'] = True
+        selected_list = watchlists[selected_watchlist_name]
+        if not selected_list:
+            st.warning(f"The watchlist '{selected_watchlist_name}' is empty.")
+            st.session_state['signals_data'] = None
+            st.rerun()
         
         signals_data = []
         with st.spinner(f"Analyzing {len(selected_list)} stocks for signals..."):
@@ -2361,16 +2290,6 @@ def page_momentum_and_trend_finder():
                             reasons.append("Price is in a strong downtrend.")
                         else:
                             reasons.append("Price is in a neutral trend.")
-
-                    # Calculate expected P&L based on holdings
-                    expected_pnl = 'N/A'
-                    if selected_list_type == 'Live Holdings':
-                        position = holdings_df[holdings_df['tradingsymbol'] == ticker]
-                        if not position.empty:
-                            entry_price = position.iloc[0]['average_price']
-                            live_price = position.iloc[0]['last_price']
-                            quantity = position.iloc[0]['quantity']
-                            expected_pnl = (live_price - entry_price) * quantity
                     
                     signals_data.append({
                         'Ticker': ticker,
@@ -2379,13 +2298,12 @@ def page_momentum_and_trend_finder():
                         'RSI': f"{rsi:.2f}" if rsi is not None else "N/A",
                         'MACD': f"{macd_line:.2f}" if macd_line is not None else "N/A",
                         'Signal': signal,
-                        'Reason': ", ".join(reasons),
-                        'Expected P&L': f"₹{expected_pnl:,.2f}" if isinstance(expected_pnl, (float, int)) else expected_pnl
+                        'Reason': ", ".join(reasons)
                     })
 
                 except Exception as e:
                     st.error(f"Error generating signal for {ticker}: {e}")
-                    signals_data.append({'Ticker': ticker, 'Exchange': exchange, 'LTP': 'N/A', 'RSI': 'N/A', 'MACD': 'N/A', 'Signal': 'Error', 'Reason': str(e), 'Expected P&L': 'N/A'})
+                    signals_data.append({'Ticker': ticker, 'Exchange': exchange, 'LTP': 'N/A', 'RSI': 'N/A', 'MACD': 'N/A', 'Signal': 'Error', 'Reason': str(e)})
 
             if signals_data:
                 st.session_state['signals_data'] = signals_data
@@ -2407,7 +2325,7 @@ def page_momentum_and_trend_finder():
             st.markdown("### Generated Signals")
             st.dataframe(df.style.applymap(color_signal, subset=['Signal']), use_container_width=True)
         else:
-            st.info("No signals could be generated for the selected list.")
+            st.info("No signals could be generated for the selected watchlist.")
 
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
