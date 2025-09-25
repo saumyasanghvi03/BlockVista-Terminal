@@ -29,6 +29,7 @@ from PIL import Image
 import base64
 import io
 import requests
+import json
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -756,6 +757,50 @@ def get_indian_indices_data(symbols_with_exchange):
 
 # ================ 5. PAGE DEFINITIONS ============
 
+# --- NEW: Bharatiya Market Pulse (BMP) Functions ---
+def get_bmp_score_and_label(nifty_change, sensex_change, vix_value, lookback_df):
+    """Calculates BMP score and returns the score and a Bharat-flavored label."""
+    if lookback_df.empty or len(lookback_df) < 30:
+        return 50, "Calculating...", "#cccccc"
+
+    # Normalize NIFTY and SENSEX
+    nifty_min, nifty_max = lookback_df['nifty_change'].min(), lookback_df['nifty_change'].max()
+    sensex_min, sensex_max = lookback_df['sensex_change'].min(), lookback_df['sensex_change'].max()
+
+    nifty_norm = ((nifty_change - nifty_min) / (nifty_max - nifty_min)) * 100 if (nifty_max - nifty_min) > 0 else 50
+    sensex_norm = ((sensex_change - sensex_min) / (sensex_max - sensex_min)) * 100 if (sensex_max - sensex_min) > 0 else 50
+    
+    # Inversely normalize VIX
+    vix_min, vix_max = lookback_df['vix_value'].min(), lookback_df['vix_value'].max()
+    vix_norm = 100 - (((vix_value - vix_min) / (vix_max - vix_min)) * 100) if (vix_max - vix_min) > 0 else 50
+
+    bmp_score = (0.40 * nifty_norm) + (0.40 * sensex_norm) + (0.20 * vix_norm)
+    bmp_score = min(100, max(0, bmp_score))
+
+    if bmp_score >= 80:
+        label, color = "Bharat Udaan", "#00b300"
+    elif bmp_score >= 60:
+        label, color = "Bharat Pragati", "#33cc33"
+    elif bmp_score >= 40:
+        label, color = "Bharat Santulan", "#ffcc00"
+    elif bmp_score >= 20:
+        label, color = "Bharat Sanket", "#ff6600"
+    else:
+        label, color = "Bharat Mandhi", "#ff0000"
+
+    return bmp_score, label, color
+
+def get_bmp_analysis(nifty_change, sensex_change, vix_value, lookback_df):
+    """Provides a textual breakdown of BMP components."""
+    if lookback_df.empty or len(lookback_df) < 30:
+        return "Not enough data to provide a detailed analysis."
+
+    nifty_contribution = "positive" if nifty_change > lookback_df['nifty_change'].mean() else "negative"
+    sensex_contribution = "positive" if sensex_change > lookback_df['sensex_change'].mean() else "negative"
+    vix_contribution = "calming" if vix_value < lookback_df['vix_value'].mean() else "stressful"
+
+    return f"Today's BMP movement is driven by a {nifty_contribution} NIFTY trend and a {sensex_contribution} SENSEX trend. The VIX indicates a {vix_contribution} market sentiment."
+
 def page_dashboard():
     """--- UI ENHANCEMENT: A completely redesigned 'Trader UI' Dashboard ---"""
     display_header()
@@ -764,7 +809,7 @@ def page_dashboard():
         st.info("Please connect to a broker to view the dashboard.")
         return
 
-    # --- Top Row: Key Market Metrics ---
+    # Fetch NIFTY, SENSEX, and VIX data for BMP calculation
     index_symbols = [
         {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
         {'symbol': 'SENSEX', 'exchange': 'BSE'},
@@ -772,20 +817,34 @@ def page_dashboard():
     ]
     index_data = get_watchlist_data(index_symbols)
     
-    cols = st.columns(len(index_data))
-    for i, col in enumerate(cols):
-        with col:
-            change = index_data.iloc[i]['Change']
-            blink_class = "positive-blink" if change > 0 else "negative-blink" if change < 0 else ""
-            st.markdown(f"""
-            <div class="metric-card {blink_class}">
-                <h4>{index_data.iloc[i]['Ticker']}</h4>
-                <h2>{index_data.iloc[i]['Price']:,.2f}</h2>
-                <p style="color: {'#28a745' if change > 0 else '#FF4B4B'}; margin: 0;">
-                    {change:,.2f} ({index_data.iloc[i]['% Change']:.2f}%)
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+    # BMP Calculation and Display
+    bmp_col, info_col = st.columns([1, 3])
+    with bmp_col:
+        st.subheader("Bharatiya Market Pulse (BMP)")
+        if not index_data.empty:
+            nifty_row = index_data[index_data['Ticker'] == 'NIFTY 50'].iloc[0]
+            sensex_row = index_data[index_data['Ticker'] == 'SENSEX'].iloc[0]
+            vix_row = index_data[index_data['Ticker'] == 'INDIA VIX'].iloc[0]
+            
+            # Fetch historical data for normalization
+            nifty_hist = get_historical_data(get_instrument_token('NIFTY 50', instrument_df, 'NSE'), 'day', period='1y')
+            sensex_hist = get_historical_data(get_instrument_token('SENSEX', instrument_df, 'BSE'), 'day', period='1y')
+            vix_hist = get_historical_data(get_instrument_token('INDIA VIX', instrument_df, 'NSE'), 'day', period='1y')
+            
+            if not nifty_hist.empty and not sensex_hist.empty and not vix_hist.empty:
+                lookback_data = pd.DataFrame({
+                    'nifty_change': nifty_hist['close'].pct_change() * 100,
+                    'sensex_change': sensex_hist['close'].pct_change() * 100,
+                    'vix_value': vix_hist['close']
+                }).dropna()
+                
+                bmp_score, bmp_label, bmp_color = get_bmp_score_and_label(nifty_row['% Change'], sensex_row['% Change'], vix_row['Price'], lookback_data)
+                
+                st.markdown(f'<div class="metric-card" style="border-color:{bmp_color};"><h3>{bmp_score:.2f}</h3><p style="color:{bmp_color}; font-weight:bold;">{bmp_label}</p><small>Proprietary score from NIFTY, SENSEX, and India VIX.</small></div>', unsafe_allow_html=True)
+            else:
+                st.info("BMP data is loading...")
+        else:
+            st.info("BMP data is loading...")
 
     st.markdown("---")
     
@@ -1537,7 +1596,9 @@ def page_premarket_pulse():
     st.title("Premarket Pulse")
     
     # --- Live Global News & Global Market Sentiment Meter ---
-    st.subheader("Global Cues & Domestic Pulse")
+    st.subheader("Global Cues & Bharatiya Market Pulse (BMP)")
+    st.markdown("Proprietary score for Indian market sentiment based on NIFTY, SENSEX, and VIX. A higher score indicates a bullish sentiment.")
+    
     global_indices_tickers = {
         "NASDAQ": "^IXIC", "NIKKEI 225": "^N225", "Dow Jones": "^DJI",
         "Gold Futures": "GC=F", "Crude Oil": "CL=F"
@@ -1581,40 +1642,41 @@ def page_premarket_pulse():
         else:
             st.warning("Could not retrieve data for all global indices.")
 
-    # Indian Market Open Score (Domestic Pulse Score)
+    # Indian Market Open Score (BMP)
     with col2:
-        st.markdown("### Domestic Pulse Score")
+        st.markdown("### Bharatiya Market Pulse (BMP)")
         instrument_df = get_instrument_df()
         if not instrument_df.empty:
             indian_indices_symbols = [
                 {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
-                {'symbol': 'NIFTY BANK', 'exchange': 'NSE'},
-                {'symbol': 'NIFTY FIN SERVICE', 'exchange': 'NSE'}
+                {'symbol': 'SENSEX', 'exchange': 'BSE'},
+                {'symbol': 'INDIA VIX', 'exchange': 'NSE'}
             ]
             indian_indices_data = get_indian_indices_data(indian_indices_symbols)
             
             if not indian_indices_data.empty:
-                positive_count = len(indian_indices_data[indian_indices_data['Change'] > 0])
-                negative_count = len(indian_indices_data[indian_indices_data['Change'] < 0])
+                # Get historical data for normalization
+                nifty_hist = get_historical_data(get_instrument_token('NIFTY 50', instrument_df, 'NSE'), 'day', period='1y')
+                sensex_hist = get_historical_data(get_instrument_token('SENSEX', instrument_df, 'BSE'), 'day', period='1y')
+                vix_hist = get_historical_data(get_instrument_token('INDIA VIX', instrument_df, 'NSE'), 'day', period='1y')
                 
-                if positive_count > negative_count:
-                    domestic_score = "Positive"
-                    delta_value = 1
-                elif negative_count > positive_count:
-                    domestic_score = "Negative"
-                    delta_value = -1
-                else:
-                    domestic_score = "Neutral"
-                    delta_value = 0
+                if not nifty_hist.empty and not sensex_hist.empty and not vix_hist.empty:
+                    lookback_data = pd.DataFrame({
+                        'nifty_change': nifty_hist['close'].pct_change() * 100,
+                        'sensex_change': sensex_hist['close'].pct_change() * 100,
+                        'vix_value': vix_hist['close']
+                    }).dropna()
 
-                st.metric("Overall Sentiment", domestic_score, delta=delta_value, help="An indicative score based on major Indian market indices.")
-                
-                cols = st.columns(len(indian_indices_data))
-                for i, row in indian_indices_data.iterrows():
-                    with cols[i]:
-                        change = row['Change']
-                        delta_color_domestic = 'normal' if change >= 0 else 'inverse'
-                        st.metric(f"{row['Ticker']}", f"₹{row['Price']:,.2f}", delta=f"₹{row['Change']:,.2f} ({row['% Change']:.2f}%)", delta_color=delta_color_domestic)
+                    nifty_row = indian_indices_data[indian_indices_data['Ticker'] == 'NIFTY 50'].iloc[0]
+                    sensex_row = indian_indices_data[indian_indices_data['Ticker'] == 'SENSEX'].iloc[0]
+                    vix_row = indian_indices_data[indian_indices_data['Ticker'] == 'INDIA VIX'].iloc[0]
+                    
+                    bmp_score, bmp_label, bmp_color = get_bmp_score_and_label(nifty_row['% Change'], sensex_row['% Change'], vix_row['Price'], lookback_data)
+                    
+                    st.metric(f"BMP Score", f"{bmp_score:.2f}", help="Proprietary score synthesizing NIFTY, SENSEX & India VIX.", label_visibility="visible")
+                    st.markdown(f'<h4 style="color:{bmp_color};">{bmp_label}</h4>', unsafe_allow_html=True)
+                else:
+                    st.warning("Could not retrieve enough historical data for BMP calculation.")
             else:
                 st.warning("Could not retrieve data for Indian indices.")
         else:
@@ -2408,35 +2470,30 @@ def main_app():
     pages = {
         "Cash": {
             "Dashboard": page_dashboard,
-            "Premarket Pulse": page_premarket_pulse,
+            "Premarket & Global Cues": page_premarket_pulse,
             "Advanced Charting": page_advanced_charting,
-            "Basket Orders": page_basket_orders,
-            "Portfolio Analytics": page_portfolio_analytics,
-            "Alpha Engine": page_alpha_engine,
             "Portfolio & Risk": page_portfolio_and_risk,
-            "Forecasting & ML": page_forecasting_ml,
-            "AI Trading Journal": page_ai_trading_journal,
-            "AI Discovery": page_ai_discovery,
-            "Momentum and Trend Finder": page_momentum_and_trend_finder,
-            "AI Assistant": page_ai_assistant
+            "Trading & Orders": page_basket_orders,
+            "Algo Strategy Maker": page_algo_strategy_maker,
+            "AI Discovery Engine": page_ai_discovery,
+            "F&O Research": page_volatility_skew,
+            "AI Assistant & Journal": page_ai_assistant,
+            "Momentum & Trend Finder": page_momentum_and_trend_finder,
         },
         "Options": {
+            "F&O Research": page_volatility_skew,
             "Algo Strategy Maker": page_algo_strategy_maker,
             "Strategy Builder": page_option_strategy_builder,
-            "Volatility Skew": page_volatility_skew,
             "F&O Greeks": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
-            "AI Trading Journal": page_ai_trading_journal,
-            "AI Discovery": page_ai_discovery,
-            "AI Assistant": page_ai_assistant
+            "AI Assistant & Journal": page_ai_assistant,
         },
         "Futures": {
             "Futures Terminal": page_futures_terminal,
             "Advanced Charting": page_advanced_charting,
             "Algo Strategy Maker": page_algo_strategy_maker,
-            "F&O Greeks": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
-            "AI Assistant": page_ai_assistant
+            "AI Assistant & Journal": page_ai_assistant,
         }
     }
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
@@ -2447,7 +2504,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant", "AI Discovery", "AI Trading Journal"]:
+    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant & Journal", "AI Discovery Engine"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
     pages[st.session_state.terminal_mode][selection]()
