@@ -801,6 +801,51 @@ def get_bmp_analysis(nifty_change, sensex_change, vix_value, lookback_df):
 
     return f"Today's BMP movement is driven by a {nifty_contribution} NIFTY trend and a {sensex_contribution} SENSEX trend. The VIX indicates a {vix_contribution} market sentiment."
 
+@st.cache_data(ttl=300)
+def get_nifty50_constituents():
+    """Fetches the list of NIFTY 50 stocks from a public source."""
+    # Using a reliable public source for Nifty 50 constituents
+    url = "https://www1.nseindia.com/content/indices/ind_nifty50list.csv"
+    try:
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        response.raise_for_status()
+        return pd.read_csv(io.StringIO(response.text))
+    except Exception as e:
+        st.error(f"Failed to fetch NIFTY 50 constituents: {e}")
+        return pd.DataFrame()
+
+def create_nifty_heatmap(instrument_df):
+    """Generates a Plotly Treemap for NIFTY 50 stocks."""
+    constituents_df = get_nifty50_constituents()
+    if constituents_df.empty:
+        return go.Figure()
+    
+    symbols = constituents_df['Symbol'].tolist()
+    
+    # Fetch live data for these symbols
+    live_data = get_watchlist_data([{'symbol': s, 'exchange': 'NSE'} for s in symbols])
+    
+    if live_data.empty:
+        return go.Figure()
+        
+    # Merge with instrument data to get market capitalization for size
+    full_data = pd.merge(live_data, instrument_df, left_on='Ticker', right_on='tradingsymbol', how='left')
+    full_data['market_cap'] = full_data['last_price'] * full_data['lot_size'] # a proxy for market cap
+    
+    # Create the heatmap
+    fig = go.Figure(go.Treemap(
+        labels=full_data['Ticker'],
+        parents=[''] * len(full_data), # All children of root
+        values=full_data['market_cap'],
+        marker_colorscale='RdYlGn',
+        marker_colors=full_data['% Change'],
+        textinfo="label+value+percent parent",
+        hoverinfo="label+value+percent",
+    ))
+
+    fig.update_layout(title="NIFTY 50 Live Heatmap (5 Min)")
+    return fig
+
 def page_dashboard():
     """--- UI ENHANCEMENT: A completely redesigned 'Trader UI' Dashboard ---"""
     display_header()
@@ -818,7 +863,7 @@ def page_dashboard():
     index_data = get_watchlist_data(index_symbols)
     
     # BMP Calculation and Display
-    bmp_col, info_col = st.columns([1, 3])
+    bmp_col, heatmap_col = st.columns([1, 1], gap="large")
     with bmp_col:
         st.subheader("Bharatiya Market Pulse (BMP)")
         if not index_data.empty:
@@ -845,6 +890,9 @@ def page_dashboard():
                 st.info("BMP data is loading...")
         else:
             st.info("BMP data is loading...")
+    with heatmap_col:
+        st.subheader("NIFTY 50 Heatmap")
+        st.plotly_chart(create_nifty_heatmap(instrument_df), use_container_width=True)
 
     st.markdown("---")
     
@@ -2208,24 +2256,27 @@ def page_momentum_and_trend_finder():
         st.warning("Please connect to a broker to use this feature.")
         return
 
-    watchlists = st.session_state.get('watchlists', {})
-    watchlist_options = list(watchlists.keys())
+    # User can select a watchlist or their own live holdings
+    watchlist_options = list(st.session_state.get('watchlists', {}).keys())
+    if 'Live Holdings' not in watchlist_options:
+        watchlist_options.insert(0, 'Live Holdings')
     
-    if not watchlist_options:
-        st.info("Please create a watchlist on the Dashboard page to use this feature.")
-        return
-
-    selected_watchlist_name = st.selectbox(
-        'Select a Watchlist to analyze',
+    selected_list_type = st.selectbox(
+        'Select a list to analyze',
         options=watchlist_options,
         index=0
     )
 
+    if selected_list_type == 'Live Holdings':
+        _, holdings_df, _, _ = get_portfolio()
+        selected_list = [{'symbol': row['tradingsymbol'], 'exchange': 'NSE'} for _, row in holdings_df.iterrows()] # Assuming NSE for all holdings for simplicity
+    else:
+        selected_list = st.session_state.get('watchlists', {}).get(selected_list_type, [])
+
     if st.button('Generate Signals', use_container_width=True, type="primary"):
         st.session_state['signals_generated'] = True
-        selected_list = watchlists[selected_watchlist_name]
         if not selected_list:
-            st.warning(f"The watchlist '{selected_watchlist_name}' is empty.")
+            st.warning(f"The selected list is empty.")
             st.session_state['signals_data'] = None
             st.rerun()
         
@@ -2295,6 +2346,16 @@ def page_momentum_and_trend_finder():
                             reasons.append("Price is in a strong downtrend.")
                         else:
                             reasons.append("Price is in a neutral trend.")
+
+                    # Calculate expected P&L
+                    expected_pnl = 'N/A'
+                    if selected_list_type == 'Live Holdings':
+                        position = holdings_df[holdings_df['tradingsymbol'] == ticker]
+                        if not position.empty:
+                            entry_price = position.iloc[0]['average_price']
+                            live_price = position.iloc[0]['last_price']
+                            quantity = position.iloc[0]['quantity']
+                            expected_pnl = (live_price - entry_price) * quantity
                     
                     signals_data.append({
                         'Ticker': ticker,
@@ -2303,12 +2364,13 @@ def page_momentum_and_trend_finder():
                         'RSI': f"{rsi:.2f}" if rsi is not None else "N/A",
                         'MACD': f"{macd_line:.2f}" if macd_line is not None else "N/A",
                         'Signal': signal,
-                        'Reason': ", ".join(reasons)
+                        'Reason': ", ".join(reasons),
+                        'Expected P&L': f"₹{expected_pnl:,.2f}" if isinstance(expected_pnl, (float, int)) else expected_pnl
                     })
 
                 except Exception as e:
                     st.error(f"Error generating signal for {ticker}: {e}")
-                    signals_data.append({'Ticker': ticker, 'Exchange': exchange, 'LTP': 'N/A', 'RSI': 'N/A', 'MACD': 'N/A', 'Signal': 'Error', 'Reason': str(e)})
+                    signals_data.append({'Ticker': ticker, 'Exchange': exchange, 'LTP': 'N/A', 'RSI': 'N/A', 'MACD': 'N/A', 'Signal': 'Error', 'Reason': str(e), 'Expected P&L': 'N/A'})
 
             if signals_data:
                 st.session_state['signals_data'] = signals_data
@@ -2330,7 +2392,7 @@ def page_momentum_and_trend_finder():
             st.markdown("### Generated Signals")
             st.dataframe(df.style.applymap(color_signal, subset=['Signal']), use_container_width=True)
         else:
-            st.info("No signals could be generated for the selected watchlist.")
+            st.info("No signals could be generated for the selected list.")
 
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
