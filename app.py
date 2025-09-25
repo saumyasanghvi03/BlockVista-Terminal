@@ -2549,59 +2549,60 @@ def page_portfolio_and_risk():
 
     tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Analytics & Allocation"])
     
-# The 'with' block is indented one level
-   with tab1:
-    # The code inside the 'with' block is indented another level
-    st.subheader("Live Intraday Positions")
-    if not positions_df.empty:
-        st.dataframe(positions_df, use_container_width=True, hide_index=True)
-        st.metric("Total Day P&L", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}", delta_color='normal' if total_pnl >= 0 else 'inverse')
-    else:
-        st.info("No open positions for the day.")
-   with tab2:
-        st.subheader("Investment Holdings")
-        st.dataframe(holdings_df, use_container_width=True, hide_index=True)
+    with tab1:
+        st.subheader("Live Intraday Positions")
+        # --- FIX WAS HERE ---
+        # This entire if/else block is now correctly indented to be inside 'with tab1:'
+        if not positions_df.empty:
+            st.dataframe(positions_df, use_container_width=True, hide_index=True)
+            st.metric("Total Day P&L", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}", delta_color='normal' if total_pnl >= 0 else 'inverse')
+        else:
+            st.info("No open positions for the day.")
 
-   with tab3:
-        st.subheader("Portfolio Analytics")
-        
-        holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
-        
-        sector_df = get_sector_data()
-        
-        if sector_df is not None and not holdings_df.empty:
-            holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-            holdings_df['Sector'].fillna('Uncategorized', inplace=True)
-        else:
-            holdings_df['Sector'] = 'Uncategorized'
-        
-        st.metric("Total Portfolio Value", f"₹{holdings_df['current_value'].sum():,.2f}")
+    with tab2:
+        st.subheader("Investment Holdings")
+        st.dataframe(holdings_df, use_container_width=True, hide_index=True)
 
-        col1_alloc, col2_alloc = st.columns(2)
-        
-        with col1_alloc:
-            st.subheader("Stock-wise Allocation")
-            fig_stock = go.Figure(data=[go.Pie(
-                labels=holdings_df['tradingsymbol'],
-                values=holdings_df['current_value'],
-                hole=.3,
-                textinfo='label+percent'
-            )])
-            fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white')
-            st.plotly_chart(fig_stock, use_container_width=True)
-            
-        if sector_df is not None:
-            with col2_alloc:
-                st.subheader("Sector-wise Allocation")
-                sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
-                fig_sector = go.Figure(data=[go.Pie(
-                    labels=sector_allocation['Sector'],
-                    values=sector_allocation['current_value'],
-                    hole=.3,
-                    textinfo='label+percent'
-                )])
-                fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white')
-                st.plotly_chart(fig_sector, use_container_width=True)
+    with tab3:
+        st.subheader("Portfolio Analytics")
+        
+        holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
+        
+        sector_df = get_sector_data()
+        
+        if sector_df is not None and not holdings_df.empty:
+            holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
+            holdings_df['Sector'].fillna('Uncategorized', inplace=True)
+        else:
+            holdings_df['Sector'] = 'Uncategorized'
+        
+        st.metric("Total Portfolio Value", f"₹{holdings_df['current_value'].sum():,.2f}")
+
+        col1_alloc, col2_alloc = st.columns(2)
+        
+        with col1_alloc:
+            st.subheader("Stock-wise Allocation")
+            fig_stock = go.Figure(data=[go.Pie(
+                labels=holdings_df['tradingsymbol'],
+                values=holdings_df['current_value'],
+                hole=.3,
+                textinfo='label+percent'
+            )])
+            fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white')
+            st.plotly_chart(fig_stock, use_container_width=True)
+            
+        if sector_df is not None:
+            with col2_alloc:
+                st.subheader("Sector-wise Allocation")
+                sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
+                fig_sector = go.Figure(data=[go.Pie(
+                    labels=sector_allocation['Sector'],
+                    values=sector_allocation['current_value'],
+                    hole=.3,
+                    textinfo='label+percent'
+                )])
+                fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white')
+                st.plotly_chart(fig_sector, use_container_width=True)
 
 def page_options_chain():
     """An advanced options chain page with Greek calculations and OI analysis."""
