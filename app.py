@@ -1158,7 +1158,6 @@ def page_portfolio_and_risk():
         else:
             st.info("No investment holdings found.")
 
-
     with tab3:
         st.subheader("Portfolio Analytics")
         if not holdings_df.empty:
@@ -1622,3 +1621,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
