@@ -311,7 +311,14 @@ def get_watchlist_data(symbols_with_exchange):
                     prev_close = quote['ohlc']['close']
                     change = last_price - prev_close
                     pct_change = (change / prev_close * 100) if prev_close != 0 else 0
-                    watchlist.append({'Ticker': item['symbol'], 'Exchange': item['exchange'], 'Price': last_price, 'Change': change, '% Change': pct_change})
+                    watchlist.append({
+                        'Ticker': item['symbol'], 
+                        'Exchange': item['exchange'], 
+                        'Price': last_price, 
+                        'Change': change, 
+                        '% Change': pct_change,
+                        'Volume': quote.get('volume', 0)
+                    })
             return pd.DataFrame(watchlist)
         except Exception as e:
             st.toast(f"Error fetching watchlist data: {e}", icon="⚠️")
@@ -862,7 +869,7 @@ def get_nifty50_constituents(instrument_df):
         'Name': nifty_constituents['tradingsymbol']
     })
     
-    return constituents_df.drop_duplicates(subset='Symbol').head(15) # Limiting for a cleaner heatmap display
+    return constituents_df.drop_duplicates(subset='Symbol')
 
 def create_nifty_heatmap(instrument_df):
     """Generates a Plotly Treemap for NIFTY 50 stocks."""
@@ -877,25 +884,25 @@ def create_nifty_heatmap(instrument_df):
         return go.Figure()
         
     full_data = pd.merge(live_data, constituents_df, left_on='Ticker', right_on='Symbol', how='left')
-    full_data['size'] = full_data['Price'].astype(float) * 1000 # Using price as a proxy for size
+    full_data['turnover'] = full_data['Price'].astype(float) * full_data['Volume'].astype(float)
     
-    # Fixed: Removed invalid hoverinfo parameter
     fig = go.Figure(go.Treemap(
         labels=full_data['Ticker'],
         parents=[''] * len(full_data),
-        values=full_data['size'],
+        values=full_data['turnover'],
         marker=dict(
+            colors=full_data['% Change'],
             colorscale='RdYlGn',
-            colorbar=dict(title="% Change"),
-            colorbar_x=1.02
+            cmid=0, # Center the color scale at 0
+            colorbar=dict(title="% Change")
         ),
         text=full_data['Ticker'],
         textinfo="label",
-        hovertemplate='<b>%{label}</b><br>Price: ₹%{customdata[0]:.2f}<br>Change: %{customdata[1]:.2f}%<extra></extra>',
-        customdata=np.column_stack([full_data['Price'], full_data['% Change']])
+        hovertemplate='<b>%{label}</b><br>Price: ₹%{customdata[0]:,.2f}<br>Change: %{customdata[1]:.2f}%<br>Volume: %{customdata[2]:,}<extra></extra>',
+        customdata=np.column_stack([full_data['Price'], full_data['% Change'], full_data['Volume']])
     ))
 
-    fig.update_layout(title="NIFTY 50 Heatmap (Live)")
+    fig.update_layout(title_text="NIFTY 50 Live Heatmap (Sized by Turnover)", title_x=0.5)
     return fig
 
 # FIXED: Get GIFT NIFTY data using yfinance
