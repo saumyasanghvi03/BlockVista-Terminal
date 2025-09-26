@@ -32,7 +32,12 @@ import io
 import requests
 import json
 import hashlib
-import tradingeconomics as te
+# Gracefully import tradingeconomics to prevent app crash if installation fails
+try:
+    import tradingeconomics as te
+    TE_AVAILABLE = True
+except ImportError:
+    TE_AVAILABLE = False
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -2432,3 +2437,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
