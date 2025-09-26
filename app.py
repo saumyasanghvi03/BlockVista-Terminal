@@ -213,6 +213,13 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
         
     chart_df.columns = [str(col).lower() for col in chart_df.columns]
     
+    # Additional check to ensure required columns exist
+    required_cols = ['open', 'high', 'low', 'close']
+    missing_cols = [col for col in required_cols if col not in chart_df.columns]
+    if missing_cols:
+        st.warning(f"Missing columns in data for {ticker}: {', '.join(missing_cols)}. Chart cannot be displayed.")
+        return fig
+    
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(chart_df['open'], chart_df['high'], chart_df['low'], chart_df['close'])
         fig.add_trace(go.Candlestick(x=ha_df.index, open=ha_df['HA_open'], high=ha_df['HA_high'], low=ha_df['HA_low'], close=ha_df['HA_close'], name='Heikin-Ashi'))
@@ -886,9 +893,9 @@ def create_nifty_heatmap(instrument_df):
 def get_gift_nifty_data():
     """Fetches GIFT NIFTY data using yfinance as a proxy."""
     try:
-        # Using NIFTY 50 as a proxy for GIFT NIFTY
         data = yf.download("^NSEI", period="1d", interval="5m")
         if not data.empty:
+            data.columns = [col.lower() for col in data.columns]
             return data
     except Exception:
         pass
@@ -1118,31 +1125,10 @@ def page_advanced_charting():
         c1, c2, c3, c4 = st.columns(4)
         cols = [c1, c2, c3, c4, c1, c2, c3, c4]
 
-    render_rows = (num_charts + (len(cols)//2) -1) // (len(cols)//2) if len(cols)>1 else 1
-
     # Create individual chart controls and displays
     for i in range(num_charts):
-        row_index = i // (len(cols)//2) if len(cols)>1 else 0
-        col_index = i % (len(cols)//2) if len(cols)>1 else 0
-        
-        if num_charts == 4:
-            cols = st.columns(2)
-            if i < 2:
-                with cols[i]:
-                    render_chart_controls(i, instrument_df)
-            else:
-                with cols[i-2]:
-                     st.markdown("---") # Separator
-        elif num_charts in [6, 8]:
-             # More complex grid rendering would go here
-             pass
-        else: # Handles 1 and 2 charts
-            with cols[i]:
-                render_chart_controls(i, instrument_df)
-        
-        if (i+1) % 2 == 0 and num_charts > 2 and i < num_charts -1 :
-            st.markdown("---")
-
+        with cols[i]:
+            render_chart_controls(i, instrument_df)
 
 def render_chart_controls(i, instrument_df):
     """Helper function to render controls for a single chart."""
@@ -1190,6 +1176,24 @@ def page_premarket_pulse():
         
         if not global_data.empty:
             st.dataframe(global_data, use_container_width=True, hide_index=True)
+            
+            # Add Global Market Score
+            st.subheader("Global Market Score")
+            average_pct = global_data['% Change'].mean()
+            score = min(100, max(0, 50 + average_pct * 5))  # Sensitivity adjustment
+            
+            if score >= 80:
+                label, color = "Global Boom", "#00b300"
+            elif score >= 60:
+                label, color = "Global Growth", "#33cc33"
+            elif score >= 40:
+                label, color = "Global Neutral", "#ffcc00"
+            elif score >= 20:
+                label, color = "Global Caution", "#ff6600"
+            else:
+                label, color = "Global Bear", "#ff0000"
+            
+            st.markdown(f'<div class="metric-card" style="border-color:{color};"><h3>{score:.2f}</h3><p style="color:{color}; font-weight:bold;">{label}</p><small>Average sentiment from major global indices.</small></div>', unsafe_allow_html=True)
         else:
             st.info("Global market data is loading...")
         
@@ -2478,4 +2482,3 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-
