@@ -895,7 +895,7 @@ def create_nifty_heatmap(instrument_df):
         customdata=np.column_stack([full_data['Price'], full_data['% Change']])
     ))
 
-    fig.update_layout(title="NIFTY 50 Live Heatmap")
+    fig.update_layout(title="NIFTY 50 Heatmap (Live)")
     return fig
 
 # FIXED: Get GIFT NIFTY data using yfinance
@@ -1228,10 +1228,15 @@ def page_premarket_pulse():
             
     with col2:
         st.subheader("🌏 Key Asian Markets")
-        asian_tickers = ["^N225", "^HSI"]
-        asian_data = get_global_indices_data(asian_tickers)
+        asian_tickers = {"Nikkei 225": "^N225", "Hang Seng": "^HSI"}
+        asian_data = get_global_indices_data(list(asian_tickers.values()))
         if not asian_data.empty:
-             st.dataframe(asian_data, use_container_width=True, hide_index=True)
+            for name, ticker in asian_tickers.items():
+                data_row = asian_data[asian_data['Ticker'] == ticker]
+                if not data_row.empty:
+                    price = data_row.iloc[0]['Price']
+                    change = data_row.iloc[0]['% Change']
+                    st.metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
         else:
             st.info("Loading Asian market data...")
 
