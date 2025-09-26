@@ -725,8 +725,14 @@ def get_global_indices_data(tickers):
         if df.empty:
             return pd.DataFrame()
 
-        close_data = df['Close'].iloc[-1]
-        prev_close_data = df['Close'].iloc[-2]
+        # Handle case where only one ticker is returned (no multi-index)
+        if not isinstance(df.columns, pd.MultiIndex):
+            close_data = df['Close'].iloc[-1]
+            prev_close_data = df['Close'].iloc[-2]
+        else:
+            close_data = df['Close'].iloc[-1]
+            prev_close_data = df['Close'].iloc[-2]
+
     except Exception as e:
         st.error(f"Failed to fetch data from yfinance: {e}")
         return pd.DataFrame()
@@ -734,21 +740,26 @@ def get_global_indices_data(tickers):
     data = []
     if isinstance(close_data, pd.Series): # Handle multiple tickers
         for ticker in tickers:
-            last_price = close_data.get(ticker, None)
-            prev_close = prev_close_data.get(ticker, None)
+            last_price = close_data.get(ticker)
+            prev_close = prev_close_data.get(ticker)
 
-            if last_price is not None and prev_close is not None:
+            if last_price is not None and prev_close is not None and not np.isnan(last_price) and not np.isnan(prev_close):
                 change = last_price - prev_close
                 pct_change = (change / prev_close) * 100 if prev_close != 0 else 0
                 data.append({'Ticker': ticker, 'Price': last_price, 'Change': change, '% Change': pct_change})
+            else:
+                 data.append({'Ticker': ticker, 'Price': np.nan, 'Change': np.nan, '% Change': np.nan})
+
     else: # Handle single ticker case
-        ticker = tickers[0]
+        ticker = tickers[0] if isinstance(tickers, list) else tickers
         last_price = close_data
         prev_close = prev_close_data
-        if last_price is not None and prev_close is not None:
+        if last_price is not None and prev_close is not None and not np.isnan(last_price) and not np.isnan(prev_close):
             change = last_price - prev_close
             pct_change = (change / prev_close) * 100 if prev_close != 0 else 0
             data.append({'Ticker': ticker, 'Price': last_price, 'Change': change, '% Change': pct_change})
+        else:
+             data.append({'Ticker': ticker, 'Price': np.nan, 'Change': np.nan, '% Change': np.nan})
             
     return pd.DataFrame(data)
 
@@ -1782,22 +1793,34 @@ def page_algo_strategy_maker():
 
 
 @st.cache_data(ttl=3600)
-def run_scanner(instrument_df, scanner_type):
-    """A single function to run different types of market scanners."""
+def run_scanner(instrument_df, scanner_type, holdings_df=None):
+    """A single function to run different types of market scanners on user holdings or a predefined list."""
     client = get_broker_client()
     if not client or instrument_df.empty: return pd.DataFrame()
 
-    # Using a smaller, more manageable list for performance in a web app
-    scan_list = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 'MARUTI', 'ASIANPAINT']
+    scan_list = []
+    if holdings_df is not None and not holdings_df.empty:
+        scan_list = holdings_df['tradingsymbol'].unique().tolist()
+        st.info("Scanning stocks from your live holdings.")
+    else:
+        scan_list = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 'MARUTI', 'ASIANPAINT']
+        st.info("Scanning a predefined list of NIFTY 50 stocks as no holdings were found.")
+
     results = []
     
-    tokens = [get_instrument_token(s, instrument_df) for s in scan_list]
-    valid_tokens = {s: t for s, t in zip(scan_list, tokens) if t}
+    # Get tokens for all symbols in one go
+    token_map = {
+        row['tradingsymbol']: row['instrument_token']
+        for _, row in instrument_df[instrument_df['tradingsymbol'].isin(scan_list)].iterrows()
+    }
     
-    for symbol, token in valid_tokens.items():
+    for symbol in scan_list:
+        token = token_map.get(symbol)
+        if not token: continue
+        
         try:
             df = get_historical_data(token, 'day', period='1y')
-            if df.empty: continue
+            if df.empty or len(df) < 252: continue
             
             if scanner_type == "Momentum":
                 rsi = df.iloc[-1].get(next((c for c in df.columns if 'RSI_14' in c), None))
@@ -1831,7 +1854,7 @@ def run_scanner(instrument_df, scanner_type):
     return pd.DataFrame(results)
 
 def page_momentum_and_trend_finder():
-    """Momentum and Trend Finder page with live data."""
+    """Momentum and Trend Finder page with live data, connected to user holdings."""
     display_header()
     st.title("Momentum & Trend Finder")
     
@@ -1839,37 +1862,40 @@ def page_momentum_and_trend_finder():
     if instrument_df.empty:
         st.info("Please connect to a broker to use this feature.")
         return
+        
+    _, holdings_df, _, _ = get_portfolio()
     
     st.subheader("Live Market Scanners")
+    st.caption("Scanners run on your current holdings. If you have no holdings, a predefined list of NIFTY 50 stocks is used.")
     
     tab1, tab2, tab3 = st.tabs(["Momentum Stocks", "Trending Stocks", "Breakout Stocks"])
     
     with tab1:
         st.subheader("High Momentum Stocks (RSI)")
         with st.spinner("Scanning for momentum..."):
-            momentum_data = run_scanner(instrument_df, "Momentum")
+            momentum_data = run_scanner(instrument_df, "Momentum", holdings_df)
             if not momentum_data.empty:
                 st.dataframe(momentum_data, use_container_width=True, hide_index=True)
             else:
-                st.info("No stocks with strong momentum signals (RSI > 70 or < 30) found.")
+                st.info("No stocks with strong momentum signals (RSI > 70 or < 30) found in the scanned list.")
     
     with tab2:
         st.subheader("Trending Stocks (ADX & EMA)")
         with st.spinner("Scanning for trends..."):
-            trending_data = run_scanner(instrument_df, "Trend")
+            trending_data = run_scanner(instrument_df, "Trend", holdings_df)
             if not trending_data.empty:
                 st.dataframe(trending_data, use_container_width=True, hide_index=True)
             else:
-                st.info("No stocks with strong trend signals (ADX > 25) found.")
+                st.info("No stocks with strong trend signals (ADX > 25) found in the scanned list.")
     
     with tab3:
         st.subheader("Breakout Candidates (52-Week High)")
         with st.spinner("Scanning for breakouts..."):
-            breakout_data = run_scanner(instrument_df, "Breakout")
+            breakout_data = run_scanner(instrument_df, "Breakout", holdings_df)
             if not breakout_data.empty:
                 st.dataframe(breakout_data, use_container_width=True, hide_index=True)
             else:
-                st.info("No stocks nearing their 52-week high found.")
+                st.info("No stocks nearing their 52-week high found in the scanned list.")
 
 
 def calculate_strategy_pnl(legs, underlying_ltp):
@@ -2023,8 +2049,10 @@ def get_futures_contracts(instrument_df, underlying, exchange):
         (instrument_df['instrument_type'] == 'FUT') &
         (instrument_df['exchange'] == exchange)
     ].copy()
-    futures_df['expiry'] = pd.to_datetime(futures_df['expiry'])
-    return futures_df.sort_values('expiry')
+    if not futures_df.empty:
+        futures_df['expiry'] = pd.to_datetime(futures_df['expiry'])
+        return futures_df.sort_values('expiry')
+    return pd.DataFrame()
 
 def page_futures_terminal():
     """Futures Terminal page with live data."""
@@ -2037,7 +2065,6 @@ def page_futures_terminal():
         st.info("Please connect to a broker to access futures data.")
         return
     
-    # UI Enhancement: Filter by exchange first
     exchange_options = sorted(instrument_df[instrument_df['instrument_type'] == 'FUT']['exchange'].unique())
     if not exchange_options:
         st.warning("No futures contracts found in the instrument list.")
@@ -2062,24 +2089,25 @@ def page_futures_terminal():
         futures_contracts = get_futures_contracts(instrument_df, selected_underlying, selected_exchange)
         
         if not futures_contracts.empty:
-            symbols = [f"{row['exchange']}:{row['tradingsymbol']}" for idx, row in futures_contracts.iterrows()]
+            symbols = [f"{row['exchange']}:{row['tradingsymbol']}" for _, row in futures_contracts.iterrows()]
             try:
                 quotes = client.quote(symbols)
                 live_data = []
-                for symbol, data in quotes.items():
-                    prev_close = data.get('ohlc', {}).get('close', 0)
-                    last_price = data.get('last_price', 0)
-                    change = last_price - prev_close
-                    pct_change = (change / prev_close * 100) if prev_close != 0 else 0
-                    
-                    live_data.append({
-                        'Contract': data['tradingsymbol'],
-                        'LTP': last_price,
-                        'Change': change,
-                        '% Change': pct_change,
-                        'Volume': data.get('volume', 0),
-                        'OI': data.get('oi', 0)
-                    })
+                for symbol_key, data in quotes.items():
+                    if data: # Check if data is not None
+                        prev_close = data.get('ohlc', {}).get('close', 0)
+                        last_price = data.get('last_price', 0)
+                        change = last_price - prev_close
+                        pct_change = (change / prev_close * 100) if prev_close != 0 else 0
+                        
+                        live_data.append({
+                            'Contract': data.get('tradingsymbol', symbol_key), # Fallback to key
+                            'LTP': last_price,
+                            'Change': change,
+                            '% Change': pct_change,
+                            'Volume': data.get('volume', 0),
+                            'OI': data.get('oi', 0)
+                        })
                 live_df = pd.DataFrame(live_data)
                 st.dataframe(live_df, use_container_width=True, hide_index=True)
 
@@ -2093,6 +2121,8 @@ def page_futures_terminal():
         futures_contracts = get_futures_contracts(instrument_df, selected_underlying, selected_exchange)
         if not futures_contracts.empty:
             calendar_df = futures_contracts[['tradingsymbol', 'expiry']].copy()
+            # FIX: Ensure 'expiry' is datetime before using .dt
+            calendar_df['expiry'] = pd.to_datetime(calendar_df['expiry'])
             calendar_df['Days to Expiry'] = (calendar_df['expiry'].dt.date - datetime.now().date()).dt.days
             st.dataframe(calendar_df.rename(columns={'tradingsymbol': 'Contract', 'expiry': 'Expiry Date'}), use_container_width=True, hide_index=True)
 
@@ -2518,4 +2548,3 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-
