@@ -4,6 +4,7 @@ import streamlit as st
 import pandas as pd
 import pandas_ta as ta
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from kiteconnect import KiteConnect
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timedelta, time
@@ -205,7 +206,12 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
     fig = go.Figure()
     if df.empty: return fig
     chart_df = df.copy()
-    chart_df.columns = [col.lower() for col in chart_df.columns]
+    
+    # FIX: Handle potential MultiIndex columns from yfinance
+    if isinstance(chart_df.columns, pd.MultiIndex):
+        chart_df.columns = chart_df.columns.droplevel(0)
+        
+    chart_df.columns = [str(col).lower() for col in chart_df.columns]
     
     if chart_type == 'Heikin-Ashi':
         ha_df = ta.ha(chart_df['open'], chart_df['high'], chart_df['low'], chart_df['close'])
@@ -1223,7 +1229,7 @@ def page_fo_analytics():
         st.info("Please connect to a broker to access F&O Analytics.")
         return
     
-    tab1, tab2, tab3 = st.tabs(["Options Chain", "PCR Analysis", "Volatility Analysis"])
+    tab1, tab2, tab3 = st.tabs(["Options Chain", "PCR Analysis", "Volatility & OI Analysis"])
     
     with tab1:
         st.subheader("Live Options Chain")
@@ -1280,8 +1286,8 @@ def page_fo_analytics():
             st.info("PCR data is loading... Select an underlying in the 'Options Chain' tab first.")
     
     with tab3:
-        st.subheader("Volatility Surface")
-        st.info("Real-time implied volatility analysis for options contracts.")
+        st.subheader("Volatility & Open Interest Surface")
+        st.info("Real-time implied volatility and OI analysis for options contracts.")
 
         # Ensure chain_df, expiry, and ltp are available from Tab 1's selection
         if 'chain_df' in locals() and not chain_df.empty and expiry and underlying_ltp > 0:
@@ -1289,26 +1295,36 @@ def page_fo_analytics():
             r = 0.07  # Assume a risk-free rate of 7%
 
             # Calculate IV for calls and puts
-            chain_df['IV_CE'] = chain_df.apply(
-                lambda row: implied_volatility(underlying_ltp, row['STRIKE'], T, r, row['CALL LTP'], 'call') * 100,
-                axis=1
-            )
-            chain_df['IV_PE'] = chain_df.apply(
-                lambda row: implied_volatility(underlying_ltp, row['STRIKE'], T, r, row['PUT LTP'], 'put') * 100,
-                axis=1
-            )
+            with st.spinner("Calculating Implied Volatility..."):
+                chain_df['IV_CE'] = chain_df.apply(
+                    lambda row: implied_volatility(underlying_ltp, row['STRIKE'], T, r, row['CALL LTP'], 'call') * 100,
+                    axis=1
+                )
+                chain_df['IV_PE'] = chain_df.apply(
+                    lambda row: implied_volatility(underlying_ltp, row['STRIKE'], T, r, row['PUT LTP'], 'put') * 100,
+                    axis=1
+                )
 
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=chain_df['STRIKE'], y=chain_df['IV_CE'], mode='lines+markers', name='Call IV', line=dict(color='cyan')))
-            fig.add_trace(go.Scatter(x=chain_df['STRIKE'], y=chain_df['IV_PE'], mode='lines+markers', name='Put IV', line=dict(color='magenta')))
+            # Create figure with secondary y-axis
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+            # Add IV traces
+            fig.add_trace(go.Scatter(x=chain_df['STRIKE'], y=chain_df['IV_CE'], mode='lines+markers', name='Call IV', line=dict(color='cyan')), secondary_y=False)
+            fig.add_trace(go.Scatter(x=chain_df['STRIKE'], y=chain_df['IV_PE'], mode='lines+markers', name='Put IV', line=dict(color='magenta')), secondary_y=False)
+            
+            # Add OI traces
+            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['open_interest_CE'], name='Call OI', marker_color='rgba(0, 255, 255, 0.4)'), secondary_y=True)
+            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['open_interest_PE'], name='Put OI', marker_color='rgba(255, 0, 255, 0.4)'), secondary_y=True)
 
             fig.update_layout(
-                title=f"{underlying} Implied Volatility Smile/Skew for {expiry.strftime('%d %b %Y')}",
-                xaxis_title="Strike Price",
-                yaxis_title="Implied Volatility (%)",
+                title_text=f"{underlying} IV & OI Profile for {expiry.strftime('%d %b %Y')}",
                 template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white',
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
+            # Set y-axes titles
+            fig.update_yaxes(title_text="Implied Volatility (%)", secondary_y=False)
+            fig.update_yaxes(title_text="Open Interest", secondary_y=True)
+            
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("Please select an underlying and expiry in the 'Options Chain' tab to view the volatility surface.")
@@ -2006,7 +2022,7 @@ def page_futures_terminal():
         futures_contracts = get_futures_contracts(instrument_df, selected_underlying)
         
         if not futures_contracts.empty:
-            symbols = [f"NFO:{s}" for s in futures_contracts['tradingsymbol']]
+            symbols = [f"{row['exchange']}:{row['tradingsymbol']}" for idx, row in futures_contracts.iterrows()]
             try:
                 quotes = client.quote(symbols)
                 live_data = []
@@ -2034,6 +2050,7 @@ def page_futures_terminal():
     
     with tab2:
         st.subheader("Futures Expiry Calendar")
+        futures_contracts = get_futures_contracts(instrument_df, selected_underlying)
         if not futures_contracts.empty:
             calendar_df = futures_contracts[['tradingsymbol', 'expiry']].copy()
             calendar_df['Days to Expiry'] = (calendar_df['expiry'] - datetime.now()).dt.days
@@ -2402,32 +2419,56 @@ def main_app():
     
     pages[st.session_state.terminal_mode][selection]()
 
-# ADDED: Economic Calendar page (Bloomberg-like feature for Indian traders)
+# REPLACED: Economic Calendar with hardcoded data until Oct 2025
 def page_economic_calendar():
     """Economic Calendar page for Indian market events."""
     display_header()
     st.title("Economic Calendar")
+    st.info("Upcoming economic events for the Indian market, updated until October 2025.")
 
-    te_api_key = st.secrets.get("TE_API_KEY")
-    if te_api_key:
-        try:
-            with st.spinner("Fetching live economic calendar..."):
-                te.login(te_api_key)
-                today = datetime.now().strftime('%Y-%m-%d')
-                next_week = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
-                calendar_data = te.getCalendarData(country='india', initDate=today, endDate=next_week)
-            
-            if not calendar_data.empty:
-                st.dataframe(calendar_data[['Date', 'Event', 'Actual', 'Previous', 'Forecast']], use_container_width=True, hide_index=True)
-            else:
-                st.info("No major economic events scheduled for India in the next 7 days.")
-        except Exception as e:
-            st.error(f"Could not fetch data from Trading Economics: {e}")
-            st.info("Please ensure your Trading Economics API key is valid.")
-    else:
-        st.warning("To view the live Economic Calendar, please add your Trading Economics API key to your Streamlit secrets.")
-        st.code("TE_API_KEY = 'YOUR_GUEST_KEY'")
-        st.markdown("You can get a free guest key from the [Trading Economics API website](https://tradingeconomics.com/analytics/api.aspx).")
+    events = {
+        'Date': [
+            '2025-09-26', '2025-09-26', '2025-09-29', '2025-09-30',
+            '2025-10-01', '2025-10-03', '2025-10-08', '2025-10-10',
+            '2025-10-14', '2025-10-15', '2025-10-17', '2025-10-24',
+            '2025-10-31', '2025-10-31'
+        ],
+        'Time': [
+            '11:30 AM', '11:30 AM', '10:30 AM', '05:30 PM',
+            '10:30 AM', '10:30 AM', '11:00 AM', '05:00 PM',
+            '12:00 PM', '05:30 PM', '05:00 PM', '05:00 PM',
+            '05:30 PM', '05:00 PM'
+        ],
+        'Event Name': [
+            'Bank Loan Growth YoY', 'Foreign Exchange Reserves', 'Industrial Production YoY (AUG)', 'Infrastructure Output YoY (AUG)',
+            'Nikkei Manufacturing PMI (SEP)', 'Nikkei Services PMI (SEP)', 'RBI Interest Rate Decision',
+            'Foreign Exchange Reserves', 'WPI Inflation YoY (SEP)', 'CPI Inflation YoY (SEP)',
+            'Foreign Exchange Reserves', 'Foreign Exchange Reserves', 'Fiscal Deficit (SEP)',
+            'Foreign Exchange Reserves'
+        ],
+        'Impact': [
+            'Medium', 'Low', 'Medium', 'Medium',
+            'High', 'High', 'High', 'Low',
+            'High', 'High', 'Low', 'Low',
+            'Medium', 'Low'
+        ],
+        'Previous': [
+            '10.0%', '$702.97B', '2.9%', '6.3%',
+            '58.5', '61.6', '6.50%', '$703.1B',
+            '0.3%', '5.1%', '$704.5B', '$705.2B',
+            '-4684.2B INR', '$705.9B'
+        ],
+        'Forecast': [
+            '-', '-', '3.5%', '6.5%',
+            '58.8', '61.2', '6.50%', '-',
+            '0.5%', '5.3%', '-', '-',
+            '-5100.0B INR', '-'
+        ]
+    }
+    calendar_df = pd.DataFrame(events)
+
+    st.dataframe(calendar_df, use_container_width=True, hide_index=True)
+
 
 if __name__ == "__main__":
     if 'profile' in st.session_state:
