@@ -201,19 +201,17 @@ def display_header():
 
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 
-def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
+def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_int_df=None):
     """Generates a Plotly chart with various chart types and overlays."""
     fig = go.Figure()
     if df.empty: return fig
     chart_df = df.copy()
     
-    # FIX: Handle potential MultiIndex columns from yfinance
     if isinstance(chart_df.columns, pd.MultiIndex):
         chart_df.columns = chart_df.columns.droplevel(0)
         
     chart_df.columns = [str(col).lower() for col in chart_df.columns]
     
-    # Defensive check for required columns
     required_cols = ['open', 'high', 'low', 'close']
     if not all(col in chart_df.columns for col in required_cols):
         st.error(f"Charting error for {ticker}: Dataframe is missing required columns (open, high, low, close).")
@@ -237,6 +235,9 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None):
         
     if forecast_df is not None:
         fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
+        if conf_int_df is not None:
+            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['lower'], line=dict(color='rgba(255,255,0,0.2)', width=1), name='Lower CI'))
+            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['upper'], line=dict(color='rgba(255,255,0,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,0,0.2)', name='Upper CI'))
         
     template = 'plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
@@ -485,87 +486,49 @@ def create_features(df, ticker):
     return df_feat
 
 @st.cache_data(show_spinner=False)
-def train_seasonal_arima_model(_data):
+def train_seasonal_arima_model(_data, forecast_steps=30):
     """Trains a Seasonal ARIMA model for time series forecasting."""
     if _data.empty or len(_data) < 100:
-        return {}, pd.DataFrame(), pd.DataFrame()
+        return None, None
 
     df = _data.copy()
     df.index = pd.to_datetime(df.index)
     
-    forecast_df = pd.DataFrame()
-    backtest_df = pd.DataFrame()
-
     try:
         decomposed = seasonal_decompose(df['close'], model='additive', period=7)
         seasonally_adjusted = df['close'] - decomposed.seasonal
 
         model = ARIMA(seasonally_adjusted, order=(5, 1, 0)).fit()
         
-        forecast_steps = 30
-        future_dates = pd.to_datetime([df.index[-1] + timedelta(days=i) for i in range(1, forecast_steps + 1)])
-        forecast_adjusted = model.forecast(steps=forecast_steps)
+        # Backtesting: Create predictions for historical data
+        fitted_values = model.fittedvalues + decomposed.seasonal
+        backtest_df = pd.DataFrame({'Actual': df['close'], 'Predicted': fitted_values}).dropna()
         
+        # Forecasting: Predict future values
+        forecast_result = model.get_forecast(steps=forecast_steps)
+        forecast_adjusted = forecast_result.predicted_mean
+        conf_int = forecast_result.conf_int(alpha=0.05) # 95% confidence interval
+
         last_season_cycle = decomposed.seasonal.iloc[-7:]
-        future_seasonal = pd.concat([last_season_cycle] * (forecast_steps // 7 + 1))[:forecast_steps]
+        future_seasonal_values = np.tile(last_season_cycle.values, forecast_steps // 7 + 1)[:forecast_steps]
         
-        forecast_final = forecast_adjusted.values + future_seasonal.values
+        future_forecast = forecast_adjusted + future_seasonal_values
         
-        forecast_df = pd.DataFrame({'Predicted': forecast_final}, index=future_dates)
+        future_dates = pd.to_datetime(pd.date_range(start=df.index[-1] + timedelta(days=1), periods=forecast_steps))
+        forecast_df = pd.DataFrame({'Predicted': future_forecast.values}, index=future_dates)
         
-        fitted_values = model.fittedvalues + decomposed.seasonal.reindex(model.fittedvalues.index)
-        backtest_df = pd.DataFrame({'Actual': df['close'], 'Predicted': fitted_values})
-        backtest_df.dropna(inplace=True)
+        # Add seasonality back to confidence intervals
+        conf_int_df = pd.DataFrame({
+            'lower': conf_int.iloc[:, 0] + future_seasonal_values,
+            'upper': conf_int.iloc[:, 1] + future_seasonal_values
+        }, index=future_dates)
+        
+        return forecast_df, backtest_df, conf_int_df
 
     except Exception as e:
         st.error(f"Seasonal ARIMA model training failed: {e}")
-        return {}, pd.DataFrame(), pd.DataFrame()
+        return None, None, None
 
-    return forecast_df, backtest_df
-
-@st.cache_data(show_spinner=False)
-def train_gradient_boosting_model(_data):
-    """Trains a Gradient Boosting Regressor model for time series forecasting."""
-    if _data.empty or len(_data) < 100:
-        return {}, pd.DataFrame(), pd.DataFrame()
-
-    df_feat = create_features(_data, "N/A")
-    TARGET = 'close'
-    FEATURES = [col for col in df_feat.columns if col != TARGET and 'date' not in col]
-    
-    X = df_feat[FEATURES]
-    y = df_feat[TARGET]
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-    
-    model = GradientBoostingRegressor(n_estimators=500, learning_rate=0.05, max_depth=5, random_state=42)
-    model.fit(X_train, y_train)
-    
-    test_preds = model.predict(X_test)
-    backtest_df = pd.DataFrame({'Actual': y_test, 'Predicted': test_preds}, index=y_test.index)
-
-    # Forecasting future values
-    last_row = df_feat.iloc[[-1]]
-    future_predictions = []
-    
-    for _ in range(30):
-        # Create features for the next step
-        next_features = last_row[FEATURES]
-        next_pred = model.predict(next_features)[0]
-        future_predictions.append(next_pred)
-        
-        # Update last_row for the next iteration
-        new_row = last_row.copy()
-        new_row.index = new_row.index + timedelta(days=1)
-        new_row['close'] = next_pred
-        # Re-create features based on the new 'last' row
-        last_row = create_features(pd.concat([_data, new_row[['close', 'open', 'high', 'low', 'volume']]]), "N/A").iloc[[-1]]
-
-
-    future_dates = pd.to_datetime([df_feat.index[-1] + timedelta(days=i) for i in range(1, 31)])
-    forecast_df = pd.DataFrame({'Predicted': future_predictions}, index=future_dates)
-    
-    return forecast_df, backtest_df
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
@@ -770,7 +733,11 @@ def get_global_indices_data(tickers):
             return pd.DataFrame()
         
         # Drop rows where all price data is NaN
-        df.dropna(subset=[('Close', ticker) for ticker in tickers], how='all', inplace=True)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.dropna(subset=[('Close', ticker) for ticker in tickers], how='all', inplace=True)
+        else:
+            df.dropna(subset=['Close'], how='all', inplace=True)
+
         if len(df) < 2:
             return pd.DataFrame()
 
@@ -1426,91 +1393,80 @@ def page_fo_analytics():
         else:
             st.warning("Please select an underlying and expiry in the 'Options Chain' tab to view the volatility surface.")
 
-# REPAIRED: Advanced ML Forecasting page
+# ENHANCED: Advanced ML Forecasting with improved UI and corrected formulas
 def page_forecasting_ml():
-    """A page for advanced ML forecasting with repaired formulas and improved UI/UX."""
+    """A page for advanced ML forecasting with an improved UI and corrected formulas."""
     display_header()
     st.title("Advanced ML Forecasting")
-    st.info("Train advanced models to forecast future prices. This is for educational purposes and is not financial advice.", icon="🧠")
+    st.info("Train a Seasonal ARIMA model to forecast future prices. This is for educational purposes and not financial advice.", icon="🧠")
     
-    col1, col2 = st.columns([1, 2], gap="large")
+    col1, col2 = st.columns([1, 2])
     
     with col1:
-        st.subheader("1. Model Configuration")
+        st.subheader("Model Configuration")
         instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()), key="ml_instrument")
-        model_choice = st.selectbox("Select a Model", ["Seasonal ARIMA", "Gradient Boosting"], key="ml_model")
         
-        today = datetime.now().date()
-        forecast_date = st.date_input("Select a date to forecast", value=today + timedelta(days=1), min_value=today + timedelta(days=1), max_value=today + timedelta(days=30), key="ml_date")
+        forecast_durations = {"1 Week": 7, "2 Weeks": 14, "1 Month": 30, "3 Months": 90}
+        duration_key = st.radio("Forecast Duration", list(forecast_durations.keys()), horizontal=True, key="ml_duration")
+        forecast_steps = forecast_durations[duration_key]
 
         if st.button("Train Model & Forecast", use_container_width=True, type="primary"):
-            with st.spinner(f"Loading data for {instrument_name}..."):
+            with st.spinner(f"Loading data and training model for {instrument_name}..."):
                 data = load_and_combine_data(instrument_name)
-            
-            if data.empty or len(data) < 100:
-                st.error(f"Could not load sufficient historical data for {instrument_name}.")
-            else:
-                with st.spinner(f"Training {model_choice} model... This may take a moment."):
-                    if model_choice == "Seasonal ARIMA":
-                        forecast_df, backtest_df = train_seasonal_arima_model(data)
-                    else: # Gradient Boosting
-                        forecast_df, backtest_df = train_gradient_boosting_model(data)
-                
-                st.session_state.update({
-                    'ml_forecast_df': forecast_df,
-                    'ml_backtest_df': backtest_df, 
-                    'ml_instrument_name': instrument_name, 
-                    'ml_model_choice': model_choice,
-                    'ml_forecast_date': forecast_date,
-                    'ml_historical_data': data
-                })
-                st.success("Model training complete!")
-                st.rerun()
+                if data.empty or len(data) < 100:
+                    st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 100 data points.")
+                else:
+                    forecast_df, backtest_df, conf_int_df = train_seasonal_arima_model(data, forecast_steps)
+                    st.session_state.update({
+                        'ml_forecast_df': forecast_df,
+                        'ml_backtest_df': backtest_df,
+                        'ml_conf_int_df': conf_int_df,
+                        'ml_instrument_name': instrument_name,
+                        'ml_historical_data': data,
+                    })
+                    st.success("Model trained successfully!")
 
     with col2:
-        if 'ml_model_choice' in st.session_state:
-            st.subheader(f"2. Forecast Results for {st.session_state['ml_instrument_name']}")
+        if 'ml_instrument_name' in st.session_state:
+            instrument_name = st.session_state.ml_instrument_name
+            st.subheader(f"Forecast Results for {instrument_name}")
 
             forecast_df = st.session_state.get('ml_forecast_df')
             backtest_df = st.session_state.get('ml_backtest_df')
-            forecast_date = st.session_state.get('ml_forecast_date')
+            conf_int_df = st.session_state.get('ml_conf_int_df')
+            data = st.session_state.get('ml_historical_data')
 
-            if forecast_df is not None and not forecast_df.empty:
-                try:
-                    predicted_price = forecast_df.loc[pd.to_datetime(forecast_date)]['Predicted']
-                    st.metric(f"Predicted Price for {forecast_date.strftime('%d %b %Y')}", f"₹{predicted_price:,.2f}")
-                except KeyError:
-                    st.warning("Forecast for the selected date is not available in the output.")
-            
-            st.markdown("---")
-            st.subheader("3. Model Performance (Backtest)")
+            if forecast_df is not None and backtest_df is not None and data is not None and conf_int_df is not None:
+                # --- Combined Chart ---
+                fig = create_chart(data.tail(252), instrument_name, forecast_df=forecast_df, conf_int_df=conf_int_df)
+                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Backtest Prediction', line=dict(color='orange', dash='dot')))
+                fig.update_layout(title=f"{instrument_name} Forecast vs. Historical Data")
+                st.plotly_chart(fig, use_container_width=True)
 
-            if backtest_df is not None and not backtest_df.empty:
-                # FIX: Corrected MAPE and Accuracy formulas
-                mape = mean_absolute_percentage_error(backtest_df['Actual'], backtest_df['Predicted']) * 100
-                accuracy = 100 - mape
+                # --- Performance Metrics ---
+                st.subheader("Model Performance (Backtest on Full History)")
                 
-                # Max Drawdown Calculation
+                mape = mean_absolute_percentage_error(backtest_df['Actual'], backtest_df['Predicted']) * 100
+                total_return = (backtest_df['Actual'].iloc[-1] / backtest_df['Actual'].iloc[0] - 1) * 100
+                
                 cum_returns = (1 + (backtest_df['Actual'].pct_change().fillna(0))).cumprod()
                 peak = cum_returns.cummax()
                 drawdown = (cum_returns - peak) / peak
                 max_drawdown = drawdown.min()
 
-                m_col1, m_col2, m_col3 = st.columns(3)
-                m_col1.metric("Model Accuracy", f"{accuracy:.2f}%")
-                m_col2.metric("MAPE", f"{mape:.2f}%", help="Mean Absolute Percentage Error. Lower is better.")
-                m_col3.metric("Max Drawdown", f"{max_drawdown*100:.2f}%", help="Largest peak-to-trough decline.")
-
-                # Combined Historical and Forecast Chart
-                hist_data = st.session_state.get('ml_historical_data')
-                if hist_data is not None:
-                    fig = create_chart(hist_data.tail(180), st.session_state['ml_instrument_name'], forecast_df=forecast_df)
-                    st.plotly_chart(fig, use_container_width=True)
+                metric_cols = st.columns(3)
+                metric_cols[0].metric("Accuracy", f"{100 - mape:.2f}%")
+                metric_cols[1].metric("Total Return (Actual)", f"{total_return:.2f}%")
+                metric_cols[2].metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
                 
-                with st.expander("View Backtest Data"):
-                    st.dataframe(backtest_df.tail(100))
+                # --- Forecast Data Table ---
+                with st.expander(f"View {duration_key} Forecast Data"):
+                    display_df = forecast_df.join(conf_int_df)
+                    st.dataframe(display_df.style.format("₹{:.2f}"), use_container_width=True)
+            else:
+                st.info("Train a model to see the forecast results.")
         else:
-            st.info("Configure your model and run the forecast to see the results here.")
+            st.info("Select an instrument and run the forecast to see results.")
 
 
 def page_portfolio_and_risk():
@@ -2589,3 +2545,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
