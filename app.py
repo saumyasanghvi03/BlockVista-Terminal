@@ -426,20 +426,21 @@ def fetch_and_analyze_news(query=None):
     """Fetches and performs sentiment analysis on financial news."""
     analyzer = SentimentIntensityAnalyzer()
     
-    # Updated and expanded news sources
+    # ENHANCED: Added global news sources
     news_sources = {
-        "Reuters": "http://feeds.reuters.com/reuters/businessNews",
         "Economic Times": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
         "Moneycontrol": "https://www.moneycontrol.com/rss/business.xml",
         "Business Standard": "https://www.business-standard.com/rss/markets-102.cms",
         "Livemint": "https://www.livemint.com/rss/markets",
-        "Financial Express": "https://www.financialexpress.com/market/live-market-news/feed/"
+        "Reuters Business": "http://feeds.reuters.com/reuters/businessNews",
+        "Reuters World": "http://feeds.reuters.com/Reuters/worldNews",
+        "BBC World": "http://feeds.bbci.co.uk/news/world/rss.xml"
     }
     all_news = []
     for source, url in news_sources.items():
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:5]:  # Limit to 5 articles per source
+            for entry in feed.entries[:10]:  # Limit to 10 articles per source
                 published_date_tuple = entry.published_parsed if hasattr(entry, 'published_parsed') else entry.updated_parsed
                 published_date = datetime.fromtimestamp(mktime_tz(published_date_tuple)) if published_date_tuple else datetime.now()
                 if query is None or query.lower() in entry.title.lower() or (hasattr(entry, 'summary') and query.lower() in entry.summary.lower()):
@@ -721,14 +722,22 @@ def get_global_indices_data(tickers):
         return pd.DataFrame()
     
     try:
-        df = yf.download(tickers, period="2d")
+        # Fetching a slightly longer period to ensure we get the last two valid trading days
+        df = yf.download(tickers, period="5d")
         if df.empty:
+            return pd.DataFrame()
+        
+        # Drop rows where all price data is NaN
+        df.dropna(subset=[('Close', ticker) for ticker in tickers], how='all', inplace=True)
+        if len(df) < 2:
             return pd.DataFrame()
 
         # Handle case where only one ticker is returned (no multi-index)
         if not isinstance(df.columns, pd.MultiIndex):
-            close_data = df['Close'].iloc[-1]
-            prev_close_data = df['Close'].iloc[-2]
+            df_single = df.copy()
+            df_single['Ticker'] = tickers[0]
+            close_data = df_single['Close'].iloc[-1]
+            prev_close_data = df_single['Close'].iloc[-2]
         else:
             close_data = df['Close'].iloc[-1]
             prev_close_data = df['Close'].iloc[-2]
@@ -904,7 +913,7 @@ def get_gift_nifty_data():
     """Fetches GIFT NIFTY data using a more reliable yfinance ticker."""
     try:
         # Using Nifty 50 Futures as a more reliable proxy for GIFT Nifty
-        data = yf.download("IN=F", period="1d", interval="5m")
+        data = yf.download("^NSEI", period="1d", interval="1m")
         if not data.empty:
             return data
     except Exception:
@@ -1209,7 +1218,10 @@ def page_premarket_pulse():
             if not data_row.empty:
                 price = data_row.iloc[0]['Price']
                 change = data_row.iloc[0]['% Change']
-                cols[i].metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
+                if not np.isnan(price):
+                    cols[i].metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
+                else:
+                    cols[i].metric(label=name, value="N/A", delta="--")
     else:
         st.info("Loading global market data...")
 
@@ -1219,12 +1231,12 @@ def page_premarket_pulse():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("🇮🇳 GIFT NIFTY (Live Proxy)")
+        st.subheader("🇮🇳 NIFTY 50 Futures (Live Proxy)")
         gift_data = get_gift_nifty_data()
         if not gift_data.empty:
-            st.plotly_chart(create_chart(gift_data, "GIFT NIFTY (Proxy)"), use_container_width=True)
+            st.plotly_chart(create_chart(gift_data, "NIFTY 50 Futures (Proxy)"), use_container_width=True)
         else:
-            st.warning("Could not load GIFT NIFTY chart data.")
+            st.warning("Could not load NIFTY 50 Futures chart data.")
             
     with col2:
         st.subheader("🌏 Key Asian Markets")
@@ -1236,7 +1248,10 @@ def page_premarket_pulse():
                 if not data_row.empty:
                     price = data_row.iloc[0]['Price']
                     change = data_row.iloc[0]['% Change']
-                    st.metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
+                    if not np.isnan(price):
+                        st.metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
+                    else:
+                        st.metric(label=name, value="N/A", delta="--")
         else:
             st.info("Loading Asian market data...")
 
@@ -1492,8 +1507,8 @@ def page_portfolio_and_risk():
 
     positions_df, holdings_df, total_pnl, _ = get_portfolio()
     
-    if holdings_df.empty:
-        st.info("No holdings found to analyze. Please check your portfolio.")
+    if holdings_df.empty and positions_df.empty:
+        st.info("No holdings or positions found to analyze.")
         return
 
     tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Live Order Book"])
@@ -1508,48 +1523,52 @@ def page_portfolio_and_risk():
     
     with tab2:
         st.subheader("Investment Holdings")
-        st.dataframe(holdings_df, use_container_width=True, hide_index=True)
-        st.markdown("---")
+        if not holdings_df.empty:
+            st.dataframe(holdings_df, use_container_width=True, hide_index=True)
+            st.markdown("---")
 
-        st.subheader("Portfolio Allocation")
-        
-        sector_df = get_sector_data()
-        
-        holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
-        
-        if not holdings_df.empty and sector_df is not None:
-            holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-            if 'Sector' not in holdings_df.columns:
-                holdings_df['Sector'] = 'Uncategorized'
-            holdings_df['Sector'].fillna('Uncategorized', inplace=True)
-        else:
-            holdings_df['Sector'] = 'Uncategorized'
-        
-        col1_alloc, col2_alloc = st.columns(2)
-        
-        with col1_alloc:
-            st.subheader("Stock-wise Allocation")
-            fig_stock = go.Figure(data=[go.Pie(
-                labels=holdings_df['tradingsymbol'],
-                values=holdings_df['current_value'],
-                hole=.3,
-                textinfo='label+percent'
-            )])
-            fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == "Dark" else 'plotly_white')
-            st.plotly_chart(fig_stock, use_container_width=True)
+            st.subheader("Portfolio Allocation")
             
-        if 'Sector' in holdings_df.columns:
-            with col2_alloc:
-                st.subheader("Sector-wise Allocation")
-                sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
-                fig_sector = go.Figure(data=[go.Pie(
-                    labels=sector_allocation['Sector'],
-                    values=sector_allocation['current_value'],
+            sector_df = get_sector_data()
+            
+            holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
+            
+            if not holdings_df.empty and sector_df is not None:
+                holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
+                if 'Sector' not in holdings_df.columns:
+                    holdings_df['Sector'] = 'Uncategorized'
+                holdings_df['Sector'].fillna('Uncategorized', inplace=True)
+            else:
+                holdings_df['Sector'] = 'Uncategorized'
+            
+            col1_alloc, col2_alloc = st.columns(2)
+            
+            with col1_alloc:
+                st.subheader("Stock-wise Allocation")
+                fig_stock = go.Figure(data=[go.Pie(
+                    labels=holdings_df['tradingsymbol'],
+                    values=holdings_df['current_value'],
                     hole=.3,
                     textinfo='label+percent'
                 )])
-                fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == "Dark" else 'plotly_white')
-                st.plotly_chart(fig_sector, use_container_width=True)
+                fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == "Dark" else 'plotly_white')
+                st.plotly_chart(fig_stock, use_container_width=True)
+                
+            if 'Sector' in holdings_df.columns:
+                with col2_alloc:
+                    st.subheader("Sector-wise Allocation")
+                    sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
+                    fig_sector = go.Figure(data=[go.Pie(
+                        labels=sector_allocation['Sector'],
+                        values=sector_allocation['current_value'],
+                        hole=.3,
+                        textinfo='label+percent'
+                    )])
+                    fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == "Dark" else 'plotly_white')
+                    st.plotly_chart(fig_sector, use_container_width=True)
+        else:
+            st.info("No holdings found.")
+
     with tab3:
         st.subheader("Live Order Book")
         if client:
@@ -2106,7 +2125,7 @@ def page_futures_terminal():
                         pct_change = (change / prev_close * 100) if prev_close != 0 else 0
                         
                         live_data.append({
-                            'Contract': data.get('tradingsymbol', symbol_key), # Fallback to key
+                            'Contract': data.get('tradingsymbol', symbol_key.split(':')[-1]), # Fallback to key
                             'LTP': last_price,
                             'Change': change,
                             '% Change': pct_change,
@@ -2128,7 +2147,7 @@ def page_futures_terminal():
             calendar_df = futures_contracts[['tradingsymbol', 'expiry']].copy()
             # FIX: Ensure 'expiry' is datetime before using .dt
             calendar_df['expiry'] = pd.to_datetime(calendar_df['expiry'])
-            calendar_df['Days to Expiry'] = (calendar_df['expiry'].dt.date - datetime.now().date()).dt.days
+            calendar_df['Days to Expiry'] = (calendar_df['expiry'] - pd.to_datetime('today')).dt.days
             st.dataframe(calendar_df.rename(columns={'tradingsymbol': 'Contract', 'expiry': 'Expiry Date'}), use_container_width=True, hide_index=True)
 
 
@@ -2460,21 +2479,20 @@ def main_app():
             "Forecasting & ML": page_forecasting_ml,
             "Algo Strategy Maker": page_algo_strategy_maker,
             "AI Discovery Engine": page_ai_discovery,
-            "F&O Analytics": page_fo_analytics,
             "AI Assistant & Journal": page_ai_assistant,
             "Momentum & Trend Finder": page_momentum_and_trend_finder,
             "Economic Calendar": page_economic_calendar,
         },
         "Options": {
-            "F&O Analytics": page_fo_analytics,
-            "Algo Strategy Maker": page_algo_strategy_maker,
             "Strategy Builder": page_option_strategy_builder,
             "F&O Greeks": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant & Journal": page_ai_assistant,
+            "Algo Strategy Maker": page_algo_strategy_maker,
         },
         "Futures": {
             "Futures Terminal": page_futures_terminal,
+            "F&O Analytics": page_fo_analytics,
             "Advanced Charting": page_advanced_charting,
             "Algo Strategy Maker": page_algo_strategy_maker,
             "Portfolio & Risk": page_portfolio_and_risk,
@@ -2553,3 +2571,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
