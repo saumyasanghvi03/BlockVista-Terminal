@@ -14,7 +14,6 @@ from email.utils import mktime_tz, parsedate_tz
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.arima.model import ARIMA
-from sklearn.metrics import mean_absolute_percentage_error
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -259,7 +258,9 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
                 pass # Silently fail
             return df
         except Exception as e:
-            st.error(f"Kite API Error (Historical): {e}")
+            # Silently fail for this specific error to avoid cluttering UI
+            if "from date cannot be after to date" not in str(e):
+                st.error(f"Kite API Error (Historical): {e}")
             return pd.DataFrame()
     else:
         st.warning(f"Historical data for {st.session_state.broker} not implemented.")
@@ -1732,6 +1733,28 @@ def rsi_strategy(df, rsi_period=14, rsi_overbought=70, rsi_oversold=30):
             signals[i] = 'SELL'
     return signals
 
+def macd_strategy(df, fast=12, slow=26, signal=9):
+    """MACD Crossover Strategy"""
+    macd = ta.macd(df['close'], fast=fast, slow=slow, signal=signal)
+    signals = [''] * len(df)
+    for i in range(1, len(df)):
+        if macd[f'MACD_{fast}_{slow}_{signal}'][i-1] < macd[f'MACDs_{fast}_{slow}_{signal}'][i-1] and macd[f'MACD_{fast}_{slow}_{signal}'][i] > macd[f'MACDs_{fast}_{slow}_{signal}'][i]:
+            signals[i] = 'BUY'
+        elif macd[f'MACD_{fast}_{slow}_{signal}'][i-1] > macd[f'MACDs_{fast}_{slow}_{signal}'][i-1] and macd[f'MACD_{fast}_{slow}_{signal}'][i] < macd[f'MACDs_{fast}_{slow}_{signal}'][i]:
+            signals[i] = 'SELL'
+    return signals
+
+def supertrend_strategy(df, length=7, multiplier=3):
+    """Supertrend Strategy"""
+    supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=length, multiplier=multiplier)
+    signals = [''] * len(df)
+    for i in range(1, len(df)):
+        if df['close'][i] > supertrend[f'SUPERT_{length}_{multiplier}.0'][i-1] and df['close'][i-1] < supertrend[f'SUPERT_{length}_{multiplier}.0'][i-1]:
+            signals[i] = 'BUY'
+        elif df['close'][i] < supertrend[f'SUPERT_{length}_{multiplier}.0'][i-1] and df['close'][i-1] > supertrend[f'SUPERT_{length}_{multiplier}.0'][i-1]:
+            signals[i] = 'SELL'
+    return signals
+
 def page_algo_strategy_maker():
     """Algo Strategy Maker page with pre-built strategies."""
     display_header()
@@ -1750,7 +1773,8 @@ def page_algo_strategy_maker():
         
         strategy_options = {
             "RSI Crossover": rsi_strategy,
-            # Add other strategy functions here
+            "MACD Crossover": macd_strategy,
+            "Supertrend": supertrend_strategy,
         }
         selected_strategy_name = st.selectbox("Select a Strategy", list(strategy_options.keys()))
         
@@ -1766,6 +1790,13 @@ def page_algo_strategy_maker():
             params['rsi_period'] = st.slider("RSI Period", 5, 30, 14)
             params['rsi_overbought'] = st.slider("RSI Overbought", 60, 90, 70)
             params['rsi_oversold'] = st.slider("RSI Oversold", 10, 40, 30)
+        elif selected_strategy_name == "MACD Crossover":
+            params['fast'] = st.slider("Fast Period", 5, 20, 12)
+            params['slow'] = st.slider("Slow Period", 20, 50, 26)
+            params['signal'] = st.slider("Signal Period", 5, 20, 9)
+        elif selected_strategy_name == "Supertrend":
+            params['length'] = st.slider("Supertrend Length", 5, 20, 7)
+            params['multiplier'] = st.slider("Supertrend Multiplier", 1.0, 5.0, 3.0, 0.5)
 
         # --- Trade Execution ---
         st.markdown("**Trade Execution**")
@@ -1776,27 +1807,33 @@ def page_algo_strategy_maker():
     with col2:
         if run_button:
             with st.spinner(f"Running backtest for {selected_strategy_name} on {symbol}..."):
-                token = get_instrument_token(symbol, instrument_df, exchange=instrument_df[instrument_df['tradingsymbol'] == symbol].iloc[0]['exchange'])
-                data = get_historical_data(token, 'day', period='1y')
-                
-                if not data.empty:
-                    pnl, portfolio_curve = run_backtest(strategy_options[selected_strategy_name], data, **params)
-                    latest_signal = strategy_options[selected_strategy_name](data, **params)[-1]
+                token_row = instrument_df[instrument_df['tradingsymbol'] == symbol]
+                if not token_row.empty:
+                    token = token_row.iloc[0]['instrument_token']
+                    exchange = token_row.iloc[0]['exchange']
+                    data = get_historical_data(token, 'day', period='1y')
+                    
+                    if not data.empty:
+                        pnl, portfolio_curve = run_backtest(strategy_options[selected_strategy_name], data, **params)
+                        latest_signal = strategy_options[selected_strategy_name](data, **params)[-1]
 
-                    st.session_state['backtest_results'] = {
-                        'pnl': pnl,
-                        'curve': portfolio_curve,
-                        'signal': latest_signal,
-                        'symbol': symbol,
-                        'quantity': quantity
-                    }
+                        st.session_state['backtest_results'] = {
+                            'pnl': pnl,
+                            'curve': portfolio_curve,
+                            'signal': latest_signal,
+                            'symbol': symbol,
+                            'quantity': quantity,
+                            'exchange': exchange
+                        }
+                    else:
+                        st.error("Could not fetch enough data to run the backtest.")
                 else:
-                    st.error("Could not fetch enough data to run the backtest.")
+                    st.error(f"Could not find instrument token for {symbol}")
 
         if 'backtest_results' in st.session_state:
             results = st.session_state['backtest_results']
             st.subheader("Backtest Results")
-            st.metric("Total P&L", f"{results['pnl']:.2f}%")
+            st.metric("Total P&L (1 Year)", f"{results['pnl']:.2f}%")
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=results['curve'].index, y=results['curve'], mode='lines', name='Portfolio Value'))
