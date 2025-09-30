@@ -799,15 +799,15 @@ def get_bmp_score_and_label(nifty_change, sensex_change, vix_value, lookback_df)
     bmp_score = min(100, max(0, bmp_score))
 
     if bmp_score >= 80:
-        label, color = "Bharat Udaan", "#00b300"
+        label, color = "Bharat Udaan (Very Bullish)", "#00b300"
     elif bmp_score >= 60:
-        label, color = "Bharat Pragati", "#33cc33"
+        label, color = "Bharat Pragati (Bullish)", "#33cc33"
     elif bmp_score >= 40:
-        label, color = "Bharat Santulan", "#ffcc00"
+        label, color = "Bharat Santulan (Neutral)", "#ffcc00"
     elif bmp_score >= 20:
-        label, color = "Bharat Sanket", "#ff6600"
+        label, color = "Bharat Sanket (Bearish)", "#ff6600"
     else:
-        label, color = "Bharat Mandhi", "#ff0000"
+        label, color = "Bharat Mandhi (Very Bearish)", "#ff0000"
 
     return bmp_score, label, color
 
@@ -940,6 +940,14 @@ def page_dashboard():
                 bmp_score, bmp_label, bmp_color = get_bmp_score_and_label(nifty_row['% Change'], sensex_row['% Change'], vix_row['Price'], lookback_data)
                 
                 st.markdown(f'<div class="metric-card" style="border-color:{bmp_color};"><h3>{bmp_score:.2f}</h3><p style="color:{bmp_color}; font-weight:bold;">{bmp_label}</p><small>Proprietary score from NIFTY, SENSEX, and India VIX.</small></div>', unsafe_allow_html=True)
+                with st.expander("What do the BMP scores mean?"):
+                    st.markdown("""
+                    - **80-100 (Bharat Udaan):** Very Strong Bullish Momentum.
+                    - **60-80 (Bharat Pragati):** Moderately Bullish Sentiment.
+                    - **40-60 (Bharat Santulan):** Neutral or Sideways Market.
+                    - **20-40 (Bharat Sanket):** Moderately Bearish Sentiment.
+                    - **0-20 (Bharat Mandhi):** Very Strong Bearish Momentum.
+                    """)
             else:
                 st.info("BMP data is loading...")
         else:
@@ -2523,4 +2531,3 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-
