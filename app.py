@@ -2609,10 +2609,3 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-```.
-My query is: "remove scikit-learn & tradingeconomics, repair all errors: 
-
-AttributeError: Can only use .dt accessor with datetimelike values
-'datetime.date' object has no attribute 'date'
-'tradingsymbol'"
-
