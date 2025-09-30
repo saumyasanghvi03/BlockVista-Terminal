@@ -82,7 +82,6 @@ ML_DATA_SOURCES = {
         "exchange": "yfinance"
     }
 }
-
 # ================ 1.5 INITIALIZATION ========================
 def initialize_session_state():
     """Initializes all necessary session state variables."""
@@ -2438,10 +2437,10 @@ def page_economic_calendar():
 def get_user_secret(user_profile):
     """Generate a persistent secret based on user profile."""
     user_id = user_profile.get('user_id', 'default_user')
-    # Create a hash-based secret that will be the same for the same user
-    user_hash = hashlib.sha256(str(user_id).encode()).hexdigest()
-    # Use part of the hash to seed the secret generation, making it deterministic
-    return pyotp.random_base32(length=16, seed=user_hash)
+    # Use SHA256 for a strong hash, then Base32 encode it for pyotp
+    user_hash = hashlib.sha256(str(user_id).encode()).digest()
+    secret = base64.b32encode(user_hash).decode('utf-8').replace('=', '')[:16]
+    return secret
 
 
 @st.dialog("Two-Factor Authentication")
@@ -2612,77 +2611,21 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    if auto_refresh and selection not in ["🧠 Forecasting (ML)", "🤖 AI Assistant", "🔍 AI Discovery", "
-
-selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
-    
-    st.sidebar.divider()
-    if st.sidebar.button("Logout"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
-
-    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant & Journal", "AI Discovery Engine", "Algo Strategy Maker"]:
+    no_refresh_pages = ["🧠 Forecasting (ML)", "🤖 AI Assistant", "🔍 AI Discovery", "🤖 Algo Strategy Hub"]
+    if auto_refresh and selection not in no_refresh_pages:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
     pages[st.session_state.terminal_mode][selection]()
 
-# REPLACED: Economic Calendar with hardcoded data until Oct 2025
-def page_economic_calendar():
-    """Economic Calendar page for Indian market events."""
-    display_header()
-    st.title("Economic Calendar")
-    st.info("Upcoming economic events for the Indian market, updated until October 2025.")
-
-    events = {
-        'Date': [
-            '2025-09-26', '2025-09-26', '2025-09-29', '2025-09-30',
-            '2025-10-01', '2025-10-03', '2025-10-08', '2025-10-10',
-            '2025-10-14', '2025-10-15', '2025-10-17', '2025-10-24',
-            '2025-10-31', '2025-10-31'
-        ],
-        'Time': [
-            '11:30 AM', '11:30 AM', '10:30 AM', '05:30 PM',
-            '10:30 AM', '10:30 AM', '11:00 AM', '05:00 PM',
-            '12:00 PM', '05:30 PM', '05:00 PM', '05:00 PM',
-            '05:30 PM', '05:00 PM'
-        ],
-        'Event Name': [
-            'Bank Loan Growth YoY', 'Foreign Exchange Reserves', 'Industrial Production YoY (AUG)', 'Infrastructure Output YoY (AUG)',
-            'Nikkei Manufacturing PMI (SEP)', 'Nikkei Services PMI (SEP)', 'RBI Interest Rate Decision',
-            'Foreign Exchange Reserves', 'WPI Inflation YoY (SEP)', 'CPI Inflation YoY (SEP)',
-            'Foreign Exchange Reserves', 'Foreign Exchange Reserves', 'Fiscal Deficit (SEP)',
-            'Foreign Exchange Reserves'
-        ],
-        'Impact': [
-            'Medium', 'Low', 'Medium', 'Medium',
-            'High', 'High', 'High', 'Low',
-            'High', 'High', 'Low', 'Low',
-            'Medium', 'Low'
-        ],
-        'Previous': [
-            '10.0%', '$702.97B', '2.9%', '6.3%',
-            '58.5', '61.6', '6.50%', '$703.1B',
-            '0.3%', '5.1%', '$704.5B', '$705.2B',
-            '-4684.2B INR', '$705.9B'
-        ],
-        'Forecast': [
-            '-', '-', '3.5%', '6.5%',
-            '58.8', '61.2', '6.50%', '-',
-            '0.5%', '5.3%', '-', '-',
-            '-5100.0B INR', '-'
-        ]
-    }
-    calendar_df = pd.DataFrame(events)
-
-    st.dataframe(calendar_df, use_container_width=True, hide_index=True)
-
-
+# --- Application Entry Point ---
 if __name__ == "__main__":
-    if 'profile' in st.session_state:
+    initialize_session_state()
+    
+    if 'profile' in st.session_state and st.session_state.profile:
         if st.session_state.get('login_animation_complete', False):
             main_app()
         else:
             show_login_animation()
     else:
         login_page()
+
