@@ -12,10 +12,6 @@ import pytz
 import feedparser
 from email.utils import mktime_tz, parsedate_tz
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.ensemble import GradientBoostingRegressor
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
@@ -33,12 +29,6 @@ import io
 import requests
 import json
 import hashlib
-# Gracefully import tradingeconomics to prevent app crash if installation fails
-try:
-    import tradingeconomics as te
-    TE_AVAILABLE = True
-except ImportError:
-    TE_AVAILABLE = False
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -46,14 +36,12 @@ st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_side
 # --- UI ENHANCEMENT: Load Custom CSS for Trader UI ---
 def load_css(file_name):
     """Loads a custom CSS file to style the Streamlit app."""
-    # This function expects a local file named 'style.css'
     try:
         with open(file_name) as f:
             st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
     except FileNotFoundError:
         st.warning(f"CSS file '{file_name}' not found. For the best UI, please create this file in the same directory as the app.")
 
-# Attempt to load the CSS file.
 load_css("style.css")
 
 
@@ -96,26 +84,6 @@ ML_DATA_SOURCES = {
     }
 }
 
-# --- Theme and UI Configuration ---
-# This dictionary holds the color palettes for the light and dark themes.
-# These themes are applied globally using custom CSS.
-THEMES = {
-    "light": {
-        "primaryColor": "#6C63FF",  # A vibrant purple
-        "backgroundColor": "#F4F4F4",  # A soft light gray
-        "secondaryBackgroundColor": "#FFFFFF",  # Pure white for cards/elements
-        "textColor": "#2C3E50",  # Dark gray text
-        "font": "sans serif"
-    },
-    "dark": {
-        "primaryColor": "#6C63FF",  # Same vibrant purple for consistency
-        "backgroundColor": "#1A1A1A",  # A deep dark gray
-        "secondaryBackgroundColor": "#2C2C2C",  # A slightly lighter dark gray for elements
-        "textColor": "#ECF0F1",  # Soft white text
-        "font": "sans serif"
-    }
-}
-
 # ================ 2. HELPER FUNCTIONS ================
 
 def get_broker_client():
@@ -126,9 +94,7 @@ def get_broker_client():
 
 @st.dialog("Quick Trade")
 def quick_trade_dialog(symbol=None, exchange=None):
-    """
-    A quick trade dialog for placing market or limit orders.
-    """
+    """A quick trade dialog for placing market or limit orders."""
     instrument_df = get_instrument_df()
     st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
     
@@ -236,8 +202,8 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
     if forecast_df is not None:
         fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
         if conf_int_df is not None:
-            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['lower'], line=dict(color='rgba(255,255,0,0.2)', width=1), name='Lower CI'))
-            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['upper'], line=dict(color='rgba(255,255,0,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,0,0.2)', name='Upper CI'))
+            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['lower'], line=dict(color='rgba(255,255,0,0.2)', width=1), name='Lower CI', showlegend=False))
+            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['upper'], line=dict(color='rgba(255,255,0,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,0,0.2)', name='Confidence Interval'))
         
     template = 'plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
@@ -249,7 +215,11 @@ def get_instrument_df():
     client = get_broker_client()
     if not client: return pd.DataFrame()
     if st.session_state.broker == "Zerodha":
-        return pd.DataFrame(client.instruments())
+        df = pd.DataFrame(client.instruments())
+        # FIX: Ensure expiry column is always datetime for consistent filtering
+        if 'expiry' in df.columns:
+            df['expiry'] = pd.to_datetime(df['expiry'])
+        return df
     else:
         st.warning(f"Instrument list for {st.session_state.broker} not implemented.")
         return pd.DataFrame()
@@ -262,12 +232,7 @@ def get_instrument_token(symbol, instrument_df, exchange='NSE'):
 
 @st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
-    """
-    Fetches historical data from the broker's API.
-    
-    Note: For `yfinance`, a different function is used. This function
-    is specific to the connected broker (KiteConnect).
-    """
+    """Fetches historical data from the broker's API."""
     client = get_broker_client()
     if not client or not instrument_token: return pd.DataFrame()
     if st.session_state.broker == "Zerodha":
@@ -275,17 +240,22 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         if not from_date:
             days_to_subtract = {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
             from_date = to_date - timedelta(days=days_to_subtract.get(period, 1825))
+        
+        # FIX: Prevent from_date > to_date error
+        if from_date > to_date:
+            from_date = to_date - timedelta(days=1)
+            
         try:
             records = client.historical_data(instrument_token, from_date, to_date, interval)
             df = pd.DataFrame(records)
             if df.empty: return df
             df.set_index('date', inplace=True)
             df.index = pd.to_datetime(df.index)
-            # Apply all technical indicators with a single try-except block
+            
             try:
                 df.ta.adx(append=True); df.ta.apo(append=True); df.ta.aroon(append=True); df.ta.atr(append=True); df.ta.bbands(append=True); df.ta.cci(append=True); df.ta.chop(append=True); df.ta.cksp(append=True); df.ta.cmf(append=True); df.ta.coppock(append=True); df.ta.ema(length=50, append=True); df.ta.ema(length=200, append=True); df.ta.fisher(append=True); df.ta.kst(append=True); df.ta.macd(append=True); df.ta.mfi(append=True); df.ta.mom(append=True); df.ta.obv(append=True); df.ta.rsi(append=True); df.ta.stoch(append=True); df.ta.supertrend(append=True); df.ta.willr(append=True)
-            except Exception as e:
-                st.toast(f"Could not calculate some indicators: {e}", icon="⚠️")
+            except Exception:
+                pass # Silently fail
             return df
         except Exception as e:
             st.error(f"Kite API Error (Historical): {e}")
@@ -323,9 +293,7 @@ def get_watchlist_data(symbols_with_exchange):
 
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df, expiry_date=None):
-    """
-    Fetches and processes the options chain for a given underlying.
-    """
+    """Fetches and processes the options chain for a given underlying."""
     client = get_broker_client()
     if not client or instrument_df.empty: return pd.DataFrame(), None, 0.0, []
     if st.session_state.broker == "Zerodha":
@@ -338,15 +306,21 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
             underlying_ltp = client.ltp(underlying_instrument_name)[underlying_instrument_name]['last_price']
         except Exception:
             underlying_ltp = 0.0
+        
         options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
         if options.empty: return pd.DataFrame(), None, underlying_ltp, []
-        expiries = sorted(pd.to_datetime(options['expiry'].unique()))
-        three_months_later = datetime.now() + timedelta(days=90)
-        available_expiries = [e for e in expiries if datetime.now().date() <= e.date() <= three_months_later.date()]
-        if not available_expiries: return pd.DataFrame(), None, underlying_ltp, []
-        if not expiry_date: expiry_date = available_expiries[0]
         
-        chain_df = options[options['expiry'] == expiry_date].sort_values(by='strike')
+        expiries = sorted(options['expiry'].dt.date.unique())
+        three_months_later = datetime.now().date() + timedelta(days=90)
+        available_expiries = [e for e in expiries if datetime.now().date() <= e <= three_months_later]
+        if not available_expiries: return pd.DataFrame(), None, underlying_ltp, []
+        
+        if not expiry_date: 
+            expiry_date = available_expiries[0]
+        else: # ensure expiry_date is a date object
+             expiry_date = pd.to_datetime(expiry_date).date()
+        
+        chain_df = options[options['expiry'].dt.date == expiry_date].sort_values(by='strike')
         ce_df = chain_df[chain_df['instrument_type'] == 'CE'].copy()
         pe_df = chain_df[chain_df['instrument_type'] == 'PE'].copy()
         instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
@@ -356,17 +330,14 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
             quotes = client.quote(instruments_to_fetch)
             ce_df['LTP'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
             pe_df['LTP'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
+            ce_df['oi'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
+            pe_df['oi'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
             
-            ce_df['open_interest_CE'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
-            ce_df['open_interest_CE_change'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('net_change_oi', 0))
-            pe_df['open_interest_PE'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
-            pe_df['open_interest_PE_change'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('net_change_oi', 0))
-
-            final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP', 'open_interest_CE', 'open_interest_CE_change']], 
-                                   pe_df[['tradingsymbol', 'strike', 'LTP', 'open_interest_PE', 'open_interest_PE_change']], 
-                                   on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
+            final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP', 'oi']], 
+                                   pe_df[['tradingsymbol', 'strike', 'LTP', 'oi']], 
+                                   on='strike', suffixes=('_CE', '_PE')).rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'oi_CE': 'CALL OI', 'oi_PE': 'PUT OI', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
             
-            return final_chain[['CALL', 'CALL LTP', 'open_interest_CE', 'STRIKE', 'PUT LTP', 'open_interest_PE', 'PUT', 'open_interest_CE_change', 'open_interest_PE_change']], expiry_date, underlying_ltp, available_expiries
+            return final_chain[['CALL', 'CALL LTP', 'CALL OI', 'STRIKE', 'PUT LTP', 'PUT OI', 'PUT']], expiry_date, underlying_ltp, available_expiries
         except Exception as e:
             st.error(f"Failed to fetch real-time OI data: {e}")
             return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
@@ -450,40 +421,10 @@ def fetch_and_analyze_news(query=None):
             continue
     return pd.DataFrame(all_news)
 
-def create_features(df, ticker):
-    """Creates features for the ML model from a historical DataFrame."""
-    df_feat = df.copy()
-    df_feat.columns = [col.lower() for col in df_feat.columns]
-    df_feat['dayofweek'] = df_feat.index.dayofweek
-    df_feat['quarter'] = df_feat.index.quarter
-    df_feat['month'] = df_feat.index.month
-    df_feat['year'] = df_feat.index.year
-    df_feat['dayofyear'] = df_feat.index.dayofyear
-    for lag in range(1, 6):
-        df_feat[f'lag_{lag}'] = df_feat['close'].shift(lag)
-    df_feat['rolling_mean_7'] = df_feat['close'].rolling(window=7).mean()
-    df_feat['rolling_std_7'] = df_feat['close'].rolling(window=7).std()
-    
-    # Calculate technical indicators and handle potential errors
-    for indicator in [ta.rsi, ta.macd, ta.bbands, ta.atr]:
-        try:
-            indicator(df_feat, append=True)
-        except Exception:
-            pass # Silently fail if an indicator cannot be computed
-
-    news_df = fetch_and_analyze_news(ticker)
-    if not news_df.empty:
-        news_df['date'] = pd.to_datetime(news_df['date'])
-        daily_sentiment = news_df.groupby(news_df['date'].dt.date)['sentiment'].mean().to_frame()
-        daily_sentiment.index = pd.to_datetime(daily_sentiment.index)
-        df_feat = df_feat.merge(daily_sentiment, left_index=True, right_index=True, how='left')
-        df_feat['sentiment'] = df_feat['sentiment'].fillna(method='ffill')
-        df_feat['sentiment_rolling_3d'] = df_feat['sentiment'].rolling(window=3, min_periods=1).mean()
-    else:
-        df_feat['sentiment'] = 0
-        df_feat['sentiment_rolling_3d'] = 0
-    df_feat.bfill(inplace=True); df_feat.ffill(inplace=True); df_feat.dropna(inplace=True)
-    return df_feat
+def mean_absolute_percentage_error(y_true, y_pred):
+    """Custom MAPE function to remove sklearn dependency."""
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
 @st.cache_data(show_spinner=False)
 def train_seasonal_arima_model(_data, forecast_steps=30):
@@ -541,7 +482,8 @@ def load_and_combine_data(instrument_name):
         response = requests.get(source_info['github_url'])
         response.raise_for_status()
         hist_df = pd.read_csv(io.StringIO(response.text))
-        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed', dayfirst=True)
+        # FIX: Ensure consistent datetime parsing and make timezone-naive
+        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed', dayfirst=True).dt.tz_localize(None)
         hist_df.set_index('Date', inplace=True)
         hist_df.columns = [col.lower() for col in hist_df.columns]
         for col in ['open', 'high', 'low', 'close', 'volume']:
@@ -559,17 +501,24 @@ def load_and_combine_data(instrument_name):
         if token:
             from_date = hist_df.index.max().date() if not hist_df.empty else datetime.now().date() - timedelta(days=365)
             live_df = get_historical_data(token, 'day', from_date=from_date)
-            if not live_df.empty: live_df.columns = [col.lower() for col in live_df.columns]
+            if not live_df.empty: 
+                live_df.index = live_df.index.tz_convert(None) # Make timezone-naive
+                live_df.columns = [col.lower() for col in live_df.columns]
     elif source_info.get('exchange') == 'yfinance':
-        # Use yfinance for non-Indian indices
         try:
             live_df = yf.download(source_info['tradingsymbol'], period="max")
-            if not live_df.empty: live_df.columns = [col.lower() for col in live_df.columns]
+            if not live_df.empty: 
+                live_df.index = live_df.index.tz_localize(None) # Make timezone-naive
+                live_df.columns = [col.lower() for col in live_df.columns]
         except Exception as e:
             st.error(f"Failed to load yfinance data: {e}")
             live_df = pd.DataFrame()
             
     if not live_df.empty:
+        # FIX: Ensure both dataframes have timezone-naive indices before combining
+        hist_df.index = hist_df.index.tz_localize(None) if hist_df.index.tz is not None else hist_df.index
+        live_df.index = live_df.index.tz_localize(None) if live_df.index.tz is not None else live_df.index
+        
         combined_df = pd.concat([hist_df, live_df])
         combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
         combined_df.sort_index(inplace=True)
@@ -827,28 +776,17 @@ def get_bmp_score_and_label(nifty_change, sensex_change, vix_value, lookback_df)
     bmp_score = min(100, max(0, bmp_score))
 
     if bmp_score >= 80:
-        label, color = "Bharat Udaan", "#00b300"
+        label, color = "Bharat Udaan (Very Bullish)", "#00b300"
     elif bmp_score >= 60:
-        label, color = "Bharat Pragati", "#33cc33"
+        label, color = "Bharat Pragati (Bullish)", "#33cc33"
     elif bmp_score >= 40:
-        label, color = "Bharat Santulan", "#ffcc00"
+        label, color = "Bharat Santulan (Neutral)", "#ffcc00"
     elif bmp_score >= 20:
-        label, color = "Bharat Sanket", "#ff6600"
+        label, color = "Bharat Sanket (Bearish)", "#ff6600"
     else:
-        label, color = "Bharat Mandhi", "#ff0000"
+        label, color = "Bharat Mandhi (Very Bearish)", "#ff0000"
 
     return bmp_score, label, color
-
-def get_bmp_analysis(nifty_change, sensex_change, vix_value, lookback_df):
-    """Provides a textual breakdown of BMP components."""
-    if lookback_df.empty or len(lookback_df) < 30:
-        return "Not enough data to provide a detailed analysis."
-
-    nifty_contribution = "positive" if nifty_change > lookback_df['nifty_change'].mean() else "negative"
-    sensex_contribution = "positive" if sensex_change > lookback_df['sensex_change'].mean() else "negative"
-    vix_contribution = "calming" if vix_value < lookback_df['vix_value'].mean() else "stressful"
-
-    return f"Today's BMP movement is driven by a {nifty_contribution} NIFTY trend and a {sensex_contribution} SENSEX trend. The VIX indicates a {vix_contribution} market sentiment."
 
 @st.cache_data(ttl=300)
 def get_nifty50_constituents(instrument_df):
@@ -857,7 +795,6 @@ def get_nifty50_constituents(instrument_df):
         return pd.DataFrame()
     
     # A hardcoded list of NIFTY 50 stocks for stability
-    # In a production environment, this list should be fetched dynamically
     nifty50_symbols = [
         'RELIANCE', 'HDFCBANK', 'ICICIBANK', 'INFY', 'TCS', 'HINDUNILVR', 'ITC', 
         'LT', 'KOTAKBANK', 'SBIN', 'BAJFINANCE', 'BHARTIARTL', 'ASIANPAINT', 
@@ -897,7 +834,6 @@ def create_nifty_heatmap(instrument_df):
     full_data = pd.merge(live_data, constituents_df, left_on='Ticker', right_on='Symbol', how='left')
     full_data['size'] = full_data['Price'].astype(float) * 1000 # Using price as a proxy for size
     
-    # Fixed: Removed invalid hoverinfo parameter
     fig = go.Figure(go.Treemap(
         labels=full_data['Ticker'],
         parents=[''] * len(full_data),
@@ -922,7 +858,7 @@ def get_gift_nifty_data():
     """Fetches GIFT NIFTY data using a more reliable yfinance ticker."""
     try:
         # Using Nifty 50 Futures as a more reliable proxy for GIFT Nifty
-        data = yf.download("^NSEI", period="1d", interval="1m")
+        data = yf.download("IN=F", period="1d", interval="1m")
         if not data.empty:
             return data
     except Exception:
@@ -968,6 +904,14 @@ def page_dashboard():
                 bmp_score, bmp_label, bmp_color = get_bmp_score_and_label(nifty_row['% Change'], sensex_row['% Change'], vix_row['Price'], lookback_data)
                 
                 st.markdown(f'<div class="metric-card" style="border-color:{bmp_color};"><h3>{bmp_score:.2f}</h3><p style="color:{bmp_color}; font-weight:bold;">{bmp_label}</p><small>Proprietary score from NIFTY, SENSEX, and India VIX.</small></div>', unsafe_allow_html=True)
+                with st.expander("What do the BMP scores mean?"):
+                    st.markdown("""
+                    - **80-100 (Bharat Udaan):** Very Strong Bullish Momentum.
+                    - **60-80 (Bharat Pragati):** Moderately Bullish Sentiment.
+                    - **40-60 (Bharat Santulan):** Neutral or Sideways Market.
+                    - **20-40 (Bharat Sanket):** Moderately Bearish Sentiment.
+                    - **0-20 (Bharat Mandhi):** Very Strong Bearish Momentum.
+                    """)
             else:
                 st.info("BMP data is loading...")
         else:
@@ -1316,8 +1260,8 @@ def page_fo_analytics():
                         'CALL LTP': '₹{:.2f}',
                         'PUT LTP': '₹{:.2f}',
                         'STRIKE': '₹{:.0f}',
-                        'open_interest_CE': '{:,.0f}',
-                        'open_interest_PE': '{:,.0f}'
+                        'CALL OI': '{:,.0f}',
+                        'PUT OI': '{:,.0f}'
                     }),
                     use_container_width=True,
                     hide_index=True
@@ -1329,9 +1273,9 @@ def page_fo_analytics():
         st.subheader("Put-Call Ratio Analysis")
         
         chain_df, _, _, _ = get_options_chain(st.session_state.get('underlying_pcr', "NIFTY"), instrument_df)
-        if not chain_df.empty and 'open_interest_CE' in chain_df.columns:
-            total_ce_oi = chain_df['open_interest_CE'].sum()
-            total_pe_oi = chain_df['open_interest_PE'].sum()
+        if not chain_df.empty and 'CALL OI' in chain_df.columns:
+            total_ce_oi = chain_df['CALL OI'].sum()
+            total_pe_oi = chain_df['PUT OI'].sum()
             pcr = total_pe_oi / total_ce_oi if total_ce_oi > 0 else 0
             
             col1, col2, col3 = st.columns(3)
@@ -1355,7 +1299,12 @@ def page_fo_analytics():
 
         # Ensure chain_df, expiry, and ltp are available from Tab 1's selection
         if 'chain_df' in locals() and not chain_df.empty and expiry and underlying_ltp > 0:
-            T = (expiry.date() - datetime.now().date()).days / 365.0
+            # FIX: Ensure expiry is a datetime object before using .date()
+            if isinstance(expiry, datetime):
+                T = (expiry.date() - datetime.now().date()).days / 365.0
+            else: # It's already a date object
+                T = (expiry - datetime.now().date()).days / 365.0
+
             r = 0.07  # Assume a risk-free rate of 7%
 
             # Calculate IV for calls and puts
@@ -1377,8 +1326,8 @@ def page_fo_analytics():
             fig.add_trace(go.Scatter(x=chain_df['STRIKE'], y=chain_df['IV_PE'], mode='lines+markers', name='Put IV', line=dict(color='magenta')), secondary_y=False)
             
             # Add OI traces
-            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['open_interest_CE'], name='Call OI', marker_color='rgba(0, 255, 255, 0.4)'), secondary_y=True)
-            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['open_interest_PE'], name='Put OI', marker_color='rgba(255, 0, 255, 0.4)'), secondary_y=True)
+            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['CALL OI'], name='Call OI', marker_color='rgba(0, 255, 255, 0.4)'), secondary_y=True)
+            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['PUT OI'], name='Put OI', marker_color='rgba(255, 0, 255, 0.4)'), secondary_y=True)
 
             fig.update_layout(
                 title_text=f"{underlying} IV & OI Profile for {expiry.strftime('%d %b %Y')}",
@@ -1423,6 +1372,7 @@ def page_forecasting_ml():
                         'ml_conf_int_df': conf_int_df,
                         'ml_instrument_name': instrument_name,
                         'ml_historical_data': data,
+                        'ml_duration_key': duration_key
                     })
                     st.success("Model trained successfully!")
 
@@ -1435,6 +1385,7 @@ def page_forecasting_ml():
             backtest_df = st.session_state.get('ml_backtest_df')
             conf_int_df = st.session_state.get('ml_conf_int_df')
             data = st.session_state.get('ml_historical_data')
+            duration_key = st.session_state.get('ml_duration_key')
 
             if forecast_df is not None and backtest_df is not None and data is not None and conf_int_df is not None:
                 # --- Combined Chart ---
@@ -1444,25 +1395,24 @@ def page_forecasting_ml():
                 st.plotly_chart(fig, use_container_width=True)
 
                 # --- Performance Metrics ---
-                st.subheader("Model Performance (Backtest on Full History)")
+                st.subheader("Model Performance (Backtest)")
                 
-                mape = mean_absolute_percentage_error(backtest_df['Actual'], backtest_df['Predicted']) * 100
-                total_return = (backtest_df['Actual'].iloc[-1] / backtest_df['Actual'].iloc[0] - 1) * 100
+                backtest_durations = {"Full History": len(backtest_df), "Last Year": 252, "6 Months": 126, "3 Months": 63}
+                backtest_duration_key = st.selectbox("Select Backtest Period", list(backtest_durations.keys()))
+                backtest_period = backtest_durations[backtest_duration_key]
                 
-                cum_returns = (1 + (backtest_df['Actual'].pct_change().fillna(0))).cumprod()
-                peak = cum_returns.cummax()
-                drawdown = (cum_returns - peak) / peak
-                max_drawdown = drawdown.min()
+                display_df = backtest_df.tail(backtest_period)
 
-                metric_cols = st.columns(3)
-                metric_cols[0].metric("Accuracy", f"{100 - mape:.2f}%")
-                metric_cols[1].metric("Total Return (Actual)", f"{total_return:.2f}%")
-                metric_cols[2].metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
+                mape = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted'])
                 
+                metric_cols = st.columns(2)
+                metric_cols[0].metric(f"Accuracy ({backtest_duration_key})", f"{100 - mape:.2f}%")
+                metric_cols[1].metric(f"MAPE ({backtest_duration_key})", f"{mape:.2f}%")
+
                 # --- Forecast Data Table ---
                 with st.expander(f"View {duration_key} Forecast Data"):
-                    display_df = forecast_df.join(conf_int_df)
-                    st.dataframe(display_df.style.format("₹{:.2f}"), use_container_width=True)
+                    display_df_forecast = forecast_df.join(conf_int_df)
+                    st.dataframe(display_df_forecast.style.format("₹{:.2f}"), use_container_width=True)
             else:
                 st.info("Train a model to see the forecast results.")
         else:
@@ -1750,45 +1700,155 @@ def page_basket_orders():
         else:
             st.info("Your basket is empty. Add orders using the form on the left.")
 
-# Additional missing page functions
+def run_backtest(strategy_func, data, **params):
+    """Runs a backtest for a given strategy function."""
+    df = data.copy()
+    signals = strategy_func(df, **params)
+    
+    initial_capital = 100000.0
+    capital = initial_capital
+    position = 0
+    portfolio_value = []
+    
+    for i in range(len(df)):
+        if signals[i] == 'BUY' and position == 0:
+            position = capital / df['close'][i]
+            capital = 0
+        elif signals[i] == 'SELL' and position > 0:
+            capital = position * df['close'][i]
+            position = 0
+        
+        current_value = capital + (position * df['close'][i])
+        portfolio_value.append(current_value)
+        
+    pnl = (portfolio_value[-1] - initial_capital) / initial_capital * 100
+    
+    return pnl, pd.Series(portfolio_value, index=df.index)
+
+def rsi_strategy(df, rsi_period=14, rsi_overbought=70, rsi_oversold=30):
+    """Simple RSI Crossover Strategy"""
+    rsi = ta.rsi(df['close'], length=rsi_period)
+    signals = [''] * len(df)
+    for i in range(1, len(df)):
+        if rsi[i-1] < rsi_oversold and rsi[i] > rsi_oversold:
+            signals[i] = 'BUY'
+        elif rsi[i-1] > rsi_overbought and rsi[i] < rsi_overbought:
+            signals[i] = 'SELL'
+    return signals
+
+def macd_strategy(df, fast=12, slow=26, signal=9):
+    """MACD Crossover Strategy"""
+    macd = ta.macd(df['close'], fast=fast, slow=slow, signal=signal)
+    signals = [''] * len(df)
+    for i in range(1, len(df)):
+        if macd[f'MACD_{fast}_{slow}_{signal}'][i-1] < macd[f'MACDs_{fast}_{slow}_{signal}'][i-1] and macd[f'MACD_{fast}_{slow}_{signal}'][i] > macd[f'MACDs_{fast}_{slow}_{signal}'][i]:
+            signals[i] = 'BUY'
+        elif macd[f'MACD_{fast}_{slow}_{signal}'][i-1] > macd[f'MACDs_{fast}_{slow}_{signal}'][i-1] and macd[f'MACD_{fast}_{slow}_{signal}'][i] < macd[f'MACDs_{fast}_{slow}_{signal}'][i]:
+            signals[i] = 'SELL'
+    return signals
+
+def supertrend_strategy(df, period=7, multiplier=3):
+    """Supertrend Strategy"""
+    supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=period, multiplier=multiplier)
+    signals = [''] * len(df)
+    for i in range(1, len(df)):
+        if df['close'][i] > supertrend[f'SUPERT_{period}_{multiplier}.0'][i-1] and df['close'][i-1] <= supertrend[f'SUPERT_{period}_{multiplier}.0'][i-1]:
+            signals[i] = 'BUY'
+        elif df['close'][i] < supertrend[f'SUPERT_{period}_{multiplier}.0'][i-1] and df['close'][i-1] >= supertrend[f'SUPERT_{period}_{multiplier}.0'][i-1]:
+            signals[i] = 'SELL'
+    return signals
+
 def page_algo_strategy_maker():
-    """Algo Strategy Maker page."""
+    """Algo Strategy Maker page with pre-built, backtestable, and executable strategies."""
     display_header()
-    st.title("Algo Strategy Maker")
-    st.info("Create and backtest algorithmic trading strategies.")
-    
-    col1, col2 = st.columns([1, 1])
-    
+    st.title("Algo Strategy Hub")
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Connect to a broker to use the Algo Strategy Hub.")
+        return
+
+    st.info("Select a pre-built strategy, configure its parameters, and run a backtest on historical data. You can then place trades based on the latest signal.", icon="🤖")
+
+    col1, col2 = st.columns([1, 2])
+
     with col1:
         st.subheader("Strategy Configuration")
-        strategy_name = st.text_input("Strategy Name", "My Strategy")
         
-        # Simple strategy builder
-        st.subheader("Entry Conditions")
-        entry_indicator = st.selectbox("Entry Indicator", ["RSI", "MACD", "Moving Average"])
-        entry_condition = st.selectbox("Condition", ["Above", "Below", "Crosses Above", "Crosses Below"])
-        entry_value = st.number_input("Value", value=50.0)
+        strategy_options = {
+            "RSI Crossover": rsi_strategy,
+            "MACD Crossover": macd_strategy,
+            "Supertrend Follower": supertrend_strategy,
+        }
+        selected_strategy_name = st.selectbox("Select a Strategy", list(strategy_options.keys()))
         
-        st.subheader("Exit Conditions")
-        exit_type = st.radio("Exit Type", ["Stop Loss", "Take Profit", "Trailing Stop"])
-        exit_value = st.number_input("Exit Value (%)", value=5.0)
+        # --- Instrument Selection ---
+        st.markdown("**Instrument**")
+        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'NFO', 'MCX', 'CDS'])]['tradingsymbol'].unique()
+        symbol = st.selectbox("Select Symbol", all_symbols, index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0)
         
-    with col2:
-        st.subheader("Backtest Results")
-        st.info("Connect your strategy logic here for backtesting.")
-        
-        # Mock results for demonstration
-        if st.button("Run Backtest"):
-            with st.spinner("Running backtest..."):
-                a_time.sleep(2) # Simulate backtesting process
-                st.success("Backtest completed!")
-            
-                metrics_col1, metrics_col2 = st.columns(2)
-                metrics_col1.metric("Total Return", "15.2%", "2.1%")
-                metrics_col1.metric("Win Rate", "68%")
-                metrics_col2.metric("Sharpe Ratio", "1.42")
-                metrics_col2.metric("Max Drawdown", "-8.5%")
+        # --- Strategy Parameters ---
+        st.markdown("**Parameters**")
+        params = {}
+        if selected_strategy_name == "RSI Crossover":
+            params['rsi_period'] = st.slider("RSI Period", 5, 30, 14)
+            params['rsi_overbought'] = st.slider("RSI Overbought", 60, 90, 70)
+            params['rsi_oversold'] = st.slider("RSI Oversold", 10, 40, 30)
+        elif selected_strategy_name == "MACD Crossover":
+            params['fast'] = st.slider("Fast Period", 5, 20, 12)
+            params['slow'] = st.slider("Slow Period", 20, 50, 26)
+            params['signal'] = st.slider("Signal Period", 5, 20, 9)
+        elif selected_strategy_name == "Supertrend Follower":
+            params['period'] = st.slider("ATR Period", 5, 20, 7)
+            params['multiplier'] = st.slider("Multiplier", 1.0, 5.0, 3.0, 0.5)
 
+
+        # --- Trade Execution ---
+        st.markdown("**Trade Execution**")
+        quantity = st.number_input("Trade Quantity", min_value=1, value=1)
+        
+        run_button = st.button("Run Backtest & Get Signal", use_container_width=True, type="primary")
+
+    with col2:
+        if run_button:
+            with st.spinner(f"Running backtest for {selected_strategy_name} on {symbol}..."):
+                exchange = instrument_df[instrument_df['tradingsymbol'] == symbol].iloc[0]['exchange']
+                token = get_instrument_token(symbol, instrument_df, exchange=exchange)
+                data = get_historical_data(token, 'day', period='1y')
+                
+                if not data.empty and len(data) > 50: # Ensure enough data for indicators
+                    pnl, portfolio_curve = run_backtest(strategy_options[selected_strategy_name], data, **params)
+                    latest_signal = strategy_options[selected_strategy_name](data, **params)[-1]
+
+                    st.session_state['backtest_results'] = {
+                        'pnl': pnl,
+                        'curve': portfolio_curve,
+                        'signal': latest_signal,
+                        'symbol': symbol,
+                        'quantity': quantity
+                    }
+                else:
+                    st.error("Could not fetch enough historical data to run the backtest.")
+                    if 'backtest_results' in st.session_state:
+                        del st.session_state['backtest_results']
+
+        if 'backtest_results' in st.session_state:
+            results = st.session_state['backtest_results']
+            st.subheader("Backtest Results")
+            st.metric("Total P&L (1 Year)", f"{results['pnl']:.2f}%")
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=results['curve'].index, y=results['curve'], mode='lines', name='Portfolio Value'))
+            fig.update_layout(title="Portfolio Growth Over 1 Year", yaxis_title="Portfolio Value (₹)")
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.subheader("Live Signal & Trading")
+            signal = results['signal']
+            color = "green" if signal == "BUY" else "red" if signal == "SELL" else "orange"
+            st.markdown(f"### Latest Signal: <span style='color:{color};'>{signal if signal else 'HOLD'}</span>", unsafe_allow_html=True)
+
+            if signal in ["BUY", "SELL"]:
+                if st.button(f"Place {signal} Order for {results['quantity']} of {results['symbol']}", use_container_width=True):
+                    place_order(instrument_df, results['symbol'], results['quantity'], "MARKET", signal, "MIS")
 
 @st.cache_data(ttl=3600)
 def run_scanner(instrument_df, scanner_type, holdings_df=None):
@@ -1971,8 +2031,12 @@ def page_option_strategy_builder():
             option_type = leg_cols[1].selectbox("Type", ["Call", "Put"])
             
             # Get strikes for selected expiry
-            expiry_dt = datetime.strptime(expiry_date, "%d %b %Y")
-            options = instrument_df[(instrument_df['name'] == underlying) & (instrument_df['expiry'] == expiry_dt) & (instrument_df['instrument_type'] == option_type[0])]
+            expiry_dt = datetime.strptime(expiry_date, "%d %b %Y").date()
+            options = instrument_df[
+                (instrument_df['name'] == underlying) & 
+                (instrument_df['expiry'].dt.date == expiry_dt) & 
+                (instrument_df['instrument_type'] == option_type[0])
+            ]
             
             if not options.empty:
                 strikes = sorted(options['strike'].unique())
@@ -2481,7 +2545,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant & Journal", "AI Discovery Engine"]:
+    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant & Journal", "AI Discovery Engine", "Algo Strategy Maker"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
     pages[st.session_state.terminal_mode][selection]()
