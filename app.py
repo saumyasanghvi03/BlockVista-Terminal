@@ -165,6 +165,46 @@ def display_header():
 
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
 
+def display_overnight_changes_bar():
+    """Displays a notification bar with overnight market changes."""
+    st.markdown("""
+    <style>
+    .notification-bar {
+        position: fixed;
+        top: 55px; /* Adjust based on header height */
+        left: 0;
+        width: 100%;
+        background-color: #2c3e50;
+        color: white;
+        padding: 5px 10px;
+        z-index: 999;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 0.9rem;
+    }
+    .notification-bar span {
+        margin: 0 15px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    overnight_tickers = {"GIFT NIFTY": "IN=F", "S&P 500 Futures": "ES=F", "NASDAQ Futures": "NQ=F"}
+    data = get_global_indices_data(list(overnight_tickers.values()))
+    
+    if not data.empty:
+        bar_html = "<div class='notification-bar'>"
+        for name, ticker in overnight_tickers.items():
+            row = data[data['Ticker'] == ticker]
+            if not row.empty:
+                price = row.iloc[0]['Price']
+                change = row.iloc[0]['% Change']
+                if not np.isnan(price):
+                    color = '#28a745' if change > 0 else '#FF4B4B'
+                    bar_html += f"<span>{name}: {price:,.2f} <span style='color:{color};'>({change:+.2f}%)</span></span>"
+        bar_html += "</div>"
+        st.markdown(bar_html, unsafe_allow_html=True)
+
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_int_df=None):
@@ -424,7 +464,7 @@ def fetch_and_analyze_news(query=None):
 def mean_absolute_percentage_error(y_true, y_pred):
     """Custom MAPE function to remove sklearn dependency."""
     y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+    return np.mean(np.abs((y_true - y_pred) / y_true))
 
 @st.cache_data(show_spinner=False)
 def train_seasonal_arima_model(_data, forecast_steps=30):
@@ -1067,7 +1107,7 @@ def page_advanced_charting():
     
     # Multi-chart layout selector
     st.subheader("Chart Layout")
-    layout_option = st.radio("Select Layout", ["Single Chart", "2 Charts", "4 Charts", "6 Charts", "8 Charts"], horizontal=True, label_visibility="collapsed")
+    layout_option = st.radio("Select Layout", ["Single Chart", "2 Charts", "4 Charts", "6 Charts", "8 Charts"], horizontal=True)
     
     # Map layout options to actual chart counts
     chart_counts = {
@@ -1403,7 +1443,7 @@ def page_forecasting_ml():
                 
                 display_df = backtest_df.tail(backtest_period)
 
-                mape = np.mean(np.abs((display_df['Actual'] - display_df['Predicted']) / display_df['Actual'])) * 100
+                mape = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted'])
                 
                 metric_cols = st.columns(2)
                 metric_cols[0].metric(f"Accuracy ({backtest_duration_key})", f"{100 - mape:.2f}%")
