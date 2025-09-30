@@ -1067,7 +1067,7 @@ def page_advanced_charting():
     
     # Multi-chart layout selector
     st.subheader("Chart Layout")
-    layout_option = st.radio("Select Layout", ["Single Chart", "2 Charts", "4 Charts", "6 Charts", "8 Charts"], horizontal=True)
+    layout_option = st.radio("Select Layout", ["Single Chart", "2 Charts", "4 Charts", "6 Charts", "8 Charts"], horizontal=True, label_visibility="collapsed")
     
     # Map layout options to actual chart counts
     chart_counts = {
@@ -1403,7 +1403,7 @@ def page_forecasting_ml():
                 
                 display_df = backtest_df.tail(backtest_period)
 
-                mape = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted'])
+                mape = np.mean(np.abs((display_df['Actual'] - display_df['Predicted']) / display_df['Actual'])) * 100
                 
                 metric_cols = st.columns(2)
                 metric_cols[0].metric(f"Accuracy ({backtest_duration_key})", f"{100 - mape:.2f}%")
