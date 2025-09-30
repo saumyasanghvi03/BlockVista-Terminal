@@ -2492,6 +2492,7 @@ def page_economic_calendar():
 
     st.dataframe(calendar_df, use_container_width=True, hide_index=True)
 
+
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
 def get_user_secret(user_profile):
