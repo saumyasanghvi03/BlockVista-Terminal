@@ -341,12 +341,14 @@ def display_overnight_changes_bar():
     
     if not data.empty:
         bar_html = "<div class='notification-bar'>"
-        for index, row in data.iterrows():
-            price = row['Price']
-            change = row['% Change']
-            if not np.isnan(price):
-                color = 'var(--green)' if change > 0 else 'var(--red)'
-                bar_html += f"<span>{row['Ticker']}: {price:,.2f} <span style='color:{color};'>({change:+.2f}%)</span></span>"
+        for name, ticker in overnight_tickers.items():
+            row = data[data['Ticker'] == name]
+            if not row.empty:
+                price = row.iloc[0]['Price']
+                change = row.iloc[0]['% Change']
+                if not np.isnan(price):
+                    color = 'var(--green)' if change > 0 else 'var(--red)'
+                    bar_html += f"<span>{name}: {price:,.2f} <span style='color:{color};'>({change:+.2f}%)</span></span>"
         bar_html += "</div>"
         st.markdown(bar_html, unsafe_allow_html=True)
 
@@ -471,7 +473,7 @@ def get_watchlist_data(symbols_with_exchange):
                     watchlist.append({'Ticker': item['symbol'], 'Exchange': item['exchange'], 'Price': last_price, 'Change': change, '% Change': pct_change})
             return pd.DataFrame(watchlist)
         except Exception as e:
-            st.toast(f"Error fetching watchlist data.", icon="⚠️")
+            st.toast(f"Error fetching watchlist data: {e}", icon="⚠️")
             return pd.DataFrame()
     else:
         st.warning(f"Watchlist for {st.session_state.broker} not implemented.")
@@ -571,10 +573,10 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                 exchange = instrument.iloc[0]['exchange']
 
             order_id = client.place_order(tradingsymbol=symbol.upper(), exchange=exchange, transaction_type=transaction_type, quantity=quantity, order_type=order_type, product=product, variety=client.VARIETY_REGULAR, price=price)
-            st.toast(f"Order placed successfully! ID: {order_id}")
+            st.toast(f"✅ Order placed successfully! ID: {order_id}", icon="🎉")
             st.session_state.order_history.insert(0, {"id": order_id, "symbol": symbol, "qty": quantity, "type": transaction_type, "status": "Success"})
         except Exception as e:
-            st.toast(f"Order failed: {e}", icon="🔥")
+            st.toast(f"❌ Order failed: {e}", icon="🔥")
             st.session_state.order_history.insert(0, {"id": "N/A", "symbol": symbol, "qty": quantity, "type": transaction_type, "status": f"Failed: {e}"})
     else:
         st.warning(f"Order placement for {st.session_state.broker} not implemented.")
@@ -593,7 +595,6 @@ def fetch_and_analyze_news(query=None):
         "Reuters Business": "http://feeds.reuters.com/reuters/businessNews",
         "Reuters World": "http://feeds.reuters.com/Reuters/worldNews",
         "BBC World": "http://feeds.bbci.co.uk/news/world/rss.xml",
-        "CoinDesk": "https://www.coindesk.com/arc/outboundfeeds/rss/",
         "Cointelegraph": "https://cointelegraph.com/rss"
     }
     all_news = []
@@ -866,35 +867,37 @@ def get_most_active_options(underlying, instrument_df):
         return pd.DataFrame()
         
 @st.cache_data(ttl=60)
-def get_global_indices_data(tickers_dict):
+def get_global_indices_data(tickers):
     """Fetches real-time data for global indices using yfinance."""
-    if not tickers_dict:
+    if not tickers:
         return pd.DataFrame()
+    
     try:
-        # yf.Tickers is more efficient for multiple symbols
-        data_yf = yf.Tickers(list(tickers_dict.values()))
-        
+        # yfinance expects a space-separated string of tickers
+        data_yf = yf.download(list(tickers.values()), period="5d")
+        if data_yf.empty:
+            return pd.DataFrame()
+
         data = []
-        for display_name, ticker_symbol in tickers_dict.items():
-            hist = data_yf.tickers[ticker_symbol].history(period="5d")
+        for ticker_name, yf_ticker_name in tickers.items():
+            # Handle single vs multiple ticker download format
+            if len(tickers) > 1:
+                hist = data_yf.loc[:, (slice(None), yf_ticker_name)]
+                hist.columns = hist.columns.droplevel(1) # Drop the ticker name level
+            else:
+                hist = data_yf
+
             if len(hist) >= 2:
                 last_price = hist['Close'].iloc[-1]
                 prev_close = hist['Close'].iloc[-2]
                 change = last_price - prev_close
                 pct_change = (change / prev_close * 100) if prev_close != 0 else 0
-                data.append({'Ticker': display_name, 'Price': last_price, 'Change': change, '% Change': pct_change})
+                data.append({'Ticker': ticker_name, 'Price': last_price, 'Change': change, '% Change': pct_change})
             else:
-                # Fallback for single API call if Tickers fails
-                single_hist = yf.download(ticker_symbol, period="5d")
-                if len(single_hist) >= 2:
-                     last_price = single_hist['Close'].iloc[-1]
-                     prev_close = single_hist['Close'].iloc[-2]
-                     change = last_price - prev_close
-                     pct_change = (change / prev_close * 100) if prev_close != 0 else 0
-                     data.append({'Ticker': display_name, 'Price': last_price, 'Change': change, '% Change': pct_change})
-                else:
-                    data.append({'Ticker': display_name, 'Price': np.nan, 'Change': np.nan, '% Change': np.nan})
+                data.append({'Ticker': ticker_name, 'Price': np.nan, 'Change': np.nan, '% Change': np.nan})
+
         return pd.DataFrame(data)
+
     except Exception as e:
         st.error(f"Failed to fetch data from yfinance: {e}")
         return pd.DataFrame()
@@ -1117,12 +1120,12 @@ def page_dashboard():
                 if add_col3.form_submit_button("Add"):
                     if new_symbol:
                         if len(active_list) >= 15:
-                            st.toast("Watchlist full (max 15 stocks).")
+                            st.toast("Watchlist full (max 15 stocks).", icon="⚠️")
                         elif not any(d['symbol'] == new_symbol.upper() for d in active_list):
                             active_list.append({'symbol': new_symbol.upper(), 'exchange': new_exchange})
                             st.rerun()
                         else:
-                            st.toast(f"{new_symbol.upper()} is already in this watchlist.")
+                            st.toast(f"{new_symbol.upper()} is already in this watchlist.", icon="⚠️")
             
             # Remove symbol dropdown
             if active_list:
@@ -1148,7 +1151,7 @@ def page_dashboard():
                         place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'BUY', 'MIS')
                     if w_cols[4].button("S", key=f"sell_{row['Ticker']}", use_container_width=True):
                         place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'SELL', 'MIS')
-                    if w_cols[5].button("Del", key=f"del_{row['Ticker']}", use_container_width=True):
+                    if w_cols[5].button("🗑️", key=f"del_{row['Ticker']}", use_container_width=True):
                         st.session_state.watchlists[st.session_state.active_watchlist] = [item for item in active_list if item['symbol'] != row['Ticker']]
                         st.rerun()
                 st.markdown("---")
@@ -1350,79 +1353,14 @@ def page_premarket_pulse():
     news_df = fetch_and_analyze_news()
     if not news_df.empty:
         for _, news in news_df.head(10).iterrows():
-            st.markdown(f"**[{news['title']}]({news['link']})** - *{news['source']}*")
-    else:
-        st.info("News data is loading...")
-        
-@st.cache_data(ttl=900)
-def get_fear_greed_index():
-    """Fetches the latest Crypto Fear & Greed Index."""
-    try:
-        response = requests.get("https://api.alternative.me/fng/?limit=1")
-        response.raise_for_status()
-        data = response.json()['data'][0]
-        return int(data['value']), data['value_classification']
-    except Exception:
-        return None, "Not Available"
-
-def create_fear_greed_gauge(value):
-    """Creates a Plotly gauge for the Fear & Greed Index."""
-    if value is None:
-        return go.Figure()
-
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = value,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': "Fear & Greed Index", 'font': {'size': 24}},
-        gauge = {
-            'axis': {'range': [None, 100], 'tickwidth': 1},
-            'bar': {'color': "rgba(0,0,0,0)"},
-            'steps' : [
-                {'range': [0, 25], 'color': 'red'},
-                {'range': [25, 45], 'color': 'orange'},
-                {'range': [45, 55], 'color': 'yellow'},
-                {'range': [55, 75], 'color': 'lightgreen'},
-                {'range': [75, 100], 'color': 'green'}],
-            'threshold' : {'line': {'color': "white", 'width': 4}, 'thickness': 0.75, 'value': value}
-        }))
-    
-    template = 'plotly_dark' if st.session_state.theme == 'Dark' else 'plotly_white'
-    fig.update_layout(template=template, height=300, margin=dict(l=10, r=10, b=10, t=50))
-    return fig
-
-def page_market_intelligence():
-    """A page for crypto market intelligence, including Fear & Greed index."""
-    display_header()
-    st.title("Crypto Market Intelligence")
-
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        st.subheader("Market Sentiment")
-        fng_value, fng_class = get_fear_greed_index()
-        if fng_value is not None:
-            st.plotly_chart(create_fear_greed_gauge(fng_value), use_container_width=True)
-            st.metric("Current Sentiment", fng_class)
-        else:
-            st.warning("Could not fetch Fear & Greed Index data.")
-
-    with col2:
-        st.subheader("Live Crypto Prices")
-        crypto_tickers = {"Bitcoin": "BTC-USD", "Ethereum": "ETH-USD", "Solana": "SOL-USD"}
-        crypto_data = get_global_indices_data(crypto_tickers)
-        if not crypto_data.empty:
-            for index, row in crypto_data.iterrows():
-                st.metric(label=row['Ticker'], value=f"${row['Price']:,.2f}", delta=f"{row['% Change']:.2f}%")
-        else:
-            st.info("Loading crypto price data...")
-
-    st.markdown("---")
-    st.subheader("Latest Crypto News")
-    news_df = fetch_and_analyze_news(query="crypto")
-    if not news_df.empty:
-        for _, news in news_df.head(10).iterrows():
-            st.markdown(f"**[{news['title']}]({news['link']})** - *{news['source']}*")
+            sentiment_score = news['sentiment']
+            if sentiment_score > 0.2:
+                icon = "🔼"
+            elif sentiment_score < -0.2:
+                icon = "🔽"
+            else:
+                icon = "▶️"
+            st.markdown(f"**{icon} [{news['title']}]({news['link']})** - *{news['source']}*")
     else:
         st.info("News data is loading...")
 
@@ -1544,7 +1482,7 @@ def page_forecasting_ml():
     """A page for advanced ML forecasting with an improved UI and corrected formulas."""
     display_header()
     st.title("Advanced ML Forecasting")
-    st.info("Train a Seasonal ARIMA model to forecast future prices. This is for educational purposes and not financial advice.")
+    st.info("Train a Seasonal ARIMA model to forecast future prices. This is for educational purposes and not financial advice.", icon="🧠")
     
     col1, col2 = st.columns([1, 2])
     
@@ -1967,7 +1905,7 @@ def page_algo_strategy_maker():
         st.info("Connect to a broker to use the Algo Strategy Hub.")
         return
 
-    st.info("Select a pre-built strategy, configure its parameters, and run a backtest on historical data. You can then place trades based on the latest signal.")
+    st.info("Select a pre-built strategy, configure its parameters, and run a backtest on historical data. You can then place trades based on the latest signal.", icon="🤖")
 
     col1, col2 = st.columns([1, 2])
 
@@ -2029,9 +1967,9 @@ def page_algo_strategy_maker():
                 else:
                     st.error("Could not fetch enough historical data to run the backtest.")
                     if 'backtest_results' in st.session_state:
-                        del st.session_state['backtest_results']
+                        st.session_state['backtest_results'] = None
 
-        if 'backtest_results' in st.session_state:
+        if st.session_state.get('backtest_results') is not None:
             results = st.session_state['backtest_results']
             st.subheader("Backtest Results")
             st.metric("Total P&L (1 Year)", f"{results['pnl']:.2f}%")
@@ -2618,10 +2556,91 @@ def page_economic_calendar():
 
     st.dataframe(calendar_df, use_container_width=True, hide_index=True)
 
+@st.cache_data(ttl=300)
+def get_crypto_fear_greed_index():
+    """Fetches the latest crypto Fear & Greed Index."""
+    try:
+        response = requests.get("https://api.alternative.me/fng/?limit=1")
+        response.raise_for_status()
+        data = response.json()['data'][0]
+        return int(data['value']), data['value_classification']
+    except Exception:
+        return None, None
+
+@st.cache_data(ttl=60)
+def get_crypto_prices(tickers):
+    """Fetches live prices for a list of crypto tickers using yfinance."""
+    try:
+        data = yf.download(tickers=tickers, period='1d', interval='1m')
+        if data.empty:
+            return pd.DataFrame()
+
+        prices = []
+        for ticker in tickers:
+            last_price = data['Close'][ticker].iloc[-1]
+            prev_close = data['Open'][ticker].iloc[0]
+            change = last_price - prev_close
+            pct_change = (change / prev_close) * 100 if prev_close != 0 else 0
+            prices.append({'Ticker': ticker, 'Price': last_price, 'Change': change, '% Change': pct_change})
+        return pd.DataFrame(prices)
+    except Exception:
+        return pd.DataFrame()
+
+def page_market_intelligence():
+    """A page for crypto market intelligence."""
+    display_header()
+    st.title("Crypto Market Intelligence")
+
+    col1, col2 = st.columns([1, 1], gap="large")
+
+    with col1:
+        st.subheader("Fear & Greed Index")
+        fng_value, fng_classification = get_crypto_fear_greed_index()
+        
+        if fng_value is not None:
+            fig = go.Figure(go.Indicator(
+                mode = "gauge+number",
+                value = fng_value,
+                title = {'text': f"Current Sentiment: {fng_classification}"},
+                gauge = {
+                    'axis': {'range': [None, 100]},
+                    'bar': {'color': "rgba(0,0,0,0)"},
+                    'steps' : [
+                         {'range': [0, 25], 'color': "red"},
+                         {'range': [25, 45], 'color': "orange"},
+                         {'range': [45, 55], 'color': "yellow"},
+                         {'range': [55, 75], 'color': "lightgreen"},
+                         {'range': [75, 100], 'color': "green"}],
+                }))
+            fig.update_layout(height=300, margin=dict(l=10, r=10, t=50, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Could not fetch Fear & Greed Index.")
+
+    with col2:
+        st.subheader("Major Crypto Prices")
+        crypto_tickers = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD"]
+        crypto_data = get_crypto_prices(crypto_tickers)
+        if not crypto_data.empty:
+            for _, row in crypto_data.iterrows():
+                color = 'var(--green)' if row['Change'] > 0 else 'var(--red)'
+                st.markdown(f"**{row['Ticker']}**: ${row['Price']:,.2f} <span style='color:{color}; font-size: 0.9em;'>({row['% Change']:.2f}%)</span>", unsafe_allow_html=True)
+        else:
+            st.info("Loading crypto prices...")
+            
+    st.markdown("---")
+    st.subheader("Latest Crypto News")
+    crypto_news = fetch_and_analyze_news(query="cryptocurrency")
+    if not crypto_news.empty:
+        for _, news in crypto_news.head(10).iterrows():
+            st.markdown(f"[{news['title']}]({news['link']}) - *{news['source']}*")
+    else:
+        st.info("Loading crypto news...")
+
+
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
-# FIXED: Persistent 2FA secret using user profile hash
 def get_user_secret(user_profile):
     """Generate a persistent secret based on user profile."""
     user_id = user_profile.get('user_id', 'default_user')
@@ -2737,6 +2756,9 @@ def login_page():
 
 def main_app():
     """The main application interface after successful login."""
+    apply_custom_styling()
+    display_overnight_changes_bar()
+    
     # --- 2FA Check ---
     if st.session_state.get('profile'):
         if not st.session_state.get('two_factor_setup_complete'):
@@ -2766,6 +2788,7 @@ def main_app():
         "Cash": {
             "Dashboard": page_dashboard,
             "Premarket Pulse": page_premarket_pulse,
+            "Crypto Market Intelligence": page_market_intelligence,
             "Advanced Charting": page_advanced_charting,
             "Portfolio & Risk": page_portfolio_and_risk,
             "Basket Orders": page_basket_orders,
@@ -2816,3 +2839,4 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
