@@ -14,6 +14,7 @@ from email.utils import mktime_tz, parsedate_tz
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.arima.model import ARIMA
+from sklearn.metrics import mean_absolute_percentage_error
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
