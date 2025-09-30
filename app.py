@@ -12,9 +12,9 @@ import pytz
 import feedparser
 from email.utils import mktime_tz, parsedate_tz
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from sklearn.metrics import mean_absolute_percentage_error
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.arima.model import ARIMA
+from sklearn.metrics import mean_absolute_percentage_error
 import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
@@ -422,41 +422,6 @@ def fetch_and_analyze_news(query=None):
             continue
     return pd.DataFrame(all_news)
 
-def create_features(df, ticker):
-    """Creates features for the ML model from a historical DataFrame."""
-    df_feat = df.copy()
-    df_feat.columns = [col.lower() for col in df_feat.columns]
-    df_feat['dayofweek'] = df_feat.index.dayofweek
-    df_feat['quarter'] = df_feat.index.quarter
-    df_feat['month'] = df_feat.index.month
-    df_feat['year'] = df_feat.index.year
-    df_feat['dayofyear'] = df_feat.index.dayofyear
-    for lag in range(1, 6):
-        df_feat[f'lag_{lag}'] = df_feat['close'].shift(lag)
-    df_feat['rolling_mean_7'] = df_feat['close'].rolling(window=7).mean()
-    df_feat['rolling_std_7'] = df_feat['close'].rolling(window=7).std()
-    
-    # Calculate technical indicators and handle potential errors
-    for indicator in [ta.rsi, ta.macd, ta.bbands, ta.atr]:
-        try:
-            indicator(df_feat, append=True)
-        except Exception:
-            pass # Silently fail if an indicator cannot be computed
-
-    news_df = fetch_and_analyze_news(ticker)
-    if not news_df.empty:
-        news_df['date'] = pd.to_datetime(news_df['date'])
-        daily_sentiment = news_df.groupby(news_df['date'].dt.date)['sentiment'].mean().to_frame()
-        daily_sentiment.index = pd.to_datetime(daily_sentiment.index)
-        df_feat = df_feat.merge(daily_sentiment, left_index=True, right_index=True, how='left')
-        df_feat['sentiment'] = df_feat['sentiment'].fillna(method='ffill')
-        df_feat['sentiment_rolling_3d'] = df_feat['sentiment'].rolling(window=3, min_periods=1).mean()
-    else:
-        df_feat['sentiment'] = 0
-        df_feat['sentiment_rolling_3d'] = 0
-    df_feat.bfill(inplace=True); df_feat.ffill(inplace=True); df_feat.dropna(inplace=True)
-    return df_feat
-
 @st.cache_data(show_spinner=False)
 def train_seasonal_arima_model(_data, forecast_steps=30):
     """Trains a Seasonal ARIMA model for time series forecasting."""
@@ -513,7 +478,8 @@ def load_and_combine_data(instrument_name):
         response = requests.get(source_info['github_url'])
         response.raise_for_status()
         hist_df = pd.read_csv(io.StringIO(response.text))
-        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed', dayfirst=True)
+        # FIX: Ensure consistent datetime parsing and make timezone-naive
+        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed', dayfirst=True).dt.tz_localize(None)
         hist_df.set_index('Date', inplace=True)
         hist_df.columns = [col.lower() for col in hist_df.columns]
         for col in ['open', 'high', 'low', 'close', 'volume']:
@@ -531,17 +497,24 @@ def load_and_combine_data(instrument_name):
         if token:
             from_date = hist_df.index.max().date() if not hist_df.empty else datetime.now().date() - timedelta(days=365)
             live_df = get_historical_data(token, 'day', from_date=from_date)
-            if not live_df.empty: live_df.columns = [col.lower() for col in live_df.columns]
+            if not live_df.empty: 
+                live_df.index = live_df.index.tz_convert(None) # Make timezone-naive
+                live_df.columns = [col.lower() for col in live_df.columns]
     elif source_info.get('exchange') == 'yfinance':
-        # Use yfinance for non-Indian indices
         try:
             live_df = yf.download(source_info['tradingsymbol'], period="max")
-            if not live_df.empty: live_df.columns = [col.lower() for col in live_df.columns]
+            if not live_df.empty: 
+                live_df.index = live_df.index.tz_localize(None) # Make timezone-naive
+                live_df.columns = [col.lower() for col in live_df.columns]
         except Exception as e:
             st.error(f"Failed to load yfinance data: {e}")
             live_df = pd.DataFrame()
             
     if not live_df.empty:
+        # FIX: Ensure both dataframes have timezone-naive indices before combining
+        hist_df.index = hist_df.index.tz_localize(None) if hist_df.index.tz is not None else hist_df.index
+        live_df.index = live_df.index.tz_localize(None) if live_df.index.tz is not None else live_df.index
+        
         combined_df = pd.concat([hist_df, live_df])
         combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
         combined_df.sort_index(inplace=True)
@@ -1296,8 +1269,8 @@ def page_fo_analytics():
                         'CALL LTP': '₹{:.2f}',
                         'PUT LTP': '₹{:.2f}',
                         'STRIKE': '₹{:.0f}',
-                        'open_interest_CE': '{:,.0f}',
-                        'open_interest_PE': '{:,.0f}'
+                        'CALL OI': '{:,.0f}',
+                        'PUT OI': '{:,.0f}'
                     }),
                     use_container_width=True,
                     hide_index=True
@@ -1309,9 +1282,9 @@ def page_fo_analytics():
         st.subheader("Put-Call Ratio Analysis")
         
         chain_df, _, _, _ = get_options_chain(st.session_state.get('underlying_pcr', "NIFTY"), instrument_df)
-        if not chain_df.empty and 'open_interest_CE' in chain_df.columns:
-            total_ce_oi = chain_df['open_interest_CE'].sum()
-            total_pe_oi = chain_df['open_interest_PE'].sum()
+        if not chain_df.empty and 'CALL OI' in chain_df.columns:
+            total_ce_oi = chain_df['CALL OI'].sum()
+            total_pe_oi = chain_df['PUT OI'].sum()
             pcr = total_pe_oi / total_ce_oi if total_ce_oi > 0 else 0
             
             col1, col2, col3 = st.columns(3)
@@ -1335,7 +1308,12 @@ def page_fo_analytics():
 
         # Ensure chain_df, expiry, and ltp are available from Tab 1's selection
         if 'chain_df' in locals() and not chain_df.empty and expiry and underlying_ltp > 0:
-            T = (expiry.date() - datetime.now().date()).days / 365.0
+            # FIX: Ensure expiry is a datetime object before using .date()
+            if isinstance(expiry, datetime):
+                T = (expiry.date() - datetime.now().date()).days / 365.0
+            else: # It's already a date object
+                T = (expiry - datetime.now().date()).days / 365.0
+
             r = 0.07  # Assume a risk-free rate of 7%
 
             # Calculate IV for calls and puts
@@ -1357,8 +1335,8 @@ def page_fo_analytics():
             fig.add_trace(go.Scatter(x=chain_df['STRIKE'], y=chain_df['IV_PE'], mode='lines+markers', name='Put IV', line=dict(color='magenta')), secondary_y=False)
             
             # Add OI traces
-            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['open_interest_CE'], name='Call OI', marker_color='rgba(0, 255, 255, 0.4)'), secondary_y=True)
-            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['open_interest_PE'], name='Put OI', marker_color='rgba(255, 0, 255, 0.4)'), secondary_y=True)
+            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['CALL OI'], name='Call OI', marker_color='rgba(0, 255, 255, 0.4)'), secondary_y=True)
+            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['PUT OI'], name='Put OI', marker_color='rgba(255, 0, 255, 0.4)'), secondary_y=True)
 
             fig.update_layout(
                 title_text=f"{underlying} IV & OI Profile for {expiry.strftime('%d %b %Y')}",
@@ -1426,25 +1404,24 @@ def page_forecasting_ml():
                 st.plotly_chart(fig, use_container_width=True)
 
                 # --- Performance Metrics ---
-                st.subheader("Model Performance (Backtest on Full History)")
+                st.subheader("Model Performance (Backtest)")
                 
-                mape = mean_absolute_percentage_error(backtest_df['Actual'], backtest_df['Predicted']) * 100
-                total_return = (backtest_df['Actual'].iloc[-1] / backtest_df['Actual'].iloc[0] - 1) * 100
+                backtest_durations = {"Full History": len(backtest_df), "Last Year": 252, "6 Months": 126, "3 Months": 63}
+                backtest_duration_key = st.selectbox("Select Backtest Period", list(backtest_durations.keys()))
+                backtest_period = backtest_durations[backtest_duration_key]
                 
-                cum_returns = (1 + (backtest_df['Actual'].pct_change().fillna(0))).cumprod()
-                peak = cum_returns.cummax()
-                drawdown = (cum_returns - peak) / peak
-                max_drawdown = drawdown.min()
+                display_df = backtest_df.tail(backtest_period)
 
-                metric_cols = st.columns(3)
-                metric_cols[0].metric("Accuracy", f"{100 - mape:.2f}%")
-                metric_cols[1].metric("Total Return (Actual)", f"{total_return:.2f}%")
-                metric_cols[2].metric("Max Drawdown", f"{max_drawdown*100:.2f}%")
+                mape = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted']) * 100
                 
+                metric_cols = st.columns(2)
+                metric_cols[0].metric(f"Accuracy ({backtest_duration_key})", f"{100 - mape:.2f}%")
+                metric_cols[1].metric(f"MAPE ({backtest_duration_key})", f"{mape:.2f}%")
+
                 # --- Forecast Data Table ---
                 with st.expander(f"View {duration_key} Forecast Data"):
-                    display_df = forecast_df.join(conf_int_df)
-                    st.dataframe(display_df.style.format("₹{:.2f}"), use_container_width=True)
+                    display_df_forecast = forecast_df.join(conf_int_df)
+                    st.dataframe(display_df_forecast.style.format("₹{:.2f}"), use_container_width=True)
             else:
                 st.info("Train a model to see the forecast results.")
         else:
@@ -2433,6 +2410,7 @@ def main_app():
         "Cash": {
             "Dashboard": page_dashboard,
             "Premarket & Global Cues": page_premarket_pulse,
+            "Market Intelligence": page_market_intelligence,
             "Advanced Charting": page_advanced_charting,
             "Portfolio & Risk": page_portfolio_and_risk,
             "Trading & Orders": page_basket_orders,
@@ -2467,7 +2445,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant & Journal", "AI Discovery Engine"]:
+    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant & Journal", "AI Discovery Engine", "Algo Strategy Maker"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
     pages[st.session_state.terminal_mode][selection]()
