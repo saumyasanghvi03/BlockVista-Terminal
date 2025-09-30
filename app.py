@@ -32,16 +32,146 @@ import hashlib
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
 
-# --- UI ENHANCEMENT: Load Custom CSS for Trader UI ---
-def load_css(file_name):
-    """Loads a custom CSS file to style the Streamlit app."""
-    try:
-        with open(file_name) as f:
-            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
-    except FileNotFoundError:
-        st.warning(f"CSS file '{file_name}' not found. For the best UI, please create this file in the same directory as the app.")
+def apply_custom_styling():
+    """Applies a comprehensive CSS stylesheet for professional theming."""
+    theme_css = """
+    <style>
+        :root {
+            --dark-bg: #0E1117;
+            --dark-secondary-bg: #161B22;
+            --dark-widget-bg: #21262D;
+            --dark-border: #30363D;
+            --dark-text: #c9d1d9;
+            --dark-text-light: #8b949e;
+            --dark-green: #28a745;
+            --dark-red: #da3633;
 
-load_css("style.css")
+            --light-bg: #FFFFFF;
+            --light-secondary-bg: #F0F2F6;
+            --light-widget-bg: #F8F9FA;
+            --light-border: #dee2e6;
+            --light-text: #212529;
+            --light-text-light: #6c757d;
+            --light-green: #198754;
+            --light-red: #dc3545;
+        }
+
+        /* Set Theme based on body class */
+        body.dark-theme {
+            --primary-bg: var(--dark-bg);
+            --secondary-bg: var(--dark-secondary-bg);
+            --widget-bg: var(--dark-widget-bg);
+            --border-color: var(--dark-border);
+            --text-color: var(--dark-text);
+            --text-light: var(--dark-text-light);
+            --green: var(--dark-green);
+            --red: var(--dark-red);
+        }
+
+        body.light-theme {
+            --primary-bg: var(--light-bg);
+            --secondary-bg: var(--light-secondary-bg);
+            --widget-bg: var(--light-widget-bg);
+            --border-color: var(--light-border);
+            --text-color: var(--light-text);
+            --text-light: var(--light-text-light);
+            --green: var(--light-green);
+            --red: var(--light-red);
+        }
+
+        body {
+            background-color: var(--primary-bg);
+            color: var(--text-color);
+        }
+        
+        /* Main App container */
+        .main .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+        
+        h1, h2, h3, h4, h5 {
+            color: var(--text-color) !important;
+        }
+        
+        hr {
+            background: var(--border-color);
+        }
+
+        /* --- Components --- */
+        .stButton>button {
+            border-color: var(--border-color);
+            background-color: var(--widget-bg);
+            color: var(--text-color);
+        }
+        .stButton>button:hover {
+            border-color: var(--green);
+            color: var(--green);
+        }
+        .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
+            background-color: var(--widget-bg);
+            border-color: var(--border-color);
+            color: var(--text-color);
+        }
+        .stRadio>div {
+            background-color: var(--widget-bg);
+            border: 1px solid var(--border-color);
+            padding: 8px;
+            border-radius: 8px;
+        }
+        
+        /* Metric Cards */
+        .metric-card {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            padding: 1.5rem;
+            border-radius: 10px;
+            border-left-width: 5px;
+        }
+        
+        /* AI Trade Idea Card */
+        .trade-card {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            padding: 1.5rem;
+            border-radius: 10px;
+            border-left-width: 5px;
+        }
+
+        /* Notification Bar */
+        .notification-bar {
+            position: sticky;
+            top: 0;
+            width: 100%;
+            background-color: var(--secondary-bg);
+            color: var(--text-color);
+            padding: 8px 12px;
+            z-index: 999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.9rem;
+            border-bottom: 1px solid var(--border-color);
+            margin-left: -20px;
+            margin-right: -20px;
+            width: calc(100% + 40px);
+        }
+        .notification-bar span {
+            margin: 0 15px;
+            white-space: nowrap;
+        }
+    </style>
+    """
+    st.markdown(theme_css, unsafe_allow_html=True)
+    
+    # Use JavaScript to apply theme class to body
+    js_theme = f"""
+    <script>
+        document.body.classList.remove('light-theme', 'dark-theme');
+        document.body.classList.add('{st.session_state.theme.lower()}-theme');
+    </script>
+    """
+    st.components.v1.html(js_theme, height=0)
 
 
 # Centralized data source configuration for ML models
@@ -203,6 +333,25 @@ def display_header():
             quick_trade_dialog()
 
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+    
+def display_overnight_changes_bar():
+    """Displays a notification bar with overnight market changes."""
+    overnight_tickers = {"GIFT NIFTY": "IN=F", "S&P 500 Futures": "ES=F", "NASDAQ Futures": "NQ=F"}
+    data = get_global_indices_data(overnight_tickers)
+    
+    if not data.empty:
+        bar_html = "<div class='notification-bar'>"
+        for name, ticker in overnight_tickers.items():
+            row = data[data['Ticker'] == name]
+            if not row.empty:
+                price = row.iloc[0]['Price']
+                change = row.iloc[0]['% Change']
+                if not np.isnan(price):
+                    color = 'var(--green)' if change > 0 else 'var(--red)'
+                    bar_html += f"<span>{name}: {price:,.2f} <span style='color:{color};'>({change:+.2f}%)</span></span>"
+        bar_html += "</div>"
+        st.markdown(bar_html, unsafe_allow_html=True)
+
 
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 
@@ -723,59 +872,26 @@ def get_global_indices_data(tickers):
         return pd.DataFrame()
     
     try:
-        # Fetching a slightly longer period to ensure we get the last two valid trading days
-        df = yf.download(tickers, period="5d")
-        if df.empty:
-            return pd.DataFrame()
+        data_yf = yf.Tickers(list(tickers.values()))
         
-        # Drop rows where all price data is NaN
-        if isinstance(df.columns, pd.MultiIndex):
-            df.dropna(subset=[('Close', ticker) for ticker in tickers], how='all', inplace=True)
-        else:
-            df.dropna(subset=['Close'], how='all', inplace=True)
+        data = []
+        for ticker_name, yf_ticker_name in tickers.items():
+            hist = data_yf.tickers[yf_ticker_name].history(period="5d")
+            if len(hist) >= 2:
+                last_price = hist['Close'].iloc[-1]
+                prev_close = hist['Close'].iloc[-2]
+                change = last_price - prev_close
+                pct_change = (change / prev_close * 100) if prev_close != 0 else 0
+                data.append({'Ticker': ticker_name, 'Price': last_price, 'Change': change, '% Change': pct_change})
+            else:
+                data.append({'Ticker': ticker_name, 'Price': np.nan, 'Change': np.nan, '% Change': np.nan})
 
-        if len(df) < 2:
-            return pd.DataFrame()
-
-        # Handle case where only one ticker is returned (no multi-index)
-        if not isinstance(df.columns, pd.MultiIndex):
-            df_single = df.copy()
-            df_single['Ticker'] = tickers[0]
-            close_data = df_single['Close'].iloc[-1]
-            prev_close_data = df_single['Close'].iloc[-2]
-        else:
-            close_data = df['Close'].iloc[-1]
-            prev_close_data = df['Close'].iloc[-2]
+        return pd.DataFrame(data)
 
     except Exception as e:
         st.error(f"Failed to fetch data from yfinance: {e}")
         return pd.DataFrame()
-    
-    data = []
-    if isinstance(close_data, pd.Series): # Handle multiple tickers
-        for ticker in tickers:
-            last_price = close_data.get(ticker)
-            prev_close = prev_close_data.get(ticker)
 
-            if last_price is not None and prev_close is not None and not np.isnan(last_price) and not np.isnan(prev_close):
-                change = last_price - prev_close
-                pct_change = (change / prev_close) * 100 if prev_close != 0 else 0
-                data.append({'Ticker': ticker, 'Price': last_price, 'Change': change, '% Change': pct_change})
-            else:
-                data.append({'Ticker': ticker, 'Price': np.nan, 'Change': np.nan, '% Change': np.nan})
-
-    else: # Handle single ticker case
-        ticker = tickers[0] if isinstance(tickers, list) else tickers
-        last_price = close_data
-        prev_close = prev_close_data
-        if last_price is not None and prev_close is not None and not np.isnan(last_price) and not np.isnan(prev_close):
-            change = last_price - prev_close
-            pct_change = (change / prev_close) * 100 if prev_close != 0 else 0
-            data.append({'Ticker': ticker, 'Price': last_price, 'Change': change, '% Change': pct_change})
-        else:
-            data.append({'Ticker': ticker, 'Price': np.nan, 'Change': np.nan, '% Change': np.nan})
-            
-    return pd.DataFrame(data)
 
 @st.cache_data(ttl=60)
 def get_indian_indices_data(symbols_with_exchange):
@@ -1015,8 +1131,8 @@ def page_dashboard():
             if not watchlist_data.empty:
                 for index, row in watchlist_data.iterrows():
                     w_cols = st.columns([3, 2, 1, 1, 1, 1])
-                    color = '#28a745' if row['Change'] > 0 else '#FF4B4B'
-                    w_cols[0].markdown(f"**{row['Ticker']}**<br><small style='color:gray;'>{row['Exchange']}</small>", unsafe_allow_html=True)
+                    color = 'var(--green)' if row['Change'] > 0 else 'var(--red)'
+                    w_cols[0].markdown(f"**{row['Ticker']}**<br><small style='color:var(--text-light);'>{row['Exchange']}</small>", unsafe_allow_html=True)
                     w_cols[1].markdown(f"**{row['Price']:,.2f}**<br><small style='color:{color};'>{row['Change']:,.2f} ({row['% Change']:.2f}%)</small>", unsafe_allow_html=True)
                     
                     quantity = w_cols[2].number_input("Qty", min_value=1, step=1, key=f"qty_{row['Ticker']}", label_visibility="collapsed")
@@ -1172,14 +1288,14 @@ def page_premarket_pulse():
     st.markdown("---")
 
     # --- Top Row: Key Global Indices Metrics ---
-    st.subheader("🌐 Global Market Snapshot")
+    st.subheader("Global Market Snapshot")
     global_tickers = {"S&P 500": "^GSPC", "Dow Jones": "^DJI", "NASDAQ": "^IXIC", "FTSE 100": "^FTSE", "Nikkei 225": "^N225", "Hang Seng": "^HSI"}
-    global_data = get_global_indices_data(list(global_tickers.values()))
+    global_data = get_global_indices_data(global_tickers)
     
     if not global_data.empty:
         cols = st.columns(len(global_tickers))
-        for i, (name, ticker) in enumerate(global_tickers.items()):
-            data_row = global_data[global_data['Ticker'] == ticker]
+        for i, (name, ticker_symbol) in enumerate(global_tickers.items()):
+            data_row = global_data[global_data['Ticker'] == name]
             if not data_row.empty:
                 price = data_row.iloc[0]['Price']
                 change = data_row.iloc[0]['% Change']
@@ -1196,7 +1312,7 @@ def page_premarket_pulse():
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("🇮🇳 NIFTY 50 Futures (Live Proxy)")
+        st.subheader("NIFTY 50 Futures (Live Proxy)")
         gift_data = get_gift_nifty_data()
         if not gift_data.empty:
             st.plotly_chart(create_chart(gift_data, "NIFTY 50 Futures (Proxy)"), use_container_width=True)
@@ -1204,12 +1320,12 @@ def page_premarket_pulse():
             st.warning("Could not load NIFTY 50 Futures chart data.")
             
     with col2:
-        st.subheader("🌏 Key Asian Markets")
+        st.subheader("Key Asian Markets")
         asian_tickers = {"Nikkei 225": "^N225", "Hang Seng": "^HSI"}
-        asian_data = get_global_indices_data(list(asian_tickers.values()))
+        asian_data = get_global_indices_data(asian_tickers)
         if not asian_data.empty:
-            for name, ticker in asian_tickers.items():
-                data_row = asian_data[asian_data['Ticker'] == ticker]
+            for name, ticker_symbol in asian_tickers.items():
+                data_row = asian_data[asian_data['Ticker'] == name]
                 if not data_row.empty:
                     price = data_row.iloc[0]['Price']
                     change = data_row.iloc[0]['% Change']
@@ -1223,7 +1339,7 @@ def page_premarket_pulse():
     st.markdown("---")
 
     # --- Bottom Row: News ---
-    st.subheader("📰 Latest Market News")
+    st.subheader("Latest Market News")
     news_df = fetch_and_analyze_news()
     if not news_df.empty:
         for _, news in news_df.head(10).iterrows():
@@ -1779,7 +1895,7 @@ def page_algo_strategy_maker():
         st.info("Connect to a broker to use the Algo Strategy Hub.")
         return
 
-    st.info("Select a pre-built strategy, configure its parameters, and run a backtest on historical data. You can then place trades based on the latest signal.", icon="🤖")
+    st.info("Select a pre-built strategy, configure its parameters, and run a backtest on historical data. You can then place trades based on the latest signal.")
 
     col1, col2 = st.columns([1, 2])
 
@@ -2628,4 +2744,3 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-
