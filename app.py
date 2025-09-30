@@ -12,7 +12,10 @@ import pytz
 import feedparser
 from email.utils import mktime_tz, parsedate_tz
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from sklearn.metrics import mean_absolute_percentage_error
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, mean_absolute_percentage_error
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.ensemble import GradientBoostingRegressor
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
@@ -30,6 +33,12 @@ import io
 import requests
 import json
 import hashlib
+# Gracefully import tradingeconomics to prevent app crash if installation fails
+try:
+    import tradingeconomics as te
+    TE_AVAILABLE = True
+except ImportError:
+    TE_AVAILABLE = False
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -37,12 +46,14 @@ st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_side
 # --- UI ENHANCEMENT: Load Custom CSS for Trader UI ---
 def load_css(file_name):
     """Loads a custom CSS file to style the Streamlit app."""
+    # This function expects a local file named 'style.css'
     try:
         with open(file_name) as f:
             st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
     except FileNotFoundError:
         st.warning(f"CSS file '{file_name}' not found. For the best UI, please create this file in the same directory as the app.")
 
+# Attempt to load the CSS file.
 load_css("style.css")
 
 
@@ -85,6 +96,26 @@ ML_DATA_SOURCES = {
     }
 }
 
+# --- Theme and UI Configuration ---
+# This dictionary holds the color palettes for the light and dark themes.
+# These themes are applied globally using custom CSS.
+THEMES = {
+    "light": {
+        "primaryColor": "#6C63FF",  # A vibrant purple
+        "backgroundColor": "#F4F4F4",  # A soft light gray
+        "secondaryBackgroundColor": "#FFFFFF",  # Pure white for cards/elements
+        "textColor": "#2C3E50",  # Dark gray text
+        "font": "sans serif"
+    },
+    "dark": {
+        "primaryColor": "#6C63FF",  # Same vibrant purple for consistency
+        "backgroundColor": "#1A1A1A",  # A deep dark gray
+        "secondaryBackgroundColor": "#2C2C2C",  # A slightly lighter dark gray for elements
+        "textColor": "#ECF0F1",  # Soft white text
+        "font": "sans serif"
+    }
+}
+
 # ================ 2. HELPER FUNCTIONS ================
 
 def get_broker_client():
@@ -95,7 +126,9 @@ def get_broker_client():
 
 @st.dialog("Quick Trade")
 def quick_trade_dialog(symbol=None, exchange=None):
-    """A quick trade dialog for placing market or limit orders."""
+    """
+    A quick trade dialog for placing market or limit orders.
+    """
     instrument_df = get_instrument_df()
     st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
     
@@ -203,8 +236,8 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
     if forecast_df is not None:
         fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
         if conf_int_df is not None:
-            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['lower'], line=dict(color='rgba(255,255,0,0.2)', width=1), name='Lower CI', showlegend=False))
-            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['upper'], line=dict(color='rgba(255,255,0,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,0,0.2)', name='Confidence Interval'))
+            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['lower'], line=dict(color='rgba(255,255,0,0.2)', width=1), name='Lower CI'))
+            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['upper'], line=dict(color='rgba(255,255,0,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,0,0.2)', name='Upper CI'))
         
     template = 'plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
@@ -216,11 +249,7 @@ def get_instrument_df():
     client = get_broker_client()
     if not client: return pd.DataFrame()
     if st.session_state.broker == "Zerodha":
-        df = pd.DataFrame(client.instruments())
-        # FIX: Ensure expiry column is always datetime for consistent filtering
-        if 'expiry' in df.columns:
-            df['expiry'] = pd.to_datetime(df['expiry'])
-        return df
+        return pd.DataFrame(client.instruments())
     else:
         st.warning(f"Instrument list for {st.session_state.broker} not implemented.")
         return pd.DataFrame()
@@ -233,7 +262,12 @@ def get_instrument_token(symbol, instrument_df, exchange='NSE'):
 
 @st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
-    """Fetches historical data from the broker's API."""
+    """
+    Fetches historical data from the broker's API.
+    
+    Note: For `yfinance`, a different function is used. This function
+    is specific to the connected broker (KiteConnect).
+    """
     client = get_broker_client()
     if not client or not instrument_token: return pd.DataFrame()
     if st.session_state.broker == "Zerodha":
@@ -241,22 +275,17 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         if not from_date:
             days_to_subtract = {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
             from_date = to_date - timedelta(days=days_to_subtract.get(period, 1825))
-        
-        # FIX: Prevent from_date > to_date error
-        if from_date > to_date:
-            from_date = to_date - timedelta(days=1)
-            
         try:
             records = client.historical_data(instrument_token, from_date, to_date, interval)
             df = pd.DataFrame(records)
             if df.empty: return df
             df.set_index('date', inplace=True)
             df.index = pd.to_datetime(df.index)
-            
+            # Apply all technical indicators with a single try-except block
             try:
                 df.ta.adx(append=True); df.ta.apo(append=True); df.ta.aroon(append=True); df.ta.atr(append=True); df.ta.bbands(append=True); df.ta.cci(append=True); df.ta.chop(append=True); df.ta.cksp(append=True); df.ta.cmf(append=True); df.ta.coppock(append=True); df.ta.ema(length=50, append=True); df.ta.ema(length=200, append=True); df.ta.fisher(append=True); df.ta.kst(append=True); df.ta.macd(append=True); df.ta.mfi(append=True); df.ta.mom(append=True); df.ta.obv(append=True); df.ta.rsi(append=True); df.ta.stoch(append=True); df.ta.supertrend(append=True); df.ta.willr(append=True)
-            except Exception:
-                pass # Silently fail
+            except Exception as e:
+                st.toast(f"Could not calculate some indicators: {e}", icon="⚠️")
             return df
         except Exception as e:
             st.error(f"Kite API Error (Historical): {e}")
@@ -294,7 +323,9 @@ def get_watchlist_data(symbols_with_exchange):
 
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df, expiry_date=None):
-    """Fetches and processes the options chain for a given underlying."""
+    """
+    Fetches and processes the options chain for a given underlying.
+    """
     client = get_broker_client()
     if not client or instrument_df.empty: return pd.DataFrame(), None, 0.0, []
     if st.session_state.broker == "Zerodha":
@@ -307,21 +338,15 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
             underlying_ltp = client.ltp(underlying_instrument_name)[underlying_instrument_name]['last_price']
         except Exception:
             underlying_ltp = 0.0
-        
         options = instrument_df[(instrument_df['name'] == underlying.upper()) & (instrument_df['exchange'] == exchange)]
         if options.empty: return pd.DataFrame(), None, underlying_ltp, []
-        
-        expiries = sorted(options['expiry'].dt.date.unique())
-        three_months_later = datetime.now().date() + timedelta(days=90)
-        available_expiries = [e for e in expiries if datetime.now().date() <= e <= three_months_later]
+        expiries = sorted(pd.to_datetime(options['expiry'].unique()))
+        three_months_later = datetime.now() + timedelta(days=90)
+        available_expiries = [e for e in expiries if datetime.now().date() <= e.date() <= three_months_later.date()]
         if not available_expiries: return pd.DataFrame(), None, underlying_ltp, []
+        if not expiry_date: expiry_date = available_expiries[0]
         
-        if not expiry_date: 
-            expiry_date = available_expiries[0]
-        else: # ensure expiry_date is a date object
-             expiry_date = pd.to_datetime(expiry_date).date()
-        
-        chain_df = options[options['expiry'].dt.date == expiry_date].sort_values(by='strike')
+        chain_df = options[options['expiry'] == expiry_date].sort_values(by='strike')
         ce_df = chain_df[chain_df['instrument_type'] == 'CE'].copy()
         pe_df = chain_df[chain_df['instrument_type'] == 'PE'].copy()
         instruments_to_fetch = [f"{exchange}:{s}" for s in list(ce_df['tradingsymbol']) + list(pe_df['tradingsymbol'])]
@@ -331,14 +356,17 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
             quotes = client.quote(instruments_to_fetch)
             ce_df['LTP'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
             pe_df['LTP'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('last_price', 0))
-            ce_df['oi'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
-            pe_df['oi'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
             
-            final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP', 'oi']], 
-                                   pe_df[['tradingsymbol', 'strike', 'LTP', 'oi']], 
-                                   on='strike', suffixes=('_CE', '_PE')).rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'oi_CE': 'CALL OI', 'oi_PE': 'PUT OI', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
+            ce_df['open_interest_CE'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
+            ce_df['open_interest_CE_change'] = ce_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('net_change_oi', 0))
+            pe_df['open_interest_PE'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
+            pe_df['open_interest_PE_change'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('net_change_oi', 0))
+
+            final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP', 'open_interest_CE', 'open_interest_CE_change']], 
+                                   pe_df[['tradingsymbol', 'strike', 'LTP', 'open_interest_PE', 'open_interest_PE_change']], 
+                                   on='strike', suffixes=('_CE', '_PE'), how='outer').rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
             
-            return final_chain[['CALL', 'CALL LTP', 'CALL OI', 'STRIKE', 'PUT LTP', 'PUT OI', 'PUT']], expiry_date, underlying_ltp, available_expiries
+            return final_chain[['CALL', 'CALL LTP', 'open_interest_CE', 'STRIKE', 'PUT LTP', 'open_interest_PE', 'PUT', 'open_interest_CE_change', 'open_interest_PE_change']], expiry_date, underlying_ltp, available_expiries
         except Exception as e:
             st.error(f"Failed to fetch real-time OI data: {e}")
             return pd.DataFrame(), expiry_date, underlying_ltp, available_expiries
@@ -894,7 +922,7 @@ def get_gift_nifty_data():
     """Fetches GIFT NIFTY data using a more reliable yfinance ticker."""
     try:
         # Using Nifty 50 Futures as a more reliable proxy for GIFT Nifty
-        data = yf.download("IN=F", period="1d", interval="1m")
+        data = yf.download("^NSEI", period="1d", interval="1m")
         if not data.empty:
             return data
     except Exception:
@@ -1395,7 +1423,6 @@ def page_forecasting_ml():
                         'ml_conf_int_df': conf_int_df,
                         'ml_instrument_name': instrument_name,
                         'ml_historical_data': data,
-                        'ml_duration_key': duration_key
                     })
                     st.success("Model trained successfully!")
 
@@ -1408,7 +1435,6 @@ def page_forecasting_ml():
             backtest_df = st.session_state.get('ml_backtest_df')
             conf_int_df = st.session_state.get('ml_conf_int_df')
             data = st.session_state.get('ml_historical_data')
-            duration_key = st.session_state.get('ml_duration_key')
 
             if forecast_df is not None and backtest_df is not None and data is not None and conf_int_df is not None:
                 # --- Combined Chart ---
@@ -1945,12 +1971,8 @@ def page_option_strategy_builder():
             option_type = leg_cols[1].selectbox("Type", ["Call", "Put"])
             
             # Get strikes for selected expiry
-            expiry_dt = datetime.strptime(expiry_date, "%d %b %Y").date()
-            options = instrument_df[
-                (instrument_df['name'] == underlying) & 
-                (instrument_df['expiry'].dt.date == expiry_dt) & 
-                (instrument_df['instrument_type'] == option_type[0])
-            ]
+            expiry_dt = datetime.strptime(expiry_date, "%d %b %Y")
+            options = instrument_df[(instrument_df['name'] == underlying) & (instrument_df['expiry'] == expiry_dt) & (instrument_df['instrument_type'] == option_type[0])]
             
             if not options.empty:
                 strikes = sorted(options['strike'].unique())
@@ -2523,4 +2545,3 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
-
