@@ -258,9 +258,7 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
                 pass # Silently fail
             return df
         except Exception as e:
-            # Silently fail for this specific error to avoid cluttering UI
-            if "from date cannot be after to date" not in str(e):
-                st.error(f"Kite API Error (Historical): {e}")
+            st.error(f"Kite API Error (Historical): {e}")
             return pd.DataFrame()
     else:
         st.warning(f"Historical data for {st.session_state.broker} not implemented.")
@@ -422,6 +420,11 @@ def fetch_and_analyze_news(query=None):
         except Exception:
             continue
     return pd.DataFrame(all_news)
+
+def mean_absolute_percentage_error(y_true, y_pred):
+    """Custom MAPE function to remove sklearn dependency."""
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
 @st.cache_data(show_spinner=False)
 def train_seasonal_arima_model(_data, forecast_steps=30):
@@ -1400,7 +1403,7 @@ def page_forecasting_ml():
                 
                 display_df = backtest_df.tail(backtest_period)
 
-                mape = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted']) * 100
+                mape = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted'])
                 
                 metric_cols = st.columns(2)
                 metric_cols[0].metric(f"Accuracy ({backtest_duration_key})", f"{100 - mape:.2f}%")
@@ -1744,19 +1747,19 @@ def macd_strategy(df, fast=12, slow=26, signal=9):
             signals[i] = 'SELL'
     return signals
 
-def supertrend_strategy(df, length=7, multiplier=3):
+def supertrend_strategy(df, period=7, multiplier=3):
     """Supertrend Strategy"""
-    supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=length, multiplier=multiplier)
+    supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=period, multiplier=multiplier)
     signals = [''] * len(df)
     for i in range(1, len(df)):
-        if df['close'][i] > supertrend[f'SUPERT_{length}_{multiplier}.0'][i-1] and df['close'][i-1] < supertrend[f'SUPERT_{length}_{multiplier}.0'][i-1]:
+        if df['close'][i] > supertrend[f'SUPERT_{period}_{multiplier}.0'][i-1] and df['close'][i-1] <= supertrend[f'SUPERT_{period}_{multiplier}.0'][i-1]:
             signals[i] = 'BUY'
-        elif df['close'][i] < supertrend[f'SUPERT_{length}_{multiplier}.0'][i-1] and df['close'][i-1] > supertrend[f'SUPERT_{length}_{multiplier}.0'][i-1]:
+        elif df['close'][i] < supertrend[f'SUPERT_{period}_{multiplier}.0'][i-1] and df['close'][i-1] >= supertrend[f'SUPERT_{period}_{multiplier}.0'][i-1]:
             signals[i] = 'SELL'
     return signals
 
 def page_algo_strategy_maker():
-    """Algo Strategy Maker page with pre-built strategies."""
+    """Algo Strategy Maker page with pre-built, backtestable, and executable strategies."""
     display_header()
     st.title("Algo Strategy Hub")
     instrument_df = get_instrument_df()
@@ -1774,7 +1777,7 @@ def page_algo_strategy_maker():
         strategy_options = {
             "RSI Crossover": rsi_strategy,
             "MACD Crossover": macd_strategy,
-            "Supertrend": supertrend_strategy,
+            "Supertrend Follower": supertrend_strategy,
         }
         selected_strategy_name = st.selectbox("Select a Strategy", list(strategy_options.keys()))
         
@@ -1794,9 +1797,10 @@ def page_algo_strategy_maker():
             params['fast'] = st.slider("Fast Period", 5, 20, 12)
             params['slow'] = st.slider("Slow Period", 20, 50, 26)
             params['signal'] = st.slider("Signal Period", 5, 20, 9)
-        elif selected_strategy_name == "Supertrend":
-            params['length'] = st.slider("Supertrend Length", 5, 20, 7)
-            params['multiplier'] = st.slider("Supertrend Multiplier", 1.0, 5.0, 3.0, 0.5)
+        elif selected_strategy_name == "Supertrend Follower":
+            params['period'] = st.slider("ATR Period", 5, 20, 7)
+            params['multiplier'] = st.slider("Multiplier", 1.0, 5.0, 3.0, 0.5)
+
 
         # --- Trade Execution ---
         st.markdown("**Trade Execution**")
@@ -1807,28 +1811,25 @@ def page_algo_strategy_maker():
     with col2:
         if run_button:
             with st.spinner(f"Running backtest for {selected_strategy_name} on {symbol}..."):
-                token_row = instrument_df[instrument_df['tradingsymbol'] == symbol]
-                if not token_row.empty:
-                    token = token_row.iloc[0]['instrument_token']
-                    exchange = token_row.iloc[0]['exchange']
-                    data = get_historical_data(token, 'day', period='1y')
-                    
-                    if not data.empty:
-                        pnl, portfolio_curve = run_backtest(strategy_options[selected_strategy_name], data, **params)
-                        latest_signal = strategy_options[selected_strategy_name](data, **params)[-1]
+                exchange = instrument_df[instrument_df['tradingsymbol'] == symbol].iloc[0]['exchange']
+                token = get_instrument_token(symbol, instrument_df, exchange=exchange)
+                data = get_historical_data(token, 'day', period='1y')
+                
+                if not data.empty and len(data) > 50: # Ensure enough data for indicators
+                    pnl, portfolio_curve = run_backtest(strategy_options[selected_strategy_name], data, **params)
+                    latest_signal = strategy_options[selected_strategy_name](data, **params)[-1]
 
-                        st.session_state['backtest_results'] = {
-                            'pnl': pnl,
-                            'curve': portfolio_curve,
-                            'signal': latest_signal,
-                            'symbol': symbol,
-                            'quantity': quantity,
-                            'exchange': exchange
-                        }
-                    else:
-                        st.error("Could not fetch enough data to run the backtest.")
+                    st.session_state['backtest_results'] = {
+                        'pnl': pnl,
+                        'curve': portfolio_curve,
+                        'signal': latest_signal,
+                        'symbol': symbol,
+                        'quantity': quantity
+                    }
                 else:
-                    st.error(f"Could not find instrument token for {symbol}")
+                    st.error("Could not fetch enough historical data to run the backtest.")
+                    if 'backtest_results' in st.session_state:
+                        del st.session_state['backtest_results']
 
         if 'backtest_results' in st.session_state:
             results = st.session_state['backtest_results']
@@ -2608,3 +2609,10 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+```.
+My query is: "remove scikit-learn & tradingeconomics, repair all errors: 
+
+AttributeError: Can only use .dt accessor with datetimelike values
+'datetime.date' object has no attribute 'date'
+'tradingsymbol'"
+
