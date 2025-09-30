@@ -796,127 +796,6 @@ def get_indian_indices_data(symbols_with_exchange):
 
 # ================ 5. PAGE DEFINITIONS ============
 
-def page_market_intelligence():
-    """Displays advanced market intelligence indicators."""
-    display_header()
-    st.title("Market Intelligence")
-    st.info("Get a deeper understanding of the market sentiment with advanced indicators inspired by institutional-grade terminals.", icon="💡")
-    
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.warning("Please connect to a broker to access full Market Intelligence features.")
-        return
-
-    st.markdown("---")
-    
-    col1, col2 = st.columns([1, 1], gap="large")
-    
-    with col1:
-        st.subheader("Fear & Greed Index (India)")
-        
-        # 1. Market Volatility (India VIX)
-        vix_token = get_instrument_token("INDIA VIX", instrument_df)
-        vix_data = get_historical_data(vix_token, "day", period="1y")
-        if not vix_data.empty:
-            latest_vix = vix_data['close'].iloc[-1]
-            avg_vix = vix_data['close'].mean()
-            # Inverted scale: lower VIX = higher score (less fear)
-            volatility_score = max(0, 100 - ((latest_vix / avg_vix) * 50))
-        else:
-            volatility_score = 50 # Neutral
-
-        # 2. Put/Call Ratio
-        nifty_chain, _, _, _ = get_options_chain("NIFTY", instrument_df)
-        if not nifty_chain.empty:
-            total_put_oi = nifty_chain['PUT OI'].sum()
-            total_call_oi = nifty_chain['CALL OI'].sum()
-            pcr = total_put_oi / total_call_oi if total_call_oi > 0 else 1
-            # Scale PCR to 0-100 (where 1 is neutral 50)
-            pcr_score = min(100, max(0, (pcr / 1.5) * 50))
-        else:
-            pcr_score = 50 # Neutral
-
-        fear_greed_score = (volatility_score * 0.5) + (pcr_score * 0.5)
-        
-        if fear_greed_score > 75:
-            sentiment = "Extreme Greed"
-            color = "rgba(0, 255, 0, 0.7)"
-        elif fear_greed_score > 55:
-            sentiment = "Greed"
-            color = "rgba(173, 255, 47, 0.7)"
-        elif fear_greed_score > 45:
-            sentiment = "Neutral"
-            color = "rgba(255, 255, 0, 0.7)"
-        elif fear_greed_score > 25:
-            sentiment = "Fear"
-            color = "rgba(255, 165, 0, 0.7)"
-        else:
-            sentiment = "Extreme Fear"
-            color = "rgba(255, 0, 0, 0.7)"
-            
-        fig = go.Figure(go.Indicator(
-            mode = "gauge+number",
-            value = fear_greed_score,
-            domain = {'x': [0, 1], 'y': [0, 1]},
-            title = {'text': sentiment},
-            gauge = {
-                'axis': {'range': [None, 100]},
-                'bar': {'color': color},
-                'steps' : [
-                    {'range': [0, 25], 'color': "red"},
-                    {'range': [25, 45], 'color': "orange"},
-                    {'range': [45, 55], 'color': "yellow"},
-                    {'range': [55, 75], 'color': "lightgreen"},
-                    {'range': [75, 100], 'color': "green"}],
-            }))
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        st.subheader("Advance / Decline Ratio (NIFTY 50)")
-        
-        nifty50_symbols = [
-        'RELIANCE', 'HDFCBANK', 'ICICIBANK', 'INFY', 'TCS', 'HINDUNILVR', 'ITC', 
-        'LT', 'KOTAKBANK', 'SBIN', 'BAJFINANCE', 'BHARTIARTL', 'ASIANPAINT', 
-        'AXISBANK', 'HDFC', 'WIPRO', 'TITAN', 'ULTRACEMCO', 'M&M', 'NESTLEIND',
-        'ADANIENT', 'TATASTEEL', 'INDUSINDBK', 'TECHM', 'NTPC', 'MARUTI', 
-        'BAJAJ-AUTO', 'POWERGRID', 'HCLTECH', 'ADANIPORTS', 'BPCL', 'COALINDIA', 
-        'EICHERMOT', 'GRASIM', 'JSWSTEEL', 'SHREECEM', 'HEROMOTOCO', 'HINDALCO',
-        'DRREDDY', 'CIPLA', 'APOLLOHOSP', 'SBILIFE', 'TATACOMM', 'BHARTIAIRTEL',
-        'TATAMOTORS', 'BRITANNIA', 'DIVISLAB', 'BAJAJFINSV', 'SUNPHARMA', 'HDFCLIFE'
-        ]
-        
-        symbols_with_exchange = [{'symbol': s, 'exchange': 'NSE'} for s in nifty50_symbols]
-        live_data = get_watchlist_data(symbols_with_exchange)
-        
-        if not live_data.empty:
-            advances = (live_data['Change'] > 0).sum()
-            declines = (live_data['Change'] < 0).sum()
-            ad_ratio = advances / declines if declines > 0 else advances
-            
-            ad_cols = st.columns(2)
-            ad_cols[0].metric("Advances", str(advances))
-            ad_cols[1].metric("Declines", str(declines))
-            st.metric("A/D Ratio", f"{ad_ratio:.2f}")
-            st.progress(advances / (advances + declines) if (advances + declines) > 0 else 0.5)
-        else:
-            st.info("Loading A/D Ratio...")
-
-    st.markdown("---")
-    st.subheader("FII / DII Net Flow (Illustrative)")
-    st.info("This chart displays illustrative data for FII/DII flows as a live public API is not readily available.")
-
-    # Generate illustrative data
-    dates = pd.to_datetime(pd.date_range(end=datetime.now(), periods=30))
-    fii_flow = np.random.randint(-5000, 5000, size=30)
-    dii_flow = np.random.randint(-3000, 6000, size=30)
-
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=dates, y=fii_flow, name='FII Net Flow (Cr.)', marker_color='blue'))
-    fig.add_trace(go.Bar(x=dates, y=dii_flow, name='DII Net Flow (Cr.)', marker_color='orange'))
-    fig.update_layout(barmode='group', title="Daily Institutional Net Flows", yaxis_title="Flow (in Crores)")
-    st.plotly_chart(fig, use_container_width=True)
-
-
 # --- NEW: Bharatiya Market Pulse (BMP) Functions ---
 def get_bmp_score_and_label(nifty_change, sensex_change, vix_value, lookback_df):
     """Calculates BMP score and returns the score and a Bharat-flavored label."""
@@ -2477,26 +2356,6 @@ def page_greeks_calculator():
         
         underlying_price = st.number_input("Underlying Price", min_value=0.01, value=23500.0)
         strike_price = st.number_input("Strike Price", min_value=0.01, value=23500.0)
-        time
-
-def page_greeks_calculator():
-    """Calculates Greeks for any option contract."""
-    display_header()
-    st.title("F&O Greeks Calculator")
-    st.info("Calculate the theoretical value and greeks (Delta, Gamma, Vega, Theta, Rho) for any option contract.")
-    
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to use this feature.")
-        return
-
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("Option Details")
-        
-        underlying_price = st.number_input("Underlying Price", min_value=0.01, value=23500.0)
-        strike_price = st.number_input("Strike Price", min_value=0.01, value=23500.0)
         time_to_expiry = st.number_input("Days to Expiry", min_value=1, value=30)
         risk_free_rate = st.number_input("Risk-free Rate (%)", min_value=0.0, value=7.0)
         volatility = st.number_input("Volatility (%)", min_value=0.1, value=20.0)
@@ -2692,6 +2551,7 @@ def main_app():
         "Cash": {
             "Dashboard": page_dashboard,
             "Premarket & Global Cues": page_premarket_pulse,
+            "Market Intelligence": page_market_intelligence,
             "Advanced Charting": page_advanced_charting,
             "Portfolio & Risk": page_portfolio_and_risk,
             "Trading & Orders": page_basket_orders,
@@ -2726,12 +2586,14 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
+    # Display the overnight bar on all pages except login
+    display_overnight_changes_bar()
+
     if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant & Journal", "AI Discovery Engine", "Algo Strategy Maker"]:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
     pages[st.session_state.terminal_mode][selection]()
 
-# REPLACED: Economic Calendar with hardcoded data until Oct 2025
 def page_economic_calendar():
     """Economic Calendar page for Indian market events."""
     display_header()
