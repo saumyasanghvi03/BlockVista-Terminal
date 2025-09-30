@@ -452,7 +452,7 @@ def fetch_and_analyze_news(query=None):
     for source, url in news_sources.items():
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:10]:  # Limit to 10 articles per source
+            for entry in feed.entries[:10]: # Limit to 10 articles per source
                 published_date_tuple = entry.published_parsed if hasattr(entry, 'published_parsed') else entry.updated_parsed
                 published_date = datetime.fromtimestamp(mktime_tz(published_date_tuple)) if published_date_tuple else datetime.now()
                 if query is None or query.lower() in entry.title.lower() or (hasattr(entry, 'summary') and query.lower() in entry.summary.lower()):
@@ -652,7 +652,7 @@ def style_option_chain(df, ltp):
     atm_strike_value = df.loc[atm_strike_index, 'STRIKE']
     
     df_styled = df.style.apply(lambda x: ['background-color: #2c3e50' if x['STRIKE'] < atm_strike_value else '' for i in x], axis=1, subset=pd.IndexSlice[:, ['CALL', 'CALL LTP', 'open_interest_CE']])\
-                     .apply(lambda x: ['background-color: #2c3e50' if x['STRIKE'] > atm_strike_value else '' for i in x], axis=1, subset=pd.IndexSlice[:, ['PUT', 'PUT LTP', 'open_interest_PE']])
+                      .apply(lambda x: ['background-color: #2c3e50' if x['STRIKE'] > atm_strike_value else '' for i in x], axis=1, subset=pd.IndexSlice[:, ['PUT', 'PUT LTP', 'open_interest_PE']])
     return df_styled
 
 @st.dialog("Most Active Options")
@@ -1031,7 +1031,7 @@ def page_dashboard():
                     if w_cols[5].button("🗑️", key=f"del_{row['Ticker']}", use_container_width=True):
                         st.session_state.watchlists[st.session_state.active_watchlist] = [item for item in active_list if item['symbol'] != row['Ticker']]
                         st.rerun()
-                    st.markdown("---")
+                st.markdown("---")
 
         with tab2:
             st.subheader("My Portfolio")
@@ -1095,7 +1095,19 @@ def page_dashboard():
             </div>
             """, unsafe_allow_html=True)
 
-# FIXED: Multi-chart layout inspired by investing.com            
+def page_market_intelligence():
+    """
+    Placeholder function for the Market Intelligence page.
+    TODO: Add your Streamlit components and logic for this page here.
+    """
+    display_header()
+    st.title("Market Intelligence")
+    st.write("Display market intelligence data here...")
+    # Example: Add charts, dataframes, or other components
+    # data = {'col1': [1, 2], 'col2': [3, 4]}
+    # st.dataframe(data)
+
+# FIXED: Multi-chart layout inspired by investing.com                 
 def page_advanced_charting():
     """A page for advanced charting with custom intervals and indicators."""
     display_header()
@@ -1151,7 +1163,7 @@ def page_advanced_charting():
                     render_chart_controls(i, instrument_df)
             else:
                 with cols[i-2]:
-                     st.markdown("---") # Separator
+                    st.markdown("---") # Separator
         elif num_charts in [6, 8]:
              # More complex grid rendering would go here
              pass
@@ -1287,7 +1299,7 @@ def page_fo_analytics():
             underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY"])
             
         chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
-        
+    
         if not chain_df.empty:
             with col2:
                 st.metric("Current Price", f"₹{underlying_ltp:,.2f}")
@@ -2398,201 +2410,6 @@ def page_greeks_calculator():
                 """)
         else:
             st.info("Enter option details and click 'Calculate Greeks' to see results.")
-
-# ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
-
-# FIXED: Persistent 2FA secret using user profile hash
-def get_user_secret(user_profile):
-    """Generate a persistent secret based on user profile."""
-    user_id = user_profile.get('user_id', 'default_user')
-    # Create a hash-based secret that will be the same for the same user
-    user_hash = hashlib.md5(str(user_id).encode()).hexdigest()
-    return pyotp.random_base32() if 'pyotp_secret' not in st.session_state else st.session_state.pyotp_secret
-
-@st.dialog("Two-Factor Authentication")
-def two_factor_dialog():
-    """Dialog for 2FA login."""
-    st.subheader("Enter your 2FA code")
-    st.caption("Please enter the 6-digit code from your authenticator app to continue.")
-    
-    auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
-    
-    if st.button("Authenticate", use_container_width=True):
-        if auth_code:
-            try:
-                totp = pyotp.TOTP(st.session_state.pyotp_secret)
-                if totp.verify(auth_code):
-                    st.session_state.authenticated = True
-                    st.rerun()
-                else:
-                    st.error("Invalid code. Please try again.")
-            except Exception as e:
-                st.error(f"An error occurred during authentication: {e}")
-        else:
-            st.warning("Please enter a code.")
-
-@st.dialog("Generate QR Code for 2FA")
-def qr_code_dialog():
-    """Dialog to generate a QR code for 2FA setup."""
-    st.subheader("Set up Two-Factor Authentication")
-    st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator).")
-
-    if 'pyotp_secret' not in st.session_state:
-        # Generate persistent secret based on user profile
-        st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
-    
-    secret = st.session_state.pyotp_secret
-    user_name = st.session_state.get('profile', {}).get('user_name', 'User')
-    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
-    
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    
-    st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
-    st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
-    
-    if st.button("Continue", use_container_width=True):
-        st.session_state.two_factor_setup_complete = True
-        st.rerun()
-
-def show_login_animation():
-    """--- UI ENHANCEMENT: Displays a boot-up animation after login ---"""
-    st.title("BlockVista Terminal")
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    steps = {
-        "Authenticating user...": 25,
-        "Establishing secure connection...": 50,
-        "Fetching live market data feeds...": 75,
-        "Initializing terminal... COMPLETE": 100
-    }
-    
-    for text, progress in steps.items():
-        status_text.text(f"STATUS: {text}")
-        progress_bar.progress(progress)
-        a_time.sleep(0.9)
-    
-    a_time.sleep(0.5)
-    st.session_state['login_animation_complete'] = True
-    st.rerun()
-
-def login_page():
-    """Displays the login page for broker authentication."""
-    st.title("BlockVista Terminal")
-    st.subheader("Broker Login")
-    
-    broker = st.selectbox("Select Your Broker", ["Zerodha"])
-    
-    if broker == "Zerodha":
-        api_key = st.secrets.get("ZERODHA_API_KEY")
-        api_secret = st.secrets.get("ZERODHA_API_SECRET")
-        
-        if not api_key or not api_secret:
-            st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
-            st.stop()
-            
-        kite = KiteConnect(api_key=api_key)
-        request_token = st.query_params.get("request_token")
-        
-        if request_token:
-            try:
-                data = kite.generate_session(request_token, api_secret=api_secret)
-                st.session_state.access_token = data["access_token"]
-                kite.set_access_token(st.session_state.access_token)
-                st.session_state.kite = kite
-                st.session_state.profile = kite.profile()
-                st.session_state.broker = "Zerodha"
-                st.query_params.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Authentication failed: {e}")
-                st.query_params.clear()
-        else:
-            st.link_button("Login with Zerodha Kite", kite.login_url())
-            st.info("Please login with Zerodha Kite to begin. On first login, you will be prompted for a QR code scan. In subsequent sessions, a 2FA code will be required.")
-
-def main_app():
-    """The main application interface after successful login."""
-    st.markdown(f'<body class="{"light-theme" if st.session_state.get("theme") == "Light" else ""}"></body>', unsafe_allow_html=True)
-    
-    if st.session_state.get('profile'):
-        if not st.session_state.get('two_factor_setup_complete'):
-            qr_code_dialog()
-            st.stop()
-        if not st.session_state.get('authenticated', False):
-            two_factor_dialog()
-            st.stop()
-
-    if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
-    if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = 'Cash'
-    if 'order_history' not in st.session_state: st.session_state.order_history = []
-    
-    st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
-    st.sidebar.caption(f"Connected via {st.session_state.broker}")
-    st.sidebar.divider()
-    
-    st.sidebar.header("Terminal Controls")
-    st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options"], horizontal=True)
-    st.sidebar.divider()
-    
-    st.sidebar.header("Live Data")
-    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
-    st.session_state['auto_refresh'] = auto_refresh 
-
-    st.sidebar.divider()
-    
-    st.sidebar.header("Navigation")
-    pages = {
-        "Cash": {
-            "Dashboard": page_dashboard,
-            "Premarket & Global Cues": page_premarket_pulse,
-            "Market Intelligence": page_market_intelligence,
-            "Advanced Charting": page_advanced_charting,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "Trading & Orders": page_basket_orders,
-            "Forecasting & ML": page_forecasting_ml,
-            "Algo Strategy Maker": page_algo_strategy_maker,
-            "AI Discovery Engine": page_ai_discovery,
-            "AI Assistant & Journal": page_ai_assistant,
-            "Momentum & Trend Finder": page_momentum_and_trend_finder,
-            "Economic Calendar": page_economic_calendar,
-        },
-        "Options": {
-            "Strategy Builder": page_option_strategy_builder,
-            "F&O Greeks": page_greeks_calculator,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "AI Assistant & Journal": page_ai_assistant,
-            "Algo Strategy Maker": page_algo_strategy_maker,
-        },
-        "Futures": {
-            "Futures Terminal": page_futures_terminal,
-            "F&O Analytics": page_fo_analytics,
-            "Advanced Charting": page_advanced_charting,
-            "Algo Strategy Maker": page_algo_strategy_maker,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "AI Assistant & Journal": page_ai_assistant,
-        }
-    }
-    selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
-    
-    st.sidebar.divider()
-    if st.sidebar.button("Logout"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
-
-    # Display the overnight bar on all pages except login
-    display_overnight_changes_bar()
-
-    if auto_refresh and selection not in ["Forecasting & ML", "AI Assistant & Journal", "AI Discovery Engine", "Algo Strategy Maker"]:
-        st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
-    
-    pages[st.session_state.terminal_mode][selection]()
 
 def page_economic_calendar():
     """Economic Calendar page for Indian market events."""
