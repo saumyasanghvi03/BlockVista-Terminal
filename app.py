@@ -850,7 +850,7 @@ def get_nifty50_constituents(instrument_df):
         'ADANIENT', 'TATASTEEL', 'INDUSINDBK', 'TECHM', 'NTPC', 'MARUTI', 
         'BAJAJ-AUTO', 'POWERGRID', 'HCLTECH', 'ADANIPORTS', 'BPCL', 'COALINDIA', 
         'EICHERMOT', 'GRASIM', 'JSWSTEEL', 'SHREECEM', 'HEROMOTOCO', 'HINDALCO',
-        'DRREDDY', 'CIPLA', 'APOLLOHOSP', 'SBILIFE', 
+        'DRREDDY', 'CIPLA', 'APOLLOHOSP', 'SBILIFE',
         'TATAMOTORS', 'BRITANNIA', 'DIVISLAB', 'BAJAJFINSV', 'SUNPHARMA', 'HDFCLIFE'
     ]
     
@@ -1093,7 +1093,6 @@ def page_dashboard():
             </div>
             """, unsafe_allow_html=True)
 
-# FIXED: Multi-chart layout inspired by investing.com 
 def page_advanced_charting():
     """A page for advanced charting with custom intervals and indicators."""
     display_header()
@@ -1167,7 +1166,6 @@ def render_chart_controls(i, instrument_df):
             if order_cols[3].button("Sell", key=f"sell_btn_{i}", use_container_width=True):
                 place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
 
-# ENHANCED: Trader-focused UI for Premarket Page
 def page_premarket_pulse():
     """Global market overview and premarket indicators with a trader-focused UI."""
     display_header()
@@ -1241,7 +1239,6 @@ def page_premarket_pulse():
     else:
         st.info("News data is loading...")
 
-# REPLACED: F&O Analytics (instead of F&O Research)
 def page_fo_analytics():
     """F&O Analytics page with comprehensive options analysis."""
     display_header()
@@ -1356,7 +1353,6 @@ def page_fo_analytics():
         else:
             st.warning("Please select an underlying and expiry in the 'Options Chain' tab to view the volatility surface.")
 
-# ENHANCED: Advanced ML Forecasting with improved UI and corrected formulas
 def page_forecasting_ml():
     """A page for advanced ML forecasting with an improved UI and corrected formulas."""
     display_header()
@@ -2239,7 +2235,7 @@ def generate_ai_trade_idea(instrument_df, active_list):
     
     ticker_data = discovery_results[best_ticker]['data']
     ltp = ticker_data['close'].iloc[-1]
-    atr_col = next((c for c in ticker_data.columns if 'atr' in c), None) # More robust ATR column finding
+    atr_col = next((c for c in ticker_data.columns if 'atr' in c), None) # Use lowercase
     if not atr_col or pd.isna(ticker_data[atr_col].iloc[-1]): return None # ATR not found or is NaN
     atr = ticker_data[atr_col].iloc[-1]
     
@@ -2386,6 +2382,56 @@ def page_greeks_calculator():
         else:
             st.info("Enter option details and click 'Calculate Greeks' to see results.")
 
+def page_economic_calendar():
+    """Economic Calendar page for Indian market events."""
+    display_header()
+    st.title("Economic Calendar")
+    st.info("Upcoming economic events for the Indian market, updated until October 2025.")
+
+    events = {
+        'Date': [
+            '2025-09-26', '2025-09-26', '2025-09-29', '2025-09-30',
+            '2025-10-01', '2025-10-03', '2025-10-08', '2025-10-10',
+            '2025-10-14', '2025-10-15', '2025-10-17', '2025-10-24',
+            '2025-10-31', '2025-10-31'
+        ],
+        'Time': [
+            '11:30 AM', '11:30 AM', '10:30 AM', '05:30 PM',
+            '10:30 AM', '10:30 AM', '11:00 AM', '05:00 PM',
+            '12:00 PM', '05:30 PM', '05:00 PM', '05:00 PM',
+            '05:30 PM', '05:00 PM'
+        ],
+        'Event Name': [
+            'Bank Loan Growth YoY', 'Foreign Exchange Reserves', 'Industrial Production YoY (AUG)', 'Infrastructure Output YoY (AUG)',
+            'Nikkei Manufacturing PMI (SEP)', 'Nikkei Services PMI (SEP)', 'RBI Interest Rate Decision',
+            'Foreign Exchange Reserves', 'WPI Inflation YoY (SEP)', 'CPI Inflation YoY (SEP)',
+            'Foreign Exchange Reserves', 'Foreign Exchange Reserves', 'Fiscal Deficit (SEP)',
+            'Foreign Exchange Reserves'
+        ],
+        'Impact': [
+            'Medium', 'Low', 'Medium', 'Medium',
+            'High', 'High', 'High', 'Low',
+            'High', 'High', 'Low', 'Low',
+            'Medium', 'Low'
+        ],
+        'Previous': [
+            '10.0%', '$702.97B', '2.9%', '6.3%',
+            '58.5', '61.6', '6.50%', '$703.1B',
+            '0.3%', '5.1%', '$704.5B', '$705.2B',
+            '-4684.2B INR', '$705.9B'
+        ],
+        'Forecast': [
+            '-', '-', '3.5%', '6.5%',
+            '58.8', '61.2', '6.50%', '-',
+            '0.5%', '5.3%', '-', '-',
+            '-5100.0B INR', '-'
+        ]
+    }
+    calendar_df = pd.DataFrame(events)
+
+    st.dataframe(calendar_df, use_container_width=True, hide_index=True)
+
+
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
 # FIXED: Persistent 2FA secret using user profile hash
@@ -2513,10 +2559,6 @@ def main_app():
             two_factor_dialog()
             return
 
-    # --- Auto-refresh logic ---
-    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
-    
     st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
     st.sidebar.caption(f"Connected via {st.session_state.broker}")
     st.sidebar.divider()
@@ -2526,6 +2568,11 @@ def main_app():
     st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options"], horizontal=True)
     st.sidebar.divider()
     
+    st.sidebar.header("Live Data")
+    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
+    
+    st.sidebar.divider()
     
     st.sidebar.header("Navigation")
     pages = {
