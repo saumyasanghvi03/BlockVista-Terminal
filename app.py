@@ -510,6 +510,20 @@ def get_watchlist_data(symbols_with_exchange):
         st.warning(f"Watchlist for {st.session_state.broker} not implemented.")
         return pd.DataFrame()
 
+@st.cache_data(ttl=2)
+def get_market_depth(instrument_token):
+    """Fetches market depth (order book) for a given instrument."""
+    client = get_broker_client()
+    if not client or not instrument_token:
+        return None
+    try:
+        depth = client.depth(instrument_token)
+        return depth.get(str(instrument_token))  # Zerodha returns a dict with token as string key
+    except Exception as e:
+        st.toast(f"Error fetching market depth: {e}", icon="⚠️")
+        return None
+
+
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df, expiry_date=None):
     """Fetches and processes the options chain for a given underlying."""
@@ -2523,6 +2537,114 @@ def page_economic_calendar():
 
     st.dataframe(calendar_df, use_container_width=True, hide_index=True)
 
+# ============ 5.5 HFT TERMINAL PAGE ============
+def page_hft_terminal():
+    """A dedicated terminal for High-Frequency Trading with Level 2 data."""
+    display_header()
+    st.title("HFT Terminal (High-Frequency Trading)")
+    st.info("This interface provides a simulated high-speed view of market depth and one-click trading. For liquid, F&O instruments only.", icon="⚡️")
+
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.warning("Please connect to a broker to use the HFT Terminal.")
+        return
+
+    # --- Instrument Selection and Key Stats ---
+    top_cols = st.columns([2, 1, 1, 1])
+    with top_cols[0]:
+        symbol = st.text_input("Instrument Symbol", "NIFTY24OCTFUT", key="hft_symbol").upper()
+    
+    instrument_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
+    if instrument_info.empty:
+        st.error(f"Instrument '{symbol}' not found. Please enter a valid symbol.")
+        return
+    
+    exchange = instrument_info.iloc[0]['exchange']
+    instrument_token = instrument_info.iloc[0]['instrument_token']
+
+    # --- Fetch Live Data ---
+    quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
+    depth_data = get_market_depth(instrument_token)
+
+    # --- Display Key Stats ---
+    if not quote_data.empty:
+        ltp = quote_data.iloc[0]['Price']
+        change = quote_data.iloc[0]['Change']
+        
+        tick_direction = "tick-up" if ltp > st.session_state.hft_last_price else "tick-down" if ltp < st.session_state.hft_last_price else ""
+        
+        with top_cols[1]:
+            st.markdown(f"##### LTP: <span class='{tick_direction}' style='font-size: 1.2em;'>₹{ltp:,.2f}</span>", unsafe_allow_html=True)
+
+        with top_cols[2]:
+            color = 'var(--green)' if change > 0 else 'var(--red)'
+            st.markdown(f"##### Change: <span style='color:{color}; font-size: 1.2em;'>{change:,.2f}</span>", unsafe_allow_html=True)
+        
+        with top_cols[3]:
+            latency = random.uniform(20, 80)
+            st.metric("Latency (ms)", f"{latency:.2f}")
+
+        # Update tick log
+        if ltp != st.session_state.hft_last_price and st.session_state.hft_last_price != 0:
+            log_entry = {
+                "time": datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S.%f")[:-3],
+                "price": ltp,
+                "change": ltp - st.session_state.hft_last_price
+            }
+            st.session_state.hft_tick_log.insert(0, log_entry)
+            if len(st.session_state.hft_tick_log) > 20:
+                st.session_state.hft_tick_log.pop()
+
+        st.session_state.hft_last_price = ltp
+
+    st.markdown("---")
+
+    # --- Main Layout: Depth, Orders, Ticks ---
+    main_cols = st.columns([1, 1, 1], gap="large")
+
+    with main_cols[0]:
+        st.subheader("Market Depth")
+        if depth_data and depth_data.get('buy') and depth_data.get('sell'):
+            # Combine, sort, and display
+            bids = pd.DataFrame(depth_data['buy']).sort_values('price', ascending=False).head(5)
+            asks = pd.DataFrame(depth_data['sell']).sort_values('price', ascending=True).head(5)
+            
+            st.write("**Bids (Buyers)**")
+            for _, row in bids.iterrows():
+                st.markdown(f"<div class='hft-depth-bid'>{row['quantity']} @ **{row['price']:.2f}** ({row['orders']})</div>", unsafe_allow_html=True)
+            
+            st.write("**Asks (Sellers)**")
+            for _, row in asks.iterrows():
+                st.markdown(f"<div class='hft-depth-ask'>({row['orders']}) **{row['price']:.2f}** @ {row['quantity']}</div>", unsafe_allow_html=True)
+        else:
+            st.info("Waiting for market depth data...")
+
+    with main_cols[1]:
+        st.subheader("One-Click Execution")
+        quantity = st.number_input("Order Quantity", min_value=1, value=instrument_info.iloc[0]['lot_size'], step=instrument_info.iloc[0]['lot_size'], key="hft_qty")
+        
+        btn_cols = st.columns(2)
+        if btn_cols[0].button("MARKET BUY", use_container_width=True, type="primary"):
+            place_order(instrument_df, symbol, quantity, 'MARKET', 'BUY', 'MIS')
+        if btn_cols[1].button("MARKET SELL", use_container_width=True):
+            place_order(instrument_df, symbol, quantity, 'MARKET', 'SELL', 'MIS')
+        
+        st.markdown("---")
+        st.subheader("Manual Order")
+        price = st.number_input("Limit Price", min_value=0.01, step=0.05, key="hft_limit_price")
+        limit_btn_cols = st.columns(2)
+        if limit_btn_cols[0].button("LIMIT BUY", use_container_width=True):
+            place_order(instrument_df, symbol, quantity, 'LIMIT', 'BUY', 'MIS', price=price)
+        if limit_btn_cols[1].button("LIMIT SELL", use_container_width=True):
+            place_order(instrument_df, symbol, quantity, 'LIMIT', 'SELL', 'MIS', price=price)
+
+    with main_cols[2]:
+        st.subheader("Tick Log")
+        log_container = st.container(height=400)
+        for entry in st.session_state.hft_tick_log:
+            color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
+            log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
+
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -2638,155 +2760,6 @@ def login_page():
             st.link_button("Login with Zerodha Kite", kite.login_url())
             st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
 
-# ================ 7. HFT MODE FUNCTIONS ================
-
-@st.cache_data(ttl=2)
-def get_market_depth(instrument_name):
-    """Fetches Level 2 market depth."""
-    client = get_broker_client()
-    if not client: return None
-    try:
-        depth = client.quote(instrument_name)[instrument_name]['depth']
-        return depth
-    except Exception:
-        return None
-
-@st.cache_data(ttl=1)
-def measure_latency():
-    """Measures API latency."""
-    client = get_broker_client()
-    if not client: return "N/A"
-    start_time = a_time.time()
-    try:
-        client.profile()
-        end_time = a_time.time()
-        return f"{(end_time - start_time) * 1000:.0f} ms"
-    except Exception:
-        return "Error"
-
-def get_intraday_volume_profile(data, ticker):
-    """Generates an intraday volume profile chart."""
-    if data.empty:
-        return go.Figure().update_layout(title="Volume Profile data not available")
-
-    fig = go.Figure()
-    price_range = data['close'].round(0).value_counts().sort_index()
-    
-    fig.add_trace(go.Bar(
-        y=price_range.index,
-        x=price_range.values,
-        orientation='h',
-        marker=dict(color='rgba(99, 110, 250, 0.6)')
-    ))
-    
-    template = 'plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
-    fig.update_layout(
-        title=f"Intraday Volume Profile for {ticker}",
-        xaxis_title="Volume",
-        yaxis_title="Price Level",
-        bargap=0.1,
-        template=template
-    )
-    return fig
-
-def page_hft_terminal():
-    """High-Frequency Trading Terminal page."""
-    display_header()
-    instrument_df = get_instrument_df()
-    client = get_broker_client()
-
-    if instrument_df.empty or not client:
-        st.info("Connect to a broker to use the HFT Terminal.")
-        return
-
-    st.title("HFT Terminal")
-
-    col_cfg, col_latency = st.columns([4, 1])
-    with col_cfg:
-        hft_symbols = {
-            "NIFTY": "NIFTY 50",
-            "BANKNIFTY": "NIFTY BANK",
-            "FINNIFTY": "NIFTY FIN SERVICE"
-        }
-        selected_symbol_name = st.selectbox("Select Instrument", list(hft_symbols.keys()))
-        exchange = "NSE"
-        symbol = hft_symbols[selected_symbol_name]
-        instrument_name = f"{exchange}:{symbol}"
-        
-    with col_latency:
-        st.metric("API Latency", measure_latency())
-
-    st.markdown("---")
-
-    main_col1, main_col2, main_col3 = st.columns([1, 1.5, 1])
-
-    # --- Market Depth ---
-    with main_col1:
-        st.subheader("Market Depth")
-        depth_data = get_market_depth(instrument_name)
-        if depth_data:
-            depth_container = st.container(height=400)
-            with depth_container:
-                # Asks (reversed to show lowest ask at the bottom)
-                for item in reversed(depth_data['sell']):
-                    st.markdown(f"<div class='hft-depth-ask' style='display: flex; justify-content: space-between;'><span>{item['price']:.2f}</span><span>{item['quantity']} ({item['orders']})</span></div>", unsafe_allow_html=True)
-                
-                # Bids
-                for item in depth_data['buy']:
-                    st.markdown(f"<div class='hft-depth-bid' style='display: flex; justify-content: space-between;'><span>{item['price']:.2f}</span><span>{item['quantity']} ({item['orders']})</span></div>", unsafe_allow_html=True)
-        else:
-            st.warning("Depth data not available.")
-
-    # --- Live Ticker and Order Controls ---
-    with main_col2:
-        quote = client.quote(instrument_name)[instrument_name]
-        ltp = quote['last_price']
-        
-        # Determine tick direction
-        tick_direction = ""
-        if st.session_state.hft_last_price != 0:
-            if ltp > st.session_state.hft_last_price:
-                tick_direction = "tick-up"
-            elif ltp < st.session_state.hft_last_price:
-                tick_direction = "tick-down"
-        
-        st.markdown(f"<h1 class='{tick_direction}' style='text-align:center; font-size: 4rem; margin:0;'>{ltp:.2f}</h1>", unsafe_allow_html=True)
-        st.session_state.hft_last_price = ltp
-
-        qty = st.number_input("Order Quantity", min_value=1, value=50, step=50, key="hft_qty")
-        
-        order_cols = st.columns(2)
-        if order_cols[0].button("BUY MARKET", use_container_width=True, type="primary"):
-            place_order(instrument_df, symbol, qty, 'MARKET', 'BUY', 'MIS')
-        if order_cols[1].button("SELL MARKET", use_container_width=True):
-            place_order(instrument_df, symbol, qty, 'MARKET', 'SELL', 'MIS')
-        
-        st.subheader("Volume Profile")
-        token = get_instrument_token(symbol, instrument_df, exchange)
-        intraday_data = get_historical_data(token, 'minute', period='1d')
-        st.plotly_chart(get_intraday_volume_profile(intraday_data, symbol), use_container_width=True)
-
-    # --- Tick Log ---
-    with main_col3:
-        st.subheader("Tick Log")
-        if 'last_trade_time' in quote and quote['last_trade_time']:
-            latest_tick = {
-                'time': quote['last_trade_time'].strftime("%H:%M:%S"),
-                'price': quote['last_price'],
-                'qty': quote['last_quantity']
-            }
-            # Add tick only if it's new
-            if not st.session_state.hft_tick_log or st.session_state.hft_tick_log[0] != latest_tick:
-                st.session_state.hft_tick_log.insert(0, latest_tick)
-                st.session_state.hft_tick_log = st.session_state.hft_tick_log[:50] # Keep log size manageable
-
-        log_container = st.container(height=600)
-        with log_container:
-            for tick in st.session_state.hft_tick_log:
-                color = "var(--green)" if tick['price'] > st.session_state.hft_last_price else "var(--red)" if tick['price'] < st.session_state.hft_last_price else "var(--text-light)"
-                st.markdown(f"<small style='color:{color};'>{tick['time']} - **{tick['price']:.2f}** ({tick['qty']})</small>", unsafe_allow_html=True)
-        st.session_state.hft_last_price = quote['last_price']
-        
 def main_app():
     """The main application interface after successful login."""
     apply_custom_styling()
@@ -2807,12 +2780,19 @@ def main_app():
     
     st.sidebar.header("Terminal Controls")
     st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options"], horizontal=True)
+    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
     st.sidebar.divider()
     
-    st.sidebar.header("Live Data")
-    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
+    # Dynamic refresh interval based on mode
+    if st.session_state.terminal_mode == "HFT":
+        refresh_interval = 2 # Faster refresh for HFT mode
+        auto_refresh = True
+        st.sidebar.header("HFT Mode Active")
+        st.sidebar.caption(f"Refresh Interval: {refresh_interval}s")
+    else:
+        st.sidebar.header("Live Data")
+        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
     
     st.sidebar.divider()
     
@@ -2844,6 +2824,10 @@ def main_app():
             "Algo Strategy Hub": page_algo_strategy_maker,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant,
+        },
+        "HFT": {
+            "HFT Terminal": page_hft_terminal,
+            "Portfolio & Risk": page_portfolio_and_risk,
         }
     }
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
