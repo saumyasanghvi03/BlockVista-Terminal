@@ -510,20 +510,6 @@ def get_watchlist_data(symbols_with_exchange):
         st.warning(f"Watchlist for {st.session_state.broker} not implemented.")
         return pd.DataFrame()
 
-@st.cache_data(ttl=2)
-def get_market_depth(instrument_token):
-    """Fetches market depth (order book) for a given instrument."""
-    client = get_broker_client()
-    if not client or not instrument_token:
-        return None
-    try:
-        depth = client.depth(instrument_token)
-        return depth.get(str(instrument_token))  # Zerodha returns a dict with token as string key
-    except Exception as e:
-        st.toast(f"Error fetching market depth: {e}", icon="⚠️")
-        return None
-
-
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df, expiry_date=None):
     """Fetches and processes the options chain for a given underlying."""
@@ -567,8 +553,8 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
             pe_df['oi'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
             
             final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP', 'oi']], 
-                                   pe_df[['tradingsymbol', 'strike', 'LTP', 'oi']], 
-                                   on='strike', suffixes=('_CE', '_PE')).rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'oi_CE': 'CALL OI', 'oi_PE': 'PUT OI', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
+                                     pe_df[['tradingsymbol', 'strike', 'LTP', 'oi']], 
+                                     on='strike', suffixes=('_CE', '_PE')).rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'oi_CE': 'CALL OI', 'oi_PE': 'PUT OI', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
             
             return final_chain[['CALL', 'CALL LTP', 'CALL OI', 'STRIKE', 'PUT LTP', 'PUT OI', 'PUT']], expiry_date, underlying_ltp, available_expiries
         except Exception as e:
@@ -1579,7 +1565,7 @@ def page_portfolio_and_risk():
         st.info("No holdings or positions found to analyze.")
         return
 
-    tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Live Order Book"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Day Positions", "Holdings (Investments)", "Live Order Book", "Risk Dashboard"])
     
     with tab1:
         st.subheader("Live Intraday Positions")
@@ -1654,6 +1640,81 @@ def page_portfolio_and_risk():
                 st.error(f"Failed to fetch order book: {e}")
         else:
             st.info("Broker not connected.")
+    
+    with tab4:
+        st.subheader("HNI Risk Dashboard")
+        st.info("This dashboard provides advanced risk metrics for your investment portfolio. Calculations are based on the last year of historical data.", icon="⚠️")
+        if holdings_df.empty:
+            st.warning("No holdings found to calculate risk metrics.")
+            return
+
+        instrument_df = get_instrument_df()
+        
+        # Risk Calculation
+        with st.spinner("Calculating advanced risk metrics for your portfolio... This may take a moment."):
+            # 1. Fetch historical data for all holdings
+            returns_df = pd.DataFrame()
+            for _, row in holdings_df.iterrows():
+                token = get_instrument_token(row['tradingsymbol'], instrument_df)
+                if token:
+                    hist_data = get_historical_data(token, 'day', period='1y')
+                    if not hist_data.empty:
+                        returns_df[row['tradingsymbol']] = hist_data['close'].pct_change()
+            
+            returns_df.dropna(inplace=True)
+
+            if not returns_df.empty:
+                # 2. Value at Risk (VaR) - Monte Carlo
+                portfolio_weights = (holdings_df['quantity'] * holdings_df['average_price']) / (holdings_df['quantity'] * holdings_df['average_price']).sum()
+                portfolio_weights = portfolio_weights.values
+                
+                mean_returns = returns_df.mean()
+                cov_matrix = returns_df.cov()
+                num_simulations = 1000
+                
+                sim_results = np.zeros((num_simulations, 1))
+                for i in range(num_simulations):
+                    sim_returns = np.random.multivariate_normal(mean_returns, cov_matrix, 1)
+                    portfolio_return = np.dot(sim_returns, portfolio_weights)
+                    sim_results[i] = portfolio_return
+                
+                var_95 = np.percentile(sim_results, 5)
+                total_investment = (holdings_df['quantity'] * holdings_df['average_price']).sum()
+                var_amount = total_investment * var_95
+
+                # 3. Portfolio Beta
+                nifty_token = get_instrument_token("NIFTY 50", instrument_df)
+                nifty_hist = get_historical_data(nifty_token, 'day', period='1y')
+                nifty_returns = nifty_hist['close'].pct_change().dropna()
+                
+                portfolio_returns = (returns_df * portfolio_weights).sum(axis=1)
+                common_index = nifty_returns.index.intersection(portfolio_returns.index)
+                
+                beta_numerator = portfolio_returns.loc[common_index].cov(nifty_returns.loc[common_index])
+                beta_denominator = nifty_returns.loc[common_index].var()
+                portfolio_beta = beta_numerator / beta_denominator if beta_denominator != 0 else 0
+
+                # 4. Correlation Matrix
+                corr_matrix = returns_df.corr()
+                
+                # Display Metrics
+                risk_cols = st.columns(2)
+                risk_cols[0].metric("1-Day Value at Risk (95%)", f"₹{var_amount:,.2f}", help="Estimated maximum loss for 1 day, with 95% confidence.")
+                risk_cols[1].metric("Portfolio Beta vs NIFTY 50", f"{portfolio_beta:.2f}", help="A beta > 1 means the portfolio is more volatile than the market; < 1 means less volatile.")
+
+                st.subheader("Portfolio Correlation Heatmap")
+                fig = go.Figure(data=go.Heatmap(
+                    z=corr_matrix.values,
+                    x=corr_matrix.columns,
+                    y=corr_matrix.columns,
+                    colorscale='RdBu',
+                    zmin=-1,
+                    zmax=1
+                ))
+                fig.update_layout(title="Correlation between Portfolio Stocks")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.error("Could not fetch sufficient historical data for holdings to calculate risk metrics.")
 
 def page_ai_assistant():
     """An AI-powered assistant for portfolio management and market queries."""
@@ -2537,114 +2598,6 @@ def page_economic_calendar():
 
     st.dataframe(calendar_df, use_container_width=True, hide_index=True)
 
-# ============ 5.5 HFT TERMINAL PAGE ============
-def page_hft_terminal():
-    """A dedicated terminal for High-Frequency Trading with Level 2 data."""
-    display_header()
-    st.title("HFT Terminal (High-Frequency Trading)")
-    st.info("This interface provides a simulated high-speed view of market depth and one-click trading. For liquid, F&O instruments only.", icon="⚡️")
-
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.warning("Please connect to a broker to use the HFT Terminal.")
-        return
-
-    # --- Instrument Selection and Key Stats ---
-    top_cols = st.columns([2, 1, 1, 1])
-    with top_cols[0]:
-        symbol = st.text_input("Instrument Symbol", "NIFTY24OCTFUT", key="hft_symbol").upper()
-    
-    instrument_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
-    if instrument_info.empty:
-        st.error(f"Instrument '{symbol}' not found. Please enter a valid symbol.")
-        return
-    
-    exchange = instrument_info.iloc[0]['exchange']
-    instrument_token = instrument_info.iloc[0]['instrument_token']
-
-    # --- Fetch Live Data ---
-    quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-    depth_data = get_market_depth(instrument_token)
-
-    # --- Display Key Stats ---
-    if not quote_data.empty:
-        ltp = quote_data.iloc[0]['Price']
-        change = quote_data.iloc[0]['Change']
-        
-        tick_direction = "tick-up" if ltp > st.session_state.hft_last_price else "tick-down" if ltp < st.session_state.hft_last_price else ""
-        
-        with top_cols[1]:
-            st.markdown(f"##### LTP: <span class='{tick_direction}' style='font-size: 1.2em;'>₹{ltp:,.2f}</span>", unsafe_allow_html=True)
-
-        with top_cols[2]:
-            color = 'var(--green)' if change > 0 else 'var(--red)'
-            st.markdown(f"##### Change: <span style='color:{color}; font-size: 1.2em;'>{change:,.2f}</span>", unsafe_allow_html=True)
-        
-        with top_cols[3]:
-            latency = random.uniform(20, 80)
-            st.metric("Latency (ms)", f"{latency:.2f}")
-
-        # Update tick log
-        if ltp != st.session_state.hft_last_price and st.session_state.hft_last_price != 0:
-            log_entry = {
-                "time": datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S.%f")[:-3],
-                "price": ltp,
-                "change": ltp - st.session_state.hft_last_price
-            }
-            st.session_state.hft_tick_log.insert(0, log_entry)
-            if len(st.session_state.hft_tick_log) > 20:
-                st.session_state.hft_tick_log.pop()
-
-        st.session_state.hft_last_price = ltp
-
-    st.markdown("---")
-
-    # --- Main Layout: Depth, Orders, Ticks ---
-    main_cols = st.columns([1, 1, 1], gap="large")
-
-    with main_cols[0]:
-        st.subheader("Market Depth")
-        if depth_data and depth_data.get('buy') and depth_data.get('sell'):
-            # Combine, sort, and display
-            bids = pd.DataFrame(depth_data['buy']).sort_values('price', ascending=False).head(5)
-            asks = pd.DataFrame(depth_data['sell']).sort_values('price', ascending=True).head(5)
-            
-            st.write("**Bids (Buyers)**")
-            for _, row in bids.iterrows():
-                st.markdown(f"<div class='hft-depth-bid'>{row['quantity']} @ **{row['price']:.2f}** ({row['orders']})</div>", unsafe_allow_html=True)
-            
-            st.write("**Asks (Sellers)**")
-            for _, row in asks.iterrows():
-                st.markdown(f"<div class='hft-depth-ask'>({row['orders']}) **{row['price']:.2f}** @ {row['quantity']}</div>", unsafe_allow_html=True)
-        else:
-            st.info("Waiting for market depth data...")
-
-    with main_cols[1]:
-        st.subheader("One-Click Execution")
-        quantity = st.number_input("Order Quantity", min_value=1, value=instrument_info.iloc[0]['lot_size'], step=instrument_info.iloc[0]['lot_size'], key="hft_qty")
-        
-        btn_cols = st.columns(2)
-        if btn_cols[0].button("MARKET BUY", use_container_width=True, type="primary"):
-            place_order(instrument_df, symbol, quantity, 'MARKET', 'BUY', 'MIS')
-        if btn_cols[1].button("MARKET SELL", use_container_width=True):
-            place_order(instrument_df, symbol, quantity, 'MARKET', 'SELL', 'MIS')
-        
-        st.markdown("---")
-        st.subheader("Manual Order")
-        price = st.number_input("Limit Price", min_value=0.01, step=0.05, key="hft_limit_price")
-        limit_btn_cols = st.columns(2)
-        if limit_btn_cols[0].button("LIMIT BUY", use_container_width=True):
-            place_order(instrument_df, symbol, quantity, 'LIMIT', 'BUY', 'MIS', price=price)
-        if limit_btn_cols[1].button("LIMIT SELL", use_container_width=True):
-            place_order(instrument_df, symbol, quantity, 'LIMIT', 'SELL', 'MIS', price=price)
-
-    with main_cols[2]:
-        st.subheader("Tick Log")
-        log_container = st.container(height=400)
-        for entry in st.session_state.hft_tick_log:
-            color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
-            log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
-
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -2783,16 +2736,9 @@ def main_app():
     st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
     st.sidebar.divider()
     
-    # Dynamic refresh interval based on mode
-    if st.session_state.terminal_mode == "HFT":
-        refresh_interval = 2 # Faster refresh for HFT mode
-        auto_refresh = True
-        st.sidebar.header("HFT Mode Active")
-        st.sidebar.caption(f"Refresh Interval: {refresh_interval}s")
-    else:
-        st.sidebar.header("Live Data")
-        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
+    st.sidebar.header("Live Data")
+    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
     
     st.sidebar.divider()
     
