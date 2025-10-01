@@ -27,6 +27,7 @@ import base64
 import io
 import requests
 import hashlib
+import random
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -159,6 +160,32 @@ def apply_custom_styling():
             margin: 0 15px;
             white-space: nowrap;
         }
+        
+        /* HFT Terminal specific styles */
+        .hft-depth-bid {
+            background: linear-gradient(to left, rgba(0, 128, 0, 0.3), rgba(0, 128, 0, 0.05));
+            padding: 2px 5px;
+        }
+        .hft-depth-ask {
+            background: linear-gradient(to right, rgba(255, 0, 0, 0.3), rgba(255, 0, 0, 0.05));
+            padding: 2px 5px;
+        }
+        .tick-up {
+            color: var(--green);
+            animation: flash-green 0.5s;
+        }
+        .tick-down {
+            color: var(--red);
+            animation: flash-red 0.5s;
+        }
+        @keyframes flash-green {
+            0% { background-color: rgba(40, 167, 69, 0.5); }
+            100% { background-color: transparent; }
+        }
+        @keyframes flash-red {
+            0% { background-color: rgba(218, 54, 51, 0.5); }
+            100% { background-color: transparent; }
+        }
     </style>
     """
     st.markdown(theme_css, unsafe_allow_html=True)
@@ -250,6 +277,10 @@ def initialize_session_state():
     if 'ml_forecast_df' not in st.session_state: st.session_state.ml_forecast_df = None
     if 'ml_instrument_name' not in st.session_state: st.session_state.ml_instrument_name = None
     if 'backtest_results' not in st.session_state: st.session_state.backtest_results = None
+
+    # HFT Mode
+    if 'hft_last_price' not in st.session_state: st.session_state.hft_last_price = 0
+    if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
 
 # ================ 2. HELPER FUNCTIONS ================
 
