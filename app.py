@@ -1548,7 +1548,6 @@ def page_forecasting_ml():
         else:
             st.info("Select an instrument and run the forecast to see results.")
 
-
 def page_portfolio_and_risk():
     """A page for portfolio and risk management, including live P&L and holdings."""
     display_header()
