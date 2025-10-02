@@ -2780,19 +2780,16 @@ def main_app():
     
     st.sidebar.header("Terminal Controls")
     st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
+    
+    # Keep HFT mode as "coming soon" - remove from available modes
+    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options"], horizontal=True)
+    
     st.sidebar.divider()
     
     # Dynamic refresh interval based on mode
-    if st.session_state.terminal_mode == "HFT":
-        refresh_interval = 2 # Faster refresh for HFT mode
-        auto_refresh = True
-        st.sidebar.header("HFT Mode Active")
-        st.sidebar.caption(f"Refresh Interval: {refresh_interval}s")
-    else:
-        st.sidebar.header("Live Data")
-        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
+    st.sidebar.header("Live Data")
+    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
     
     st.sidebar.divider()
     
@@ -2824,12 +2821,12 @@ def main_app():
             "Algo Strategy Hub": page_algo_strategy_maker,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant,
-        },
-        "HFT": {
-            "HFT Terminal": page_hft_terminal,
-            "Portfolio & Risk": page_portfolio_and_risk,
         }
     }
+    
+    # Add a note about HFT coming soon
+    st.sidebar.info("🚀 HFT Mode - Coming Soon!")
+    
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
     
     st.sidebar.divider()
