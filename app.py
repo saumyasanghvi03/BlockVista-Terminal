@@ -2016,7 +2016,7 @@ def run_scanner(instrument_df, scanner_type, holdings_df=None):
     return pd.DataFrame(results)
 
 def run_momentum_scanner(instrument_df, holdings_df=None):
-    """Enhanced momentum scanner with RSI, MACD, and volume analysis."""
+    """Momentum scanner with RSI and MACD analysis."""
     client = get_broker_client()
     if not client or instrument_df.empty: 
         return pd.DataFrame()
@@ -2024,21 +2024,19 @@ def run_momentum_scanner(instrument_df, holdings_df=None):
     # Get symbols to scan
     scan_list = []
     if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()
+        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]  # Limit to 20 stocks
     else:
-        # Predefined list of liquid stocks
         scan_list = [
             'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
             'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 
-            'MARUTI', 'ASIANPAINT', 'HCLTECH', 'TECHM', 'TATAMOTORS', 'SUNPHARMA',
-            'TITAN', 'ULTRACEMCO', 'NESTLEIND', 'BAJAJFINSV', 'ADANIENT', 'POWERGRID'
+            'MARUTI', 'ASIANPAINT', 'HCLTECH', 'TATAMOTORS', 'SUNPHARMA'
         ]
     
     results = []
     
     for symbol in scan_list:
         try:
-            # Get live quote first
+            # Get live quote
             exchange = 'NSE'
             quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
             if quote_data.empty:
@@ -2047,99 +2045,136 @@ def run_momentum_scanner(instrument_df, holdings_df=None):
             current_price = quote_data.iloc[0]['Price']
             change_pct = quote_data.iloc[0]['% Change']
             
-            # Get historical data for technical analysis
+            # Get historical data
             token = get_instrument_token(symbol, instrument_df, exchange)
             if not token:
                 continue
                 
-            hist_data = get_historical_data(token, 'day', period='6mo')
-            if hist_data.empty or len(hist_data) < 50:
+            hist_data = get_historical_data(token, 'day', period='3mo')
+            if hist_data.empty or len(hist_data) < 30:
                 continue
             
-            # Calculate technical indicators
+            # Calculate RSI
             try:
-                # Calculate RSI
                 hist_data['RSI_14'] = ta.rsi(hist_data['close'], length=14)
+                latest = hist_data.iloc[-1]
+                rsi = latest.get('RSI_14', 50)
                 
-                # Calculate MACD
-                macd_data = ta.macd(hist_data['close'], fast=12, slow=26, signal=9)
-                if macd_data is not None:
-                    hist_data = pd.concat([hist_data, macd_data], axis=1)
-                
-                # Calculate Bollinger Bands
-                bb_data = ta.bbands(hist_data['close'], length=20, std=2)
-                if bb_data is not None:
-                    hist_data = pd.concat([hist_data, bb_data], axis=1)
-                
-                # Calculate EMAs
-                hist_data['EMA_20'] = ta.ema(hist_data['close'], length=20)
-                hist_data['EMA_50'] = ta.ema(hist_data['close'], length=50)
-                
-            except Exception as e:
+                # Momentum signals
+                if rsi > 70 and change_pct > 0:
+                    results.append({
+                        'Symbol': symbol,
+                        'LTP': f"₹{current_price:.2f}",
+                        'Change %': f"{change_pct:.2f}%",
+                        'RSI': f"{rsi:.1f}",
+                        'Signal': "Overbought",
+                        'Strength': "High"
+                    })
+                elif rsi < 30 and change_pct < 0:
+                    results.append({
+                        'Symbol': symbol,
+                        'LTP': f"₹{current_price:.2f}",
+                        'Change %': f"{change_pct:.2f}%",
+                        'RSI': f"{rsi:.1f}",
+                        'Signal': "Oversold", 
+                        'Strength': "High"
+                    })
+                    
+            except Exception:
                 continue
-            
-            latest = hist_data.iloc[-1]
-            
-            # Momentum criteria with safe value access
-            rsi = latest.get('RSI_14', 50)
-            macd_histogram = latest.get('MACDh_12_26_9', 0)
-            
-            # Volume analysis (if available)
-            volume_surge = False
-            if 'volume' in hist_data.columns and len(hist_data) > 20:
-                avg_volume = hist_data['volume'].tail(20).mean()
-                current_volume = latest.get('volume', 0)
-                volume_surge = current_volume > avg_volume * 1.5
-            
-            # Strong momentum signals
-            strong_bullish = (
-                rsi > 65 and  # Slightly lowered threshold for more signals
-                macd_histogram > 0 and
-                change_pct > 0.5
-            )
-            
-            strong_bearish = (
-                rsi < 35 and  # Slightly raised threshold for more signals
-                macd_histogram < 0 and
-                change_pct < -0.5
-            )
-            
-            if strong_bullish or strong_bearish:
-                signal_type = "Bullish Momentum" if strong_bullish else "Bearish Momentum"
-                strength = "HIGH"
-                if volume_surge:
-                    strength += " + Volume Surge"
                 
-                results.append({
-                    'Symbol': symbol,
-                    'LTP': f"₹{current_price:.2f}",
-                    'Change %': f"{change_pct:.2f}%",
-                    'RSI': f"{rsi:.1f}",
-                    'MACD Hist': f"{macd_histogram:.3f}",
-                    'Signal': signal_type,
-                    'Strength': strength,
-                    'Volume': "High" if volume_surge else "Normal"
-                })
-                
-        except Exception as e:
+        except Exception:
             continue
             
     return pd.DataFrame(results)
 
 def run_trend_scanner(instrument_df, holdings_df=None):
-    """Enhanced trend scanner with ADX, EMA crossovers, and trend strength."""
+    """Trend scanner with EMA analysis."""
     client = get_broker_client()
     if not client or instrument_df.empty: 
         return pd.DataFrame()
 
     scan_list = []
     if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()
+        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]
     else:
         scan_list = [
             'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
-            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 
-            'MARUTI', 'ASIANPAINT', 'HCLTECH', 'TECHM', 'TATAMOTORS', 'SUNPHARMA'
+            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK'
+        ]
+    
+    results = []
+    
+    for symbol in scan_list:
+        try:
+            # Get live data
+            exchange = 'NSE'
+            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
+            if quote_data.empty:
+                continue
+                
+            current_price = quote_data.iloc[0]['Price']
+            change_pct = quote_data.iloc[0]['% Change']
+            
+            # Get historical data
+            token = get_instrument_token(symbol, instrument_df, exchange)
+            if not token:
+                continue
+                
+            hist_data = get_historical_data(token, 'day', period='3mo')
+            if hist_data.empty or len(hist_data) < 50:
+                continue
+            
+            # Calculate EMAs
+            try:
+                hist_data['EMA_20'] = ta.ema(hist_data['close'], length=20)
+                hist_data['EMA_50'] = ta.ema(hist_data['close'], length=50)
+                
+                latest = hist_data.iloc[-1]
+                ema_20 = latest.get('EMA_20', current_price)
+                ema_50 = latest.get('EMA_50', current_price)
+                
+                # Trend signals
+                if current_price > ema_20 > ema_50 and change_pct > 0:
+                    results.append({
+                        'Symbol': symbol,
+                        'LTP': f"₹{current_price:.2f}",
+                        'Change %': f"{change_pct:.2f}%",
+                        'Trend': "Uptrend",
+                        '20 EMA': f"₹{ema_20:.1f}",
+                        '50 EMA': f"₹{ema_50:.1f}"
+                    })
+                elif current_price < ema_20 < ema_50 and change_pct < 0:
+                    results.append({
+                        'Symbol': symbol,
+                        'LTP': f"₹{current_price:.2f}",
+                        'Change %': f"{change_pct:.2f}%",
+                        'Trend': "Downtrend",
+                        '20 EMA': f"₹{ema_20:.1f}",
+                        '50 EMA': f"₹{ema_50:.1f}"
+                    })
+                    
+            except Exception:
+                continue
+                
+        except Exception:
+            continue
+            
+    return pd.DataFrame(results)
+
+def run_breakout_scanner(instrument_df, holdings_df=None):
+    """Breakout scanner for key level breaks."""
+    client = get_broker_client()
+    if not client or instrument_df.empty: 
+        return pd.DataFrame()
+
+    scan_list = []
+    if holdings_df is not None and not holdings_df.empty:
+        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]
+    else:
+        scan_list = [
+            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
+            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK'
         ]
     
     results = []
@@ -2164,255 +2199,37 @@ def run_trend_scanner(instrument_df, holdings_df=None):
             if hist_data.empty or len(hist_data) < 100:
                 continue
             
-            # Calculate trend indicators
-            try:
-                # Calculate ADX
-                adx_data = ta.adx(hist_data['high'], hist_data['low'], hist_data['close'], length=14)
-                if adx_data is not None:
-                    hist_data = pd.concat([hist_data, adx_data], axis=1)
-                
-                # Calculate EMAs
-                hist_data['EMA_20'] = ta.ema(hist_data['close'], length=20)
-                hist_data['EMA_50'] = ta.ema(hist_data['close'], length=50)
-                hist_data['EMA_200'] = ta.ema(hist_data['close'], length=200)
-                hist_data['SMA_50'] = ta.sma(hist_data['close'], length=50)
-                
-            except Exception as e:
-                continue
+            # Calculate breakout levels
+            high_20d = hist_data['high'].tail(20).max()
+            low_20d = hist_data['low'].tail(20).min()
             
-            latest = hist_data.iloc[-1]
-            
-            # Trend criteria with safe value access
-            adx = latest.get('ADX_14', 0)
-            ema_20 = latest.get('EMA_20', current_price)
-            ema_50 = latest.get('EMA_50', current_price)
-            ema_200 = latest.get('EMA_200', current_price)
-            
-            # Trend direction
-            price_above_ema20 = current_price > ema_20
-            ema20_above_ema50 = ema_20 > ema_50
-            ema50_above_ema200 = ema_50 > ema_200
-            
-            # Strong uptrend criteria
-            strong_uptrend = (
-                adx > 20 and  # Slightly lowered threshold
-                price_above_ema20 and
-                ema20_above_ema50 and
-                change_pct > 0
-            )
-            
-            # Strong downtrend criteria  
-            strong_downtrend = (
-                adx > 20 and  # Slightly lowered threshold
-                current_price < ema_20 and
-                ema_20 < ema_50 and
-                change_pct < 0
-            )
-            
-            if strong_uptrend or strong_downtrend:
-                trend_type = "Strong Uptrend" if strong_uptrend else "Strong Downtrend"
-                strength = f"ADX: {adx:.1f}"
-                ema_alignment = "Bullish" if strong_uptrend else "Bearish"
-                
+            # Breakout signals
+            if current_price >= high_20d and change_pct > 0:
                 results.append({
                     'Symbol': symbol,
                     'LTP': f"₹{current_price:.2f}",
                     'Change %': f"{change_pct:.2f}%",
-                    'ADX': f"{adx:.1f}",
-                    'Trend': trend_type,
-                    'EMA Alignment': ema_alignment,
-                    'Strength': strength,
-                    '20 EMA': f"₹{ema_20:.1f}" if pd.notna(ema_20) else "N/A"
+                    'Breakout': "20-Day High",
+                    'Resistance': f"₹{high_20d:.1f}"
+                })
+            elif current_price <= low_20d and change_pct < 0:
+                results.append({
+                    'Symbol': symbol,
+                    'LTP': f"₹{current_price:.2f}",
+                    'Change %': f"{change_pct:.2f}%",
+                    'Breakout': "20-Day Low", 
+                    'Support': f"₹{low_20d:.1f}"
                 })
                 
-        except Exception as e:
-            continue
-            
-    return pd.DataFrame(results)
-
-def run_breakout_scanner(instrument_df, holdings_df=None):
-    """Enhanced breakout scanner with volume confirmation and pattern detection."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: 
-        return pd.DataFrame()
-
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()
-    else:
-        scan_list = [
-            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
-            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 
-            'MARUTI', 'ASIANPAINT', 'HCLTECH', 'TECHM', 'TATAMOTORS', 'SUNPHARMA'
-        ]
-    
-    results = []
-    
-    for symbol in scan_list:
-        try:
-            # Get live data
-            exchange = 'NSE'
-            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-            if quote_data.empty:
-                continue
-                
-            current_price = quote_data.iloc[0]['Price']
-            change_pct = quote_data.iloc[0]['% Change']
-            
-            # Get historical data
-            token = get_instrument_token(symbol, instrument_df, exchange)
-            if not token:
-                continue
-                
-            hist_data = get_historical_data(token, 'day', period='1y')
-            if hist_data.empty or len(hist_data) < 252:
-                continue
-            
-            # Breakout criteria
-            high_52wk = hist_data['high'].rolling(window=min(252, len(hist_data)), min_periods=1).max().iloc[-1]
-            low_52wk = hist_data['low'].rolling(window=min(252, len(hist_data)), min_periods=1).min().iloc[-1]
-            high_20d = hist_data['high'].tail(20).max()
-            low_20d = hist_data['low'].tail(20).min()
-            
-            # Volume analysis
-            volume_surge = False
-            if 'volume' in hist_data.columns and len(hist_data) > 20:
-                avg_volume_20d = hist_data['volume'].tail(20).mean()
-                current_volume = hist_data['volume'].iloc[-1]
-                volume_surge = current_volume > avg_volume_20d * 1.5
-            
-            # Various breakout types
-            near_52wk_high = current_price >= high_52wk * 0.98  # Within 2% of 52-week high
-            broke_20d_high = current_price >= high_20d
-            broke_20d_low = current_price <= low_20d
-            
-            breakout_signal = ""
-            strength = ""
-            confirmation = ""
-            
-            if near_52wk_high and volume_surge:
-                breakout_signal = "52-Week High Breakout"
-                strength = "STRONG"
-                confirmation = "Volume Confirmed"
-            elif broke_20d_high and volume_surge:
-                breakout_signal = "20-Day High Breakout"
-                strength = "MODERATE"
-                confirmation = "Volume Spike"
-            elif broke_20d_low:
-                breakout_signal = "20-Day Low Breakdown"
-                strength = "BEARISH"
-                confirmation = "Breakdown"
-            else:
-                continue
-            
-            results.append({
-                'Symbol': symbol,
-                'LTP': f"₹{current_price:.2f}",
-                'Change %': f"{change_pct:.2f}%",
-                'Breakout Type': breakout_signal,
-                'Strength': strength,
-                'Confirmation': confirmation,
-                '52W High': f"₹{high_52wk:.1f}",
-                'Volume': "Surge" if volume_surge else "Normal"
-            })
-                
-        except Exception as e:
-            continue
-            
-    return pd.DataFrame(results)
-
-def run_volume_scanner(instrument_df, holdings_df=None):
-    """Volume anomaly scanner for unusual trading activity."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: 
-        return pd.DataFrame()
-
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()
-    else:
-        scan_list = [
-            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
-            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK'
-        ]
-    
-    results = []
-    
-    for symbol in scan_list:
-        try:
-            exchange = 'NSE'
-            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-            if quote_data.empty:
-                continue
-                
-            current_price = quote_data.iloc[0]['Price']
-            change_pct = quote_data.iloc[0]['% Change']
-            
-            token = get_instrument_token(symbol, instrument_df, exchange)
-            if not token:
-                continue
-                
-            hist_data = get_historical_data(token, 'day', period='3mo')
-            if hist_data.empty or len(hist_data) < 20:
-                continue
-            
-            # Volume analysis
-            if 'volume' not in hist_data.columns:
-                continue
-                
-            current_volume = hist_data['volume'].iloc[-1]
-            avg_volume_20d = hist_data['volume'].tail(20).mean()
-            
-            volume_ratio_20d = current_volume / avg_volume_20d if avg_volume_20d > 0 else 1
-            
-            # Volume spike criteria
-            extreme_spike = volume_ratio_20d >= 3.0
-            high_spike = volume_ratio_20d >= 2.0
-            moderate_spike = volume_ratio_20d >= 1.5
-            
-            if not (extreme_spike or high_spike or moderate_spike):
-                continue
-            
-            # Determine volume signal type
-            if extreme_spike:
-                volume_signal = "EXTREME VOLUME SPIKE"
-                strength = "VERY HIGH"
-            elif high_spike:
-                volume_signal = "HIGH VOLUME SPIKE" 
-                strength = "HIGH"
-            else:
-                volume_signal = "MODERATE VOLUME SPIKE"
-                strength = "MODERATE"
-            
-            # Price action context
-            if change_pct > 2:
-                context = "Bullish Breakout"
-            elif change_pct < -2:
-                context = "Bearish Breakdown" 
-            elif abs(change_pct) < 0.5:
-                context = "Accumulation/Distribution"
-            else:
-                context = "Normal"
-            
-            results.append({
-                'Symbol': symbol,
-                'LTP': f"₹{current_price:.2f}",
-                'Change %': f"{change_pct:.2f}%",
-                'Volume Signal': volume_signal,
-                'Volume Ratio': f"{volume_ratio_20d:.1f}x",
-                'Strength': strength,
-                'Context': context
-            })
-                
-        except Exception as e:
+        except Exception:
             continue
             
     return pd.DataFrame(results)
 
 def page_momentum_and_trend_finder():
-    """Enhanced Market Scanners page with proper error handling."""
+    """Clean and functional Market Scanners page."""
     display_header()
-    st.title("Advanced Market Scanners")
+    st.title("Market Scanners")
     
     instrument_df = get_instrument_df()
     if instrument_df.empty:
@@ -2421,342 +2238,132 @@ def page_momentum_and_trend_finder():
         
     _, holdings_df, _, _ = get_portfolio()
     
-    st.info("""
-    **Real-time Market Scanners** - These scanners analyze live market data using advanced technical indicators. 
-    Scanners automatically run on your current holdings or a predefined list of liquid stocks.
-    """)
-    
-    # Scanner configuration
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # Simple scanner selection
+    col1, col2 = st.columns([3, 1])
     with col1:
-        st.subheader("Scanner Configuration")
-        scan_mode = st.radio(
-            "Scan Mode",
-            ["My Holdings", "NIFTY 50 Stocks", "All Liquid Stocks"],
-            horizontal=True,
-            help="Choose which stocks to scan"
+        scanner_type = st.radio(
+            "Select Scanner Type",
+            ["Momentum (RSI)", "Trend (EMA)", "Breakout"],
+            horizontal=True
         )
     
     with col2:
-        stocks_to_scan = len(holdings_df) if scan_mode == "My Holdings" and not holdings_df.empty else (50 if scan_mode == "NIFTY 50 Stocks" else 25)
-        st.metric("Stocks to Scan", stocks_to_scan)
-    
-    with col3:
-        if st.button("🔄 Refresh All Scanners", use_container_width=True):
+        if st.button("🔄 Scan Now", use_container_width=True, type="primary"):
             st.rerun()
     
     st.markdown("---")
     
-    # Multiple scanner tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🚀 Momentum Scanner", 
-        "📈 Trend Scanner", 
-        "🎯 Breakout Scanner", 
-        "📊 Volume Anomalies",
-        "⚡ Multi-Scanner"
-    ])
+    # Run selected scanner
+    with st.spinner(f"Running {scanner_type} scanner..."):
+        if scanner_type == "Momentum (RSI)":
+            data = run_momentum_scanner(instrument_df, holdings_df)
+            title = "Momentum Stocks (RSI Based)"
+            description = "Stocks with RSI above 70 (overbought) or below 30 (oversold)"
+            
+        elif scanner_type == "Trend (EMA)":
+            data = run_trend_scanner(instrument_df, holdings_df) 
+            title = "Trending Stocks (EMA Based)"
+            description = "Stocks in strong uptrend/downtrend based on EMA alignment"
+            
+        else:  # Breakout
+            data = run_breakout_scanner(instrument_df, holdings_df)
+            title = "Breakout Stocks"
+            description = "Stocks breaking 20-day high/low resistance/support levels"
     
-    with tab1:
-        st.subheader("High Momentum Stocks")
-        st.caption("Stocks showing strong momentum signals (RSI extremes, MACD crossovers)")
-        
-        with st.spinner("Scanning for momentum patterns..."):
-            momentum_data = run_momentum_scanner(instrument_df, 
-                                               holdings_df if scan_mode == "My Holdings" else None)
-            
-            if not momentum_data.empty:
-                # Color code the signals
-                def color_momentum_signal(val):
-                    if 'Bullish' in str(val):
-                        return 'color: #00ff00; font-weight: bold;'
-                    elif 'Bearish' in str(val):
-                        return 'color: #ff4444; font-weight: bold;'
-                    return ''
-                
-                styled_df = momentum_data.style.map(color_momentum_signal, subset=['Signal'])
-                st.dataframe(styled_df, use_container_width=True, hide_index=True)
-                
-                # Summary statistics
-                bullish_count = len(momentum_data[momentum_data['Signal'].str.contains('Bullish', na=False)])
-                bearish_count = len(momentum_data[momentum_data['Signal'].str.contains('Bearish', na=False)])
-                
-                col1, col2 = st.columns(2)
-                col1.metric("Bullish Signals", bullish_count)
-                col2.metric("Bearish Signals", bearish_count)
-                
-            else:
-                st.info("""
-                No strong momentum signals detected in the current scan. 
-                **This could mean:**
-                - Markets are in consolidation
-                - No extreme RSI conditions
-                - Wait for stronger momentum signals
-                """)
+    # Display results
+    st.subheader(title)
+    st.caption(description)
     
-    with tab2:
-        st.subheader("Trending Stocks") 
-        st.caption("Stocks with strong directional trends (ADX > 20, EMA alignments)")
+    if not data.empty:
+        # Color coding based on scanner type
+        if scanner_type == "Momentum (RSI)":
+            def color_momentum(val):
+                if 'Overbought' in str(val):
+                    return 'color: #ff4444; font-weight: bold;'
+                elif 'Oversold' in str(val):
+                    return 'color: #00aa00; font-weight: bold;'
+                return ''
+            styled_data = data.style.map(color_momentum, subset=['Signal'])
+            
+        elif scanner_type == "Trend (EMA)":
+            def color_trend(val):
+                if 'Uptrend' in str(val):
+                    return 'color: #00aa00; font-weight: bold;'
+                elif 'Downtrend' in str(val):
+                    return 'color: #ff4444; font-weight: bold;'
+                return ''
+            styled_data = data.style.map(color_trend, subset=['Trend'])
+            
+        else:  # Breakout
+            def color_breakout(val):
+                if 'High' in str(val):
+                    return 'color: #00aa00; font-weight: bold;'
+                elif 'Low' in str(val):
+                    return 'color: #ff4444; font-weight: bold;'
+                return ''
+            styled_data = data.style.map(color_breakout, subset=['Breakout'])
         
-        with st.spinner("Identifying strong trends..."):
-            trend_data = run_trend_scanner(instrument_df, 
-                                         holdings_df if scan_mode == "My Holdings" else None)
-            
-            if not trend_data.empty:
-                # Color code trends
-                def color_trend(val):
-                    if 'Uptrend' in str(val):
-                        return 'color: #00ff00; font-weight: bold;'
-                    elif 'Downtrend' in str(val):
-                        return 'color: #ff4444; font-weight: bold;'
-                    return ''
-                
-                styled_df = trend_data.style.map(color_trend, subset=['Trend'])
-                st.dataframe(styled_df, use_container_width=True, hide_index=True)
-                
-                # Trend statistics with safe access
-                uptrend_count = len(trend_data[trend_data['Trend'].str.contains('Uptrend', na=False)])
-                downtrend_count = len(trend_data[trend_data['Trend'].str.contains('Downtrend', na=False)])
-                
-                # Calculate average ADX safely
-                try:
-                    avg_adx = trend_data['ADX'].str.replace('ADX: ', '').astype(float).mean()
-                except:
-                    avg_adx = 0
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Uptrends", uptrend_count)
-                col2.metric("Downtrends", downtrend_count) 
-                col3.metric("Avg ADX", f"{avg_adx:.1f}")
-                
-            else:
-                st.info("""
-                No strong trending stocks found. **This suggests:**
-                - Markets might be range-bound
-                - Low volatility environment
-                - Wait for clearer trend directions
-                """)
-    
-    with tab3:
-        st.subheader("Breakout Candidates")
-        st.caption("Stocks breaking key resistance/support levels with volume confirmation")
+        st.dataframe(styled_data, use_container_width=True, hide_index=True)
         
-        with st.spinner("Scanning for breakout patterns..."):
-            breakout_data = run_breakout_scanner(instrument_df, 
-                                               holdings_df if scan_mode == "My Holdings" else None)
+        # Simple statistics
+        if scanner_type == "Momentum (RSI)":
+            bullish = len(data[data['Signal'] == 'Overbought'])
+            bearish = len(data[data['Signal'] == 'Oversold'])
+            st.metric("Signals Found", len(data), delta=f"{bullish} Bullish, {bearish} Bearish")
             
-            if not breakout_data.empty:
-                # Color code breakout strength
-                def color_strength(val):
-                    if 'STRONG' in str(val):
-                        return 'background-color: #90ee90; color: black;'
-                    elif 'BEARISH' in str(val):
-                        return 'background-color: #ff4444; color: white;'
-                    return ''
-                
-                styled_df = breakout_data.style.map(color_strength, subset=['Strength'])
-                st.dataframe(styled_df, use_container_width=True, hide_index=True)
-                
-                # Breakout statistics with safe access
-                bullish_breakouts = len(breakout_data[~breakout_data['Strength'].str.contains('BEARISH', na=False)])
-                bearish_breakouts = len(breakout_data[breakout_data['Strength'].str.contains('BEARISH', na=False)])
-                volume_confirmed = len(breakout_data[breakout_data['Confirmation'].str.contains('Volume', na=False)])
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Bullish Breakouts", bullish_breakouts)
-                col2.metric("Bearish Breakouts", bearish_breakouts)
-                col3.metric("Volume Confirmed", volume_confirmed)
-                
-            else:
-                st.info("""
-                No significant breakout patterns detected. **Possible reasons:**
-                - Markets are consolidating
-                - Lack of volume confirmation
-                - Key levels holding strong
-                """)
-    
-    with tab4:
-        st.subheader("Volume Anomalies")
-        st.caption("Unusual trading volume activity (1.5x+ average volume)")
-        
-        with st.spinner("Scanning for volume spikes..."):
-            volume_data = run_volume_scanner(instrument_df, 
-                                           holdings_df if scan_mode == "My Holdings" else None)
+        elif scanner_type == "Trend (EMA)":
+            uptrend = len(data[data['Trend'] == 'Uptrend'])
+            downtrend = len(data[data['Trend'] == 'Downtrend'])
+            st.metric("Signals Found", len(data), delta=f"{uptrend} Up, {downtrend} Down")
             
-            if not volume_data.empty:
-                # Color code volume signals
-                def color_volume_signal(val):
-                    if 'EXTREME' in str(val):
-                        return 'background-color: #ff6b6b; color: white; font-weight: bold;'
-                    elif 'HIGH' in str(val):
-                        return 'background-color: #ffa500; color: black;'
-                    return 'background-color: #ffff99; color: black;'
-                
-                styled_df = volume_data.style.map(color_volume_signal, subset=['Volume Signal'])
-                st.dataframe(styled_df, use_container_width=True, hide_index=True)
-                
-                # Volume statistics with safe access
-                extreme_spikes = len(volume_data[volume_data['Volume Signal'].str.contains('EXTREME', na=False)])
-                high_spikes = len(volume_data[volume_data['Volume Signal'].str.contains('HIGH', na=False)])
-                
-                # Calculate average volume ratio safely
-                try:
-                    avg_volume_ratio = volume_data['Volume Ratio'].str.replace('x', '').astype(float).mean()
-                except:
-                    avg_volume_ratio = 0
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Extreme Spikes", extreme_spikes)
-                col2.metric("High Spikes", high_spikes)
-                col3.metric("Avg Volume Ratio", f"{avg_volume_ratio:.1f}x")
-                
-            else:
-                st.info("""
-                No significant volume anomalies detected. **This indicates:**
-                - Normal trading activity
-                - No unusual institutional activity
-                - Typical volume patterns
-                """)
-    
-    with tab5:
-        st.subheader("Multi-Scanner Dashboard")
-        st.caption("Combined view of all scanner signals")
-        
-        # Run all scanners
-        with st.spinner("Running comprehensive market scan..."):
-            # Get scanner results with safe empty DataFrame handling
-            momentum_data = run_momentum_scanner(instrument_df, holdings_df)
-            trend_data = run_trend_scanner(instrument_df, holdings_df)
-            breakout_data = run_breakout_scanner(instrument_df, holdings_df)
-            volume_data = run_volume_scanner(instrument_df, holdings_df)
-            
-            # Count signals safely
-            momentum_count = len(momentum_data) if not momentum_data.empty else 0
-            trend_count = len(trend_data) if not trend_data.empty else 0
-            breakout_count = len(breakout_data) if not breakout_data.empty else 0
-            volume_count = len(volume_data) if not volume_data.empty else 0
-            
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Momentum Signals", momentum_count)
-                
-            with col2:
-                st.metric("Trend Signals", trend_count)
-                
-            with col3:
-                st.metric("Breakout Signals", breakout_count)
-                
-            with col4:
-                st.metric("Volume Signals", volume_count)
-        
-        # Market sentiment gauge - FIXED with safe DataFrame access
-        st.subheader("Overall Market Sentment")
-        
-        total_signals = momentum_count + trend_count + breakout_count
-        
-        if total_signals > 0:
-            # Safely count bullish signals
-            momentum_bullish = 0
-            if not momentum_data.empty and 'Signal' in momentum_data.columns:
-                momentum_bullish = len(momentum_data[momentum_data['Signal'].str.contains('Bullish', na=False)])
-            
-            trend_bullish = 0
-            if not trend_data.empty and 'Trend' in trend_data.columns:
-                trend_bullish = len(trend_data[trend_data['Trend'].str.contains('Uptrend', na=False)])
-            
-            breakout_bullish = 0
-            if not breakout_data.empty and 'Strength' in breakout_data.columns:
-                breakout_bullish = len(breakout_data[~breakout_data['Strength'].str.contains('BEARISH', na=False)])
-            
-            bullish_score = momentum_bullish + trend_bullish + breakout_bullish
-            sentiment_score = (bullish_score / total_signals) * 100 if total_signals > 0 else 50
-            
-            # Visual sentiment gauge
-            if sentiment_score >= 70:
-                sentiment = "🟢 STRONGLY BULLISH"
-                color = "#00ff00"
-            elif sentiment_score >= 55:
-                sentiment = "🟡 MODERATELY BULLISH" 
-                color = "#90ee90"
-            elif sentiment_score >= 45:
-                sentiment = "⚪ NEUTRAL"
-                color = "#cccccc"
-            elif sentiment_score >= 30:
-                sentiment = "🟠 MODERATELY BEARISH"
-                color = "#ffa500"
-            else:
-                sentiment = "🔴 STRONGLY BEARISH"
-                color = "#ff4444"
-            
-            st.markdown(f"""
-            <div style="background-color: {color}; padding: 20px; border-radius: 10px; text-align: center;">
-                <h3 style="margin: 0; color: {'black' if sentiment_score > 60 else 'white'};">{sentiment}</h3>
-                <h1 style="margin: 0; color: {'black' if sentiment_score > 60 else 'white'};">{sentiment_score:.0f}%</h1>
-                <p style="margin: 0; color: {'black' if sentiment_score > 60 else 'white'};">Bullish Signal Ratio</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.caption(f"Based on {total_signals} technical signals across momentum, trend, and breakout scanners")
-        else:
-            st.info("No signals detected across scanners. Market may be in consolidation.")
+        else:  # Breakout
+            breakouts = len(data[data['Breakout'].str.contains('High')])
+            breakdowns = len(data[data['Breakout'].str.contains('Low')])
+            st.metric("Signals Found", len(data), delta=f"{breakouts} Breakouts, {breakdowns} Breakdowns")
         
         # Quick actions
-        st.subheader("Quick Actions")
-        action_col1, action_col2, action_col3 = st.columns(3)
+        st.markdown("---")
+        col1, col2 = st.columns(2)
         
-        with action_col1:
-            if st.button("📋 Export Scanner Results", use_container_width=True):
-                # Combine all scanner results safely
-                all_results = []
-                if not momentum_data.empty:
-                    all_results.append(momentum_data)
-                if not trend_data.empty:
-                    all_results.append(trend_data)
-                if not breakout_data.empty:
-                    all_results.append(breakout_data)
-                if not volume_data.empty:
-                    all_results.append(volume_data)
-                
-                if all_results:
-                    combined_df = pd.concat(all_results, ignore_index=True)
-                    csv = combined_df.to_csv(index=False)
-                    st.download_button(
-                        label="Download CSV",
-                        data=csv,
-                        file_name=f"market_scanners_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
-                else:
-                    st.warning("No data to export")
+        with col1:
+            if st.button("📋 Export to CSV", use_container_width=True):
+                csv = data.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"{scanner_type.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
         
-        with action_col2:
+        with col2:
             if st.button("👀 Add to Watchlist", use_container_width=True):
-                # Get top signals and add to watchlist safely
-                symbols_to_add = []
-                if not momentum_data.empty:
-                    symbols_to_add.extend(momentum_data.head(3)['Symbol'].tolist())
-                if not trend_data.empty:
-                    symbols_to_add.extend(trend_data.head(2)['Symbol'].tolist())
-                
-                added_count = 0
-                for symbol in set(symbols_to_add):
+                added = 0
+                for symbol in data['Symbol'].head(5):  # Add top 5
                     if symbol not in [item['symbol'] for item in st.session_state.watchlists[st.session_state.active_watchlist]]:
                         st.session_state.watchlists[st.session_state.active_watchlist].append({
                             'symbol': symbol, 
                             'exchange': 'NSE'
                         })
-                        added_count += 1
-                
-                if added_count > 0:
-                    st.success(f"Added {added_count} top signals to watchlist")
+                        added += 1
+                if added > 0:
+                    st.success(f"Added {added} stocks to watchlist")
                 else:
-                    st.info("No new symbols to add to watchlist")
+                    st.info("No new stocks to add")
+                    
+    else:
+        # Clear, helpful empty state
+        st.info(f"""
+        **No {scanner_type.lower()} signals found.**
         
-        with action_col3:
-            if st.button("🔄 Real-time Monitor", use_container_width=True):
-                st_autorefresh(interval=30000, key="scanner_refresh")
-                st.success("Real-time monitoring enabled (30s refresh)")
+        This could mean:
+        - Markets are in consolidation
+        - No extreme conditions detected
+        - Try a different scanner type
+        - Check if market is open
+        """)
+
+# Replace the existing page_momentum_and_trend_finder function with this clean version
 
 def calculate_strategy_pnl(legs, underlying_ltp):
     """Calculates the P&L for a given options strategy."""
