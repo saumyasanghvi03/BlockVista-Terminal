@@ -2,7 +2,7 @@ streamlit>=1.28.0
 pandas>=2.0.0
 pandas-ta>=0.3.14
 plotly>=5.15.0
-kiteconnect>=4.0.0
+kiteconnect
 streamlit-autorefresh>=0.1.5
 pytz>=2023.3
 feedparser>=6.0.10
