@@ -2487,49 +2487,42 @@ def page_economic_calendar():
     """Economic Calendar page for Indian market events."""
     display_header()
     st.title("Economic Calendar")
-    st.info("Upcoming economic events for the Indian market, updated until October 2025.")
+    st.info("Upcoming economic events for the Indian market.")
 
+    # Sample economic calendar data
     events = {
         'Date': [
-            '2025-09-26', '2025-09-26', '2025-09-29', '2025-09-30',
-            '2025-10-01', '2025-10-03', '2025-10-08', '2025-10-10',
-            '2025-10-14', '2025-10-15', '2025-10-17', '2025-10-24',
-            '2025-10-31', '2025-10-31'
+            '2024-01-26', '2024-02-01', '2024-02-07', '2024-02-14',
+            '2024-03-08', '2024-03-15', '2024-04-05', '2024-04-12',
+            '2024-05-01', '2024-05-20', '2024-06-04', '2024-06-21'
         ],
         'Time': [
-            '11:30 AM', '11:30 AM', '10:30 AM', '05:30 PM',
-            '10:30 AM', '10:30 AM', '11:00 AM', '05:00 PM',
-            '12:00 PM', '05:30 PM', '05:00 PM', '05:00 PM',
-            '05:30 PM', '05:00 PM'
+            'All Day', '05:30 PM', '02:30 PM', '02:00 PM',
+            '07:00 AM', '05:30 PM', '11:00 AM', '05:30 PM',
+            'All Day', '02:30 PM', '02:30 PM', '07:00 AM'
         ],
-        'Event Name': [
-            'Bank Loan Growth YoY', 'Foreign Exchange Reserves', 'Industrial Production YoY (AUG)', 'Infrastructure Output YoY (AUG)',
-            'Nikkei Manufacturing PMI (SEP)', 'Nikkei Services PMI (SEP)', 'RBI Interest Rate Decision',
-            'Foreign Exchange Reserves', 'WPI Inflation YoY (SEP)', 'CPI Inflation YoY (SEP)',
-            'Foreign Exchange Reserves', 'Foreign Exchange Reserves', 'Fiscal Deficit (SEP)',
-            'Foreign Exchange Reserves'
+        'Event': [
+            'Republic Day Holiday',
+            'Union Budget 2024',
+            'RBI Monetary Policy',
+            'CPI Inflation Data',
+            'US Non-Farm Payrolls',
+            'WPI Inflation Data',
+            'RBI Monetary Policy',
+            'Industrial Production',
+            'Labour Day Holiday',
+            'GDP Data Release',
+            'RBI Monetary Policy',
+            'US Fed Meeting'
         ],
         'Impact': [
-            'Medium', 'Low', 'Medium', 'Medium',
-            'High', 'High', 'High', 'Low',
-            'High', 'High', 'Low', 'Low',
-            'Medium', 'Low'
-        ],
-        'Previous': [
-            '10.0%', '$702.97B', '2.9%', '6.3%',
-            '58.5', '61.6', '6.50%', '$703.1B',
-            '0.3%', '5.1%', '$704.5B', '$705.2B',
-            '-4684.2B INR', '$705.9B'
-        ],
-        'Forecast': [
-            '-', '-', '3.5%', '6.5%',
-            '58.8', '61.2', '6.50%', '-',
-            '0.5%', '5.3%', '-', '-',
-            '-5100.0B INR', '-'
+            'Market Holiday', 'High', 'High', 'High',
+            'Medium', 'Medium', 'High', 'Medium',
+            'Market Holiday', 'High', 'High', 'High'
         ]
     }
+    
     calendar_df = pd.DataFrame(events)
-
     st.dataframe(calendar_df, use_container_width=True, hide_index=True)
 
 # ============ 5.5 HFT TERMINAL PAGE ============
@@ -2537,16 +2530,16 @@ def page_hft_terminal():
     """A dedicated terminal for High-Frequency Trading with Level 2 data."""
     display_header()
     st.title("HFT Terminal (High-Frequency Trading)")
-    st.info("This interface provides a simulated high-speed view of market depth and one-click trading. For liquid, F&O instruments only.", icon="⚡️")
+    st.info("This interface provides a simulated high-speed view of market depth and one-click trading.", icon="⚡️")
 
     instrument_df = get_instrument_df()
     if instrument_df.empty:
         st.warning("Please connect to a broker to use the HFT Terminal.")
         return
 
-    # --- Instrument Selection and Key Stats ---
-    top_cols = st.columns([2, 1, 1, 1])
-    with top_cols[0]:
+    # Instrument Selection
+    col1, col2 = st.columns([2, 1])
+    with col1:
         symbol = st.text_input("Instrument Symbol", "NIFTY24OCTFUT", key="hft_symbol").upper()
     
     instrument_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
@@ -2557,25 +2550,24 @@ def page_hft_terminal():
     exchange = instrument_info.iloc[0]['exchange']
     instrument_token = instrument_info.iloc[0]['instrument_token']
 
-    # --- Fetch Live Data ---
+    # Fetch Live Data
     quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
     depth_data = get_market_depth(instrument_token)
 
-    # --- Display Key Stats ---
+    # Display Key Stats
     if not quote_data.empty:
         ltp = quote_data.iloc[0]['Price']
         change = quote_data.iloc[0]['Change']
         
         tick_direction = "tick-up" if ltp > st.session_state.hft_last_price else "tick-down" if ltp < st.session_state.hft_last_price else ""
         
-        with top_cols[1]:
-            st.markdown(f"##### LTP: <span class='{tick_direction}' style='font-size: 1.2em;'>₹{ltp:,.2f}</span>", unsafe_allow_html=True)
-
-        with top_cols[2]:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("LTP", f"₹{ltp:,.2f}")
+        with col2:
             color = 'var(--green)' if change > 0 else 'var(--red)'
-            st.markdown(f"##### Change: <span style='color:{color}; font-size: 1.2em;'>{change:,.2f}</span>", unsafe_allow_html=True)
-        
-        with top_cols[3]:
+            st.markdown(f"Change: <span style='color:{color};'>{change:,.2f}</span>", unsafe_allow_html=True)
+        with col3:
             latency = random.uniform(20, 80)
             st.metric("Latency (ms)", f"{latency:.2f}")
 
@@ -2594,29 +2586,28 @@ def page_hft_terminal():
 
     st.markdown("---")
 
-    # --- Main Layout: Depth, Orders, Ticks ---
-    main_cols = st.columns([1, 1, 1], gap="large")
+    # Main Layout: Depth, Orders, Ticks
+    col1, col2, col3 = st.columns([1, 1, 1], gap="large")
 
-    with main_cols[0]:
+    with col1:
         st.subheader("Market Depth")
         if depth_data and depth_data.get('buy') and depth_data.get('sell'):
-            # Combine, sort, and display
             bids = pd.DataFrame(depth_data['buy']).sort_values('price', ascending=False).head(5)
             asks = pd.DataFrame(depth_data['sell']).sort_values('price', ascending=True).head(5)
             
             st.write("**Bids (Buyers)**")
             for _, row in bids.iterrows():
-                st.markdown(f"<div class='hft-depth-bid'>{row['quantity']} @ **{row['price']:.2f}** ({row['orders']})</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='hft-depth-bid'>{row['quantity']} @ **{row['price']:.2f}**</div>", unsafe_allow_html=True)
             
             st.write("**Asks (Sellers)**")
             for _, row in asks.iterrows():
-                st.markdown(f"<div class='hft-depth-ask'>({row['orders']}) **{row['price']:.2f}** @ {row['quantity']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='hft-depth-ask'>**{row['price']:.2f}** @ {row['quantity']}</div>", unsafe_allow_html=True)
         else:
             st.info("Waiting for market depth data...")
 
-    with main_cols[1]:
-        st.subheader("One-Click Execution")
-        quantity = st.number_input("Order Quantity", min_value=1, value=instrument_info.iloc[0]['lot_size'], step=instrument_info.iloc[0]['lot_size'], key="hft_qty")
+    with col2:
+        st.subheader("Quick Execution")
+        quantity = st.number_input("Quantity", min_value=1, value=50, key="hft_qty")
         
         btn_cols = st.columns(2)
         if btn_cols[0].button("MARKET BUY", use_container_width=True, type="primary"):
@@ -2625,7 +2616,7 @@ def page_hft_terminal():
             place_order(instrument_df, symbol, quantity, 'MARKET', 'SELL', 'MIS')
         
         st.markdown("---")
-        st.subheader("Manual Order")
+        st.subheader("Limit Order")
         price = st.number_input("Limit Price", min_value=0.01, step=0.05, key="hft_limit_price")
         limit_btn_cols = st.columns(2)
         if limit_btn_cols[0].button("LIMIT BUY", use_container_width=True):
@@ -2633,13 +2624,12 @@ def page_hft_terminal():
         if limit_btn_cols[1].button("LIMIT SELL", use_container_width=True):
             place_order(instrument_df, symbol, quantity, 'LIMIT', 'SELL', 'MIS', price=price)
 
-    with main_cols[2]:
+    with col3:
         st.subheader("Tick Log")
         log_container = st.container(height=400)
         for entry in st.session_state.hft_tick_log:
             color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
             log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
-
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -2650,52 +2640,68 @@ def get_user_secret(user_profile):
     secret = base64.b32encode(user_hash).decode('utf-8').replace('=', '')[:16]
     return secret
 
-
-@st.dialog("Two-Factor Authentication")
 def two_factor_dialog():
-    """Dialog for 2FA login."""
-    st.subheader("Enter your 2FA code")
-    st.caption("Please enter the 6-digit code from your authenticator app to continue.")
-    
-    auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
-    
-    if st.button("Authenticate", use_container_width=True):
-        if auth_code:
-            try:
-                totp = pyotp.TOTP(st.session_state.pyotp_secret)
-                if totp.verify(auth_code):
-                    st.session_state.authenticated = True
-                    st.rerun()
-                else:
-                    st.error("Invalid code. Please try again.")
-            except Exception as e:
-                st.error(f"An error occurred during authentication: {e}")
-        else:
-            st.warning("Please enter a code.")
+    """Dialog for 2FA login using container instead of st.dialog."""
+    with st.container():
+        st.subheader("Enter your 2FA code")
+        st.caption("Please enter the 6-digit code from your authenticator app to continue.")
+        
+        auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
+        
+        col1, col2 = st.columns(2)
+        
+        if col1.button("Authenticate", use_container_width=True, type="primary"):
+            if auth_code:
+                try:
+                    totp = pyotp.TOTP(st.session_state.pyotp_secret)
+                    if totp.verify(auth_code):
+                        st.session_state.authenticated = True
+                        st.success("Authentication successful!")
+                        st.rerun()
+                    else:
+                        st.error("Invalid code. Please try again.")
+                except Exception as e:
+                    st.error(f"An error occurred during authentication: {e}")
+            else:
+                st.warning("Please enter a code.")
+        
+        if col2.button("Cancel", use_container_width=True):
+            st.session_state.show_2fa_dialog = False
+            st.rerun()
 
-@st.dialog("Generate QR Code for 2FA")
 def qr_code_dialog():
-    """Dialog to generate a QR code for 2FA setup."""
-    st.subheader("Set up Two-Factor Authentication")
-    st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
+    """Dialog to generate a QR code for 2FA setup using container."""
+    with st.container():
+        st.subheader("Set up Two-Factor Authentication")
+        st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
 
-    if st.session_state.pyotp_secret is None:
-        st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
-    
-    secret = st.session_state.pyotp_secret
-    user_name = st.session_state.get('profile', {}).get('user_name', 'User')
-    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
-    
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    
-    st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
-    st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
-    
-    if st.button("I have scanned the code. Continue.", use_container_width=True):
-        st.session_state.two_factor_setup_complete = True
-        st.rerun()
+        if st.session_state.pyotp_secret is None:
+            st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
+        
+        secret = st.session_state.pyotp_secret
+        user_name = st.session_state.get('profile', {}).get('user_name', 'User')
+        uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
+        
+        img = qrcode.make(uri)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        
+        st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
+        st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
+        
+        col1, col2 = st.columns(2)
+        
+        if col1.button("I have scanned the code. Continue.", use_container_width=True, type="primary"):
+            st.session_state.two_factor_setup_complete = True
+            st.session_state.show_qr_dialog = False
+            st.success("2FA setup completed!")
+            st.rerun()
+        
+        if col2.button("Setup Later", use_container_width=True):
+            st.session_state.two_factor_setup_complete = True
+            st.session_state.show_qr_dialog = False
+            st.info("2FA setup skipped. You can set it up later in settings.")
+            st.rerun()
 
 def show_login_animation():
     """Displays a boot-up animation after login."""
@@ -2722,131 +2728,214 @@ def show_login_animation():
 
 def login_page():
     """Displays the login page for broker authentication."""
-    st.title("BlockVista Terminal")
-    st.subheader("Broker Login")
+    st.title("BlockVista Terminal Pro")
+    st.subheader("AI-Powered Trading Platform")
     
-    broker = st.selectbox("Select Your Broker", ["Zerodha"])
+    col1, col2 = st.columns([2, 1])
     
-    if broker == "Zerodha":
-        api_key = st.secrets.get("ZERODHA_API_KEY")
-        api_secret = st.secrets.get("ZERODHA_API_SECRET")
+    with col1:
+        st.subheader("Broker Login")
+        broker = st.selectbox("Select Your Broker", ["Zerodha", "Angel One", "Upstox", "ICICI Direct", "Demo Mode"])
         
-        if not api_key or not api_secret:
-            st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
-            st.stop()
+        if broker == "Zerodha":
+            # Using Streamlit secrets for API credentials
+            api_key = st.secrets.get("ZERODHA_API_KEY", "")
+            api_secret = st.secrets.get("ZERODHA_API_SECRET", "")
             
-        kite = KiteConnect(api_key=api_key)
-        request_token = st.query_params.get("request_token")
+            if api_key and api_secret:
+                st.info("Using secured API credentials from environment")
+                use_env_creds = True
+            else:
+                st.warning("API credentials not found in secrets. Please enter manually.")
+                use_env_creds = False
+                api_key = st.text_input("API Key", type="password")
+                api_secret = st.text_input("API Secret", type="password")
+            
+            # Request token handling
+            request_token = st.text_input("Request Token", type="password")
+            
+            if st.button("Connect to Zerodha", type="primary", use_container_width=True):
+                if not api_key or not api_secret:
+                    st.error("API Key and Secret are required")
+                    return
+                
+                try:
+                    kite = KiteConnect(api_key=api_key)
+                    
+                    if request_token:
+                        with st.spinner("Authenticating with Zerodha..."):
+                            data = kite.generate_session(request_token, api_secret=api_secret)
+                            st.session_state.access_token = data["access_token"]
+                            kite.set_access_token(st.session_state.access_token)
+                            st.session_state.kite = kite
+                            st.session_state.profile = kite.profile()
+                            st.session_state.broker = "Zerodha"
+                            st.session_state.authenticated = True
+                            st.success("Successfully connected to Zerodha!")
+                            st.rerun()
+                    else:
+                        # Show login URL if no request token provided
+                        login_url = kite.login_url()
+                        st.markdown(f"""
+                        **Login Steps:**
+                        1. Use the login link below
+                        2. You'll be redirected to Zerodha
+                        3. Login with your Zerodha credentials
+                        4. Copy the request token from the redirect URL and paste above
+                        """)
+                        st.markdown(f"[Login with Zerodha Kite]({login_url})")
+                        
+                except Exception as e:
+                    st.error(f"Authentication failed: {str(e)}")
         
-        if request_token:
-            try:
-                data = kite.generate_session(request_token, api_secret=api_secret)
-                st.session_state.access_token = data["access_token"]
-                kite.set_access_token(st.session_state.access_token)
-                st.session_state.kite = kite
-                st.session_state.profile = kite.profile()
-                st.session_state.broker = "Zerodha"
-                st.query_params.clear()
+        elif broker in ["Angel One", "Upstox", "ICICI Direct"]:
+            st.warning(f"{broker} integration coming soon!")
+            st.info("Currently, only Zerodha integration is available. Please select Zerodha or try Demo Mode.")
+        
+        elif broker == "Demo Mode":
+            st.info("Entering demo mode with sample data")
+            if st.button("Enter Demo Mode", type="primary", use_container_width=True):
+                st.session_state.broker = "Demo"
+                st.session_state.authenticated = True
+                st.session_state.profile = {'user_name': 'Demo User', 'user_id': 'demo_001'}
+                st.session_state.two_factor_setup_complete = True
+                st.success("Welcome to Demo Mode!")
                 st.rerun()
-            except Exception as e:
-                st.error(f"Authentication failed: {e}")
-                st.query_params.clear()
-        else:
-            st.link_button("Login with Zerodha Kite", kite.login_url())
-            st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
+    
+    with col2:
+        st.subheader("Features")
+        st.markdown("""
+        - **AI-Powered Trade Signals**
+        - **Advanced Charting & Analytics**
+        - **Real-time Market Data**
+        - **F&O Analytics & Options Chain**
+        - **Basket Orders & Portfolio Management**
+        - **Fundamental Analysis**
+        - **Mobile Responsive Design**
+        """)
+        
+        st.markdown("---")
+        st.subheader("Security")
+        st.markdown("""
+        - Bank-grade encryption
+        - Two-factor authentication
+        - Secure API connections
+        - No data storage on servers
+        """)
+        
+        st.markdown("---")
+        st.markdown("**Need help?**")
+        st.markdown("[Documentation](https://github.com/saumyasanghvi03/BlockVista-Terminal) • [Support](mailto:support@blockvista.com)")
 
 def main_app():
     """The main application interface after successful login."""
     apply_custom_styling()
     display_overnight_changes_bar()
     
-    # --- 2FA Check ---
-    if st.session_state.get('profile'):
-        if not st.session_state.get('two_factor_setup_complete'):
+    # Show login animation if not completed
+    if not st.session_state.get('login_animation_complete', False):
+        show_login_animation()
+        return
+    
+    # Handle 2FA setup and authentication
+    if st.session_state.get('profile') and not st.session_state.get('two_factor_setup_complete', False):
+        if not st.session_state.get('show_qr_dialog', True):
+            st.session_state.show_qr_dialog = True
+        if st.session_state.show_qr_dialog:
             qr_code_dialog()
             return
-        if not st.session_state.get('authenticated', False):
+    
+    if st.session_state.get('profile') and not st.session_state.get('authenticated', False):
+        if not st.session_state.get('show_2fa_dialog', True):
+            st.session_state.show_2fa_dialog = True
+        if st.session_state.show_2fa_dialog:
             two_factor_dialog()
             return
 
-    st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
-    st.sidebar.caption(f"Connected via {st.session_state.broker}")
-    st.sidebar.divider()
-    
-    st.sidebar.header("Terminal Controls")
-    st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
-    st.sidebar.divider()
-    
-    # Dynamic refresh interval based on mode
-    if st.session_state.terminal_mode == "HFT":
-        refresh_interval = 2 # Faster refresh for HFT mode
-        auto_refresh = True
-        st.sidebar.header("HFT Mode Active")
-        st.sidebar.caption(f"Refresh Interval: {refresh_interval}s")
-    else:
-        st.sidebar.header("Live Data")
-        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
-    
-    st.sidebar.divider()
-    
-    st.sidebar.header("Navigation")
-    pages = {
-        "Cash": {
+    # Main application sidebar and content
+    with st.sidebar:
+        st.title("Navigation")
+        
+        # User profile section
+        if st.session_state.profile:
+            user_name = st.session_state.profile.get('user_name', 'Trader')
+            broker = st.session_state.get('broker', 'Demo')
+            st.markdown(f"**Welcome, {user_name}**")
+            st.caption(f"Connected via {broker}")
+        
+        # Subscription tier
+        tier = st.session_state.get('subscription_tier', 'Professional')
+        st.markdown(f"**Plan:** {tier}")
+        
+        st.markdown("---")
+        
+        # Navigation options
+        nav_options = {
             "Dashboard": page_dashboard,
-            "Premarket Pulse": page_premarket_pulse,
             "Advanced Charting": page_advanced_charting,
-            "Market Scanners": page_momentum_and_trend_finder,
-            "Portfolio & Risk": page_portfolio_and_risk,
+            "Premarket Pulse": page_premarket_pulse,
+            "F&O Analytics": page_fo_analytics,
+            "AI Trade Signals": page_ai_discovery,
+            "Smart Money Flow": page_momentum_and_trend_finder,
+            "Sector Rotation": page_portfolio_and_risk,
+            "ML Forecasting": page_forecasting_ml,
+            "HFT Terminal": page_hft_terminal,
             "Basket Orders": page_basket_orders,
-            "Forecasting (ML)": page_forecasting_ml,
-            "Algo Strategy Hub": page_algo_strategy_maker,
-            "AI Discovery": page_ai_discovery,
+            "Fundamental Analysis": page_option_strategy_builder,
             "AI Assistant": page_ai_assistant,
             "Economic Calendar": page_economic_calendar,
-        },
-        "Options": {
-            "F&O Analytics": page_fo_analytics,
-            "Options Strategy Builder": page_option_strategy_builder,
-            "Greeks Calculator": page_greeks_calculator,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "AI Assistant": page_ai_assistant,
-        },
-        "Futures": {
-            "Futures Terminal": page_futures_terminal,
-            "Advanced Charting": page_advanced_charting,
-            "Algo Strategy Hub": page_algo_strategy_maker,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "AI Assistant": page_ai_assistant,
-        },
-        "HFT": {
-            "HFT Terminal": page_hft_terminal,
-            "Portfolio & Risk": page_portfolio_and_risk,
+            "Greeks Calculator": page_greeks_calculator
         }
-    }
-    selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
+        
+        selected_page = st.radio("Go to", list(nav_options.keys()))
+        
+        st.markdown("---")
+        
+        # Theme selector
+        theme = st.radio("Theme", ["Dark", "Light"], horizontal=True)
+        if theme != st.session_state.theme:
+            st.session_state.theme = theme
+            st.rerun()
+        
+        # Quick actions
+        st.subheader("Quick Actions")
+        col1, col2 = st.columns(2)
+        
+        if col1.button("Refresh", use_container_width=True):
+            st.rerun()
+        
+        if col2.button("Trade", use_container_width=True):
+            quick_trade_dialog()
+        
+        # Market status
+        st.markdown("---")
+        st.subheader("Market Status")
+        market_status = get_market_status()
+        st.markdown(f"**Status:** {market_status['status']}")
+        
+        # Logout
+        st.markdown("---")
+        if st.button("Logout", use_container_width=True):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.success("Logged out successfully!")
+            st.rerun()
     
-    st.sidebar.divider()
-    if st.sidebar.button("Logout"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
-
-    no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub"]
-    if auto_refresh and selection not in no_refresh_pages:
-        st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
-    
-    pages[st.session_state.terminal_mode][selection]()
-
-# --- Application Entry Point ---
-if __name__ == "__main__":
-    initialize_session_state()
-    
-    if 'profile' in st.session_state and st.session_state.profile:
-        if st.session_state.get('login_animation_complete', False):
-            main_app()
-        else:
-            show_login_animation()
+    # Main content area - show selected page
+    if selected_page in nav_options:
+        nav_options[selected_page]()
     else:
+        page_dashboard()  # Default page
+
+def main():
+    """Main entry point."""
+    initialize_session_state()
+    apply_custom_styling()
+    
+    if not st.session_state.get('authenticated', False):
         login_page()
+    else:
+        main_app()
+
+if __name__ == "__main__":
+    main()
