@@ -3487,7 +3487,7 @@ def get_global_indices_data(tickers):
         data = []
         for ticker_name, yf_ticker_name in tickers.items():
             if len(tickers) > 1:
-                hist = data_yf.loc[:, (slice(None), yf_ticker_name)
+                hist = data_yf.loc[:, (slice(None), yf_ticker_name)]
                 hist.columns = hist.columns.droplevel(1)
             else:
                 hist = data_yf
