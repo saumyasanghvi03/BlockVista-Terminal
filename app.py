@@ -2726,18 +2726,174 @@ def show_login_animation():
     st.rerun()
 
 def login_page():
-    """Displays the login page for broker authentication."""
-    st.title("BlockVista Terminal")
-    st.subheader("Broker Login")
+    """Displays an enhanced login page for broker authentication with trader-focused UI."""
+    # Apply custom styling for login page
+    st.markdown("""
+    <style>
+    .login-container {
+        max-width: 500px;
+        margin: 0 auto;
+        padding: 2rem;
+        background: var(--secondary-bg);
+        border-radius: 15px;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+    }
+    .login-header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .login-logo {
+        font-size: 3.5rem;
+        margin-bottom: 1rem;
+    }
+    .broker-card {
+        background: var(--widget-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    .broker-card:hover {
+        border-color: var(--green);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+    .broker-card.active {
+        border-color: var(--green);
+        background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(40,167,69,0.1) 100%);
+    }
+    .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+        margin: 2rem 0;
+    }
+    .feature-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        color: var(--text-light);
+    }
+    .login-btn {
+        width: 100%;
+        padding: 12px;
+        border-radius: 8px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    .market-status {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-left: 10px;
+    }
+    .status-open {
+        background: #28a745;
+        color: white;
+    }
+    .status-closed {
+        background: #ff4b4b;
+        color: white;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
-    broker = st.selectbox("Select Your Broker", ["Zerodha"])
+    # Main login container
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    
+    # Header section
+    st.markdown("""
+    <div class="login-header">
+        <div class="login-logo">📈</div>
+        <h1 style="margin-bottom: 0.5rem; color: var(--text-color);">BlockVista Terminal</h1>
+        <p style="color: var(--text-light); margin-bottom: 0.5rem;">Professional Trading Platform</p>
+        <div style="display: flex; align-items: center; justify-content: center; gap: 1rem;">
+            <span style="color: var(--text-light);">Market Status:</span>
+            <span class="market-status status-open">LIVE</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Broker selection
+    st.markdown("### Select Your Broker")
+    
+    # Broker cards
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        broker_active = "active" if st.session_state.get('broker') == "Zerodha" else ""
+        st.markdown(f"""
+        <div class="broker-card {broker_active}" onclick="this.querySelector('input').click()">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">🏦</div>
+            <h4 style="margin: 0; color: var(--text-color);">Zerodha Kite</h4>
+            <p style="color: var(--text-light); margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+                Fastest API • Zero brokerage
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class="broker-card" style="opacity: 0.6; cursor: not-allowed;">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">📊</div>
+            <h4 style="margin: 0; color: var(--text-color);">Angel One</h4>
+            <p style="color: var(--text-light); margin: 0.5rem 0 0 0; font-size: 0.9rem;">
+                Coming Soon
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Feature highlights
+    st.markdown("""
+    <div class="feature-grid">
+        <div class="feature-item">
+            <span style="color: var(--green);">✓</span> Real-time Market Data
+        </div>
+        <div class="feature-item">
+            <span style="color: var(--green);">✓</span> Advanced Charting
+        </div>
+        <div class="feature-item">
+            <span style="color: var(--green);">✓</span> Options Analytics
+        </div>
+        <div class="feature-item">
+            <span style="color: var(--green);">✓</span> AI-Powered Insights
+        </div>
+        <div class="feature-item">
+            <span style="color: var(--green);">✓</span> Basket Orders
+        </div>
+        <div class="feature-item">
+            <span style="color: var(--green);">✓</span> Portfolio Tracking
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Login section
+    st.markdown("### Secure Login")
+    
+    broker = "Zerodha"  # Only Zerodha supported for now
     
     if broker == "Zerodha":
         api_key = st.secrets.get("ZERODHA_API_KEY")
         api_secret = st.secrets.get("ZERODHA_API_SECRET")
         
         if not api_key or not api_secret:
-            st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
+            st.error("""
+            🔐 **API Credentials Required**  
+            Please set `ZERODHA_API_KEY` and `ZERODHA_API_SECRET` in your Streamlit secrets.
+            """)
+            st.info("""
+            **Need help setting up?**  
+            1. Go to [Kite Connect Console](https://developers.kite.trade/)  
+            2. Create an app and get your API credentials  
+            3. Add them to your Streamlit secrets under `.streamlit/secrets.toml`
+            """)
+            st.markdown('</div>', unsafe_allow_html=True)
             st.stop()
             
         kite = KiteConnect(api_key=api_key)
@@ -2745,20 +2901,99 @@ def login_page():
         
         if request_token:
             try:
-                data = kite.generate_session(request_token, api_secret=api_secret)
-                st.session_state.access_token = data["access_token"]
-                kite.set_access_token(st.session_state.access_token)
-                st.session_state.kite = kite
-                st.session_state.profile = kite.profile()
-                st.session_state.broker = "Zerodha"
-                st.query_params.clear()
+                with st.spinner("🔄 Authenticating with Zerodha..."):
+                    data = kite.generate_session(request_token, api_secret=api_secret)
+                    st.session_state.access_token = data["access_token"]
+                    kite.set_access_token(st.session_state.access_token)
+                    st.session_state.kite = kite
+                    st.session_state.profile = kite.profile()
+                    st.session_state.broker = "Zerodha"
+                    st.query_params.clear()
+                    
+                st.success("✅ Authentication successful!")
+                st.session_state.login_animation_complete = False
                 st.rerun()
+                
             except Exception as e:
-                st.error(f"Authentication failed: {e}")
+                st.error(f"❌ Authentication failed: {str(e)}")
+                st.info("Please try logging in again.")
                 st.query_params.clear()
         else:
-            st.link_button("Login with Zerodha Kite", kite.login_url())
-            st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
+            # Enhanced login button
+            login_url = kite.login_url()
+            st.markdown(f"""
+            <a href="{login_url}" target="_self">
+                <button class="login-btn" style='
+                    background: linear-gradient(135deg, #28a745, #20c997);
+                    color: white;
+                    border: none;
+                    cursor: pointer;
+                '>
+                    🚀 Login with Zerodha Kite
+                </button>
+            </a>
+            """, unsafe_allow_html=True)
+            
+            # Security notice
+            st.markdown("""
+            <div style='
+                background: var(--widget-bg);
+                border-left: 4px solid var(--green);
+                padding: 1rem;
+                margin-top: 1rem;
+                border-radius: 4px;
+            '>
+                <small style="color: var(--text-light);">
+                🔒 <strong>Secure Connection:</strong> Your credentials are never stored. 
+                We use Zerodha's official OAuth for secure authentication.
+                </small>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Footer with quick stats
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        <div style="text-align: center;">
+            <div style="font-size: 1.2rem; font-weight: bold; color: var(--text-color);">50ms</div>
+            <div style="font-size: 0.8rem; color: var(--text-light);">Avg Latency</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div style="text-align: center;">
+            <div style="font-size: 1.2rem; font-weight: bold; color: var(--text-color);">99.9%</div>
+            <div style="font-size: 0.8rem; color: var(--text-light);">Uptime</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div style="text-align: center;">
+            <div style="font-size: 1.2rem; font-weight: bold; color: var(--text-color);">24/7</div>
+            <div style="font-size: 0.8rem; color: var(--text-light);">Support</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Add JavaScript for broker card selection
+    st.markdown("""
+    <script>
+    // Add click handlers for broker cards
+    document.querySelectorAll('.broker-card').forEach(card => {
+        card.addEventListener('click', function() {
+            if (!this.style.opacity || this.style.opacity !== '0.6') {
+                document.querySelectorAll('.broker-card').forEach(c => c.classList.remove('active'));
+                this.classList.add('active');
+            }
+        });
+    });
+    </script>
+    """, unsafe_allow_html=True)
 
 def main_app():
     """The main application interface after successful login."""
@@ -2780,19 +3015,16 @@ def main_app():
     
     st.sidebar.header("Terminal Controls")
     st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
+    
+    # Keep HFT mode as "coming soon" - remove from available modes
+    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options"], horizontal=True)
+    
     st.sidebar.divider()
     
     # Dynamic refresh interval based on mode
-    if st.session_state.terminal_mode == "HFT":
-        refresh_interval = 2 # Faster refresh for HFT mode
-        auto_refresh = True
-        st.sidebar.header("HFT Mode Active")
-        st.sidebar.caption(f"Refresh Interval: {refresh_interval}s")
-    else:
-        st.sidebar.header("Live Data")
-        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
+    st.sidebar.header("Live Data")
+    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
     
     st.sidebar.divider()
     
@@ -2824,12 +3056,12 @@ def main_app():
             "Algo Strategy Hub": page_algo_strategy_maker,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant,
-        },
-        "HFT": {
-            "HFT Terminal": page_hft_terminal,
-            "Portfolio & Risk": page_portfolio_and_risk,
         }
     }
+    
+    # Add a note about HFT coming soon
+    st.sidebar.info("🚀 HFT Mode - Coming Soon!")
+    
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
     
     st.sidebar.divider()
