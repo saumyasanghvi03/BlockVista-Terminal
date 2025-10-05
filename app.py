@@ -4611,13 +4611,13 @@ def page_hft_terminal():
                 "time": datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S.%f")[:-3],
                 "price": ltp,
                 "change": ltp - st.session_state.hft_last_price
-            }
-            st.session_state.hft_tick_log.insert(0, log_entry)
-            if len(st.session_state.hft_tick_log) > 20:
-            st.session_state.hft_tick_log.pop()
-            st.session_state.hft_last_price = ltp
-            
-            st.markdown("---")
+                }
+                st.session_state.hft_tick_log.insert(0, log_entry)
+                if len(st.session_state.hft_tick_log) > 20:
+                st.session_state.hft_tick_log.pop()
+                st.session_state.hft_last_price = ltp
+                
+                st.markdown("---")
 
     # --- Main Layout: Depth, Orders, Ticks ---
     main_cols = st.columns([1, 1, 1], gap="large")
