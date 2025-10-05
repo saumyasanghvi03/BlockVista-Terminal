@@ -290,6 +290,7 @@ def initialize_session_state():
     if 'login_animation_complete' not in st.session_state: st.session_state.login_animation_complete = False
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
+    if 'two_factor_verified' not in st.session_state: st.session_state.two_factor_verified = False
     if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
 
     # UI/Theme
@@ -2983,11 +2984,25 @@ def page_settings():
     
     api_cols = st.columns(2)
     with api_cols[0]:
-        st.text_input("Zerodha API Key", type="password")
-        st.text_input("Zerodha API Secret", type="password")
+        st.info("API credentials are securely managed via Streamlit secrets")
+        if st.button("View Secrets Configuration", use_container_width=True):
+            st.info("""
+            **Secrets Management:**
+            
+            Create a `.streamlit/secrets.toml` file with:
+            
+            ```toml
+            [kite]
+            api_key = "your_api_key_here"
+            api_secret = "your_api_secret_here" 
+            redirect_url = "http://localhost:8501"
+            ```
+            
+            For production, set secrets in your Streamlit Cloud dashboard.
+            """)
     
     with api_cols[1]:
-        st.text_input("News API Key", type="password")
+        st.text_input("News API Key", type="password", placeholder="Optional - for enhanced news")
         st.text_input("Alternative Data Source", placeholder="Optional")
     
     # Watchlist Management
@@ -3056,7 +3071,7 @@ def page_settings():
 # ================ 8. LOGIN & AUTHENTICATION ================
 
 def login_page():
-    """Handles user authentication and broker connection."""
+    """Handles user authentication and broker connection using Streamlit secrets."""
     st.title("🔐 BlockVista Terminal Login")
     st.markdown("Connect your trading account to access real-time market data and trading features.")
     
@@ -3074,30 +3089,66 @@ def login_page():
             3. Create an app to get API Key and Secret
             """)
             
-            api_key = st.text_input("API Key", placeholder="Enter your API key")
-            api_secret = st.text_input("API Secret", type="password", placeholder="Enter your API secret")
-            redirect_url = st.text_input("Redirect URL", value="http://localhost:8501")
+            # Enhanced secrets handling with better error reporting
+            secrets_available = False
+            default_api_key = ''
+            default_api_secret = ''
+            default_redirect_url = 'http://localhost:8501'
+            
+            try:
+                if hasattr(st, 'secrets') and st.secrets:
+                    if 'kite' in st.secrets:
+                        secrets_available = True
+                        default_api_key = st.secrets.kite.get('api_key', '')
+                        default_api_secret = st.secrets.kite.get('api_secret', '')
+                        default_redirect_url = st.secrets.kite.get('redirect_url', 'http://localhost:8501')
+                    elif 'ZERODHA_API_KEY' in st.secrets:
+                        secrets_available = True
+                        default_api_key = st.secrets.get('ZERODHA_API_KEY', '')
+                        default_api_secret = st.secrets.get('ZERODHA_API_SECRET', '')
+            except Exception as e:
+                st.warning(f"Secrets configuration issue: {e}")
+            
+            if secrets_available and default_api_key:
+                st.success("🔐 API credentials loaded from secrets")
+            else:
+                st.info("ℹ️ No secrets found. Please enter credentials manually.")
+            
+            api_key = st.text_input("API Key", value=default_api_key, placeholder="Enter your API key")
+            api_secret = st.text_input("API Secret", type="password", value=default_api_secret, placeholder="Enter your API secret")
+            redirect_url = st.text_input("Redirect URL", value=default_redirect_url)
             
             if st.button("Connect to Zerodha", use_container_width=True):
                 if api_key and api_secret:
-                    try:
-                        kite = KiteConnect(api_key=api_key)
-                        request_token_url = kite.login_url()
-                        
-                        st.session_state.kite = kite
-                        st.session_state.api_key = api_key
-                        st.session_state.api_secret = api_secret
-                        st.session_state.broker = broker
-                        
-                        st.success("Zerodha connection initialized!")
-                        st.markdown(f"""
-                        **Next Steps:**
-                        1. [Click here to login and get request token]({request_token_url})
-                        2. Enter the request token below after authorization
-                        """)
-                        
-                    except Exception as e:
-                        st.error(f"Connection failed: {e}")
+                    with st.spinner("Initializing Zerodha connection..."):
+                        try:
+                            kite = KiteConnect(api_key=api_key)
+                            request_token_url = kite.login_url()
+                            
+                            st.session_state.kite = kite
+                            st.session_state.api_key = api_key
+                            st.session_state.api_secret = api_secret
+                            st.session_state.broker = broker
+                            st.session_state.redirect_url = redirect_url
+                            
+                            st.success("Zerodha connection initialized!")
+                            st.markdown(f"""
+                            **Next Steps:**
+                            1. [Click here to login and get request token]({request_token_url})
+                            2. You'll be redirected to: `{redirect_url}`
+                            3. Copy the request token from URL and enter below
+                            """)
+                            
+                            # Store credentials in session state for persistence
+                            st.session_state.zerodha_creds = {
+                                'api_key': api_key,
+                                'api_secret': api_secret,
+                                'redirect_url': redirect_url
+                            }
+                            
+                        except Exception as e:
+                            st.error(f"Connection failed: {str(e)}")
+                            st.info("Please check your API credentials and try again.")
                 else:
                     st.error("Please enter both API Key and Secret")
         
@@ -3106,72 +3157,152 @@ def login_page():
                 st.session_state.broker = "Demo"
                 st.session_state.authenticated = True
                 st.session_state.profile = {"user_name": "Demo User", "email": "demo@blockvista.com"}
+                st.session_state.two_factor_setup_complete = True
+                st.session_state.two_factor_verified = True
                 st.success("Entering Demo Mode with sample data!")
                 st.rerun()
     
     with col2:
+        # Request Token Handling for Zerodha
         if st.session_state.get('broker') == "Zerodha" and st.session_state.get('kite'):
             st.subheader("Complete Authentication")
-            request_token = st.text_input("Request Token", placeholder="Paste request token here")
+            
+            # Check if request token is in URL parameters (for callback)
+            query_params = st.query_params
+            request_token_from_url = query_params.get("request_token", [""])[0]
+            
+            request_token = st.text_input(
+                "Request Token", 
+                value=request_token_from_url,
+                placeholder="Paste request token here or it will be auto-filled from URL"
+            )
+            
+            if request_token_from_url:
+                st.info("Request token detected from URL! Click Authenticate to continue.")
             
             if st.button("Authenticate", use_container_width=True):
                 if request_token:
-                    try:
-                        kite = st.session_state.kite
-                        data = kite.generate_session(request_token, st.session_state.api_secret)
-                        kite.set_access_token(data["access_token"])
-                        
-                        st.session_state.kite = kite
-                        st.session_state.authenticated = True
-                        st.session_state.profile = kite.profile()
-                        
-                        st.success("✅ Authentication successful!")
-                        st.balloons()
-                        a_time.sleep(1)
-                        st.rerun()
-                        
-                    except Exception as e:
-                        st.error(f"Authentication failed: {e}")
+                    with st.spinner("Authenticating with Zerodha..."):
+                        try:
+                            kite = st.session_state.kite
+                            data = kite.generate_session(request_token, st.session_state.api_secret)
+                            access_token = data["access_token"]
+                            kite.set_access_token(access_token)
+                            
+                            st.session_state.kite = kite
+                            st.session_state.access_token = access_token
+                            st.session_state.authenticated = True
+                            st.session_state.profile = kite.profile()
+                            
+                            # Clear URL parameters after successful auth
+                            st.query_params.clear()
+                            
+                            st.success("✅ Authentication successful!")
+                            st.balloons()
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"Authentication failed: {str(e)}")
+                            st.info("This request token may have expired. Please generate a new one.")
                 else:
                     st.error("Please enter the request token")
         
         # Two-Factor Authentication Setup
-        if st.session_state.get('authenticated') and not st.session_state.get('two_factor_setup_complete'):
-            st.subheader("🔒 Two-Factor Authentication")
+        if (st.session_state.get('authenticated') and 
+            st.session_state.get('broker') != "Demo" and
+            not st.session_state.get('two_factor_setup_complete')):
+            
+            st.subheader("🔒 Two-Factor Authentication Setup")
+            st.info("Set up 2FA for enhanced security. Scan the QR code with your authenticator app.")
             
             if st.session_state.pyotp_secret is None:
                 st.session_state.pyotp_secret = pyotp.random_base32()
             
             totp = pyotp.TOTP(st.session_state.pyotp_secret)
+            user_name = st.session_state.profile.get('user_name', 'user')
             provisioning_uri = totp.provisioning_uri(
-                name=st.session_state.profile.get('user_name', 'user'),
+                name=user_name,
                 issuer_name="BlockVista Terminal"
             )
             
             # Generate QR Code
-            qr = qrcode.QRCode(version=1, box_size=10, border=5)
-            qr.add_data(provisioning_uri)
-            qr.make(fit=True)
-            qr_img = qr.make_image(fill_color="black", back_color="white")
-            
-            # Convert to base64 for display
-            buffered = io.BytesIO()
-            qr_img.save(buffered, format="PNG")
-            qr_base64 = base64.b64encode(buffered.getvalue()).decode()
-            
-            st.image(f"data:image/png;base64,{qr_base64}", width=200)
-            st.write("Scan this QR code with Google Authenticator or Authy")
-            st.code(st.session_state.pyotp_secret, language="text")
+            try:
+                qr = qrcode.QRCode(version=1, box_size=10, border=5)
+                qr.add_data(provisioning_uri)
+                qr.make(fit=True)
+                qr_img = qr.make_image(fill_color="black", back_color="white")
+                
+                # Convert to base64 for display
+                buffered = io.BytesIO()
+                qr_img.save(buffered, format="PNG")
+                qr_base64 = base64.b64encode(buffered.getvalue()).decode()
+                
+                st.image(f"data:image/png;base64,{qr_base64}", width=200, caption="Scan with Google Authenticator or Authy")
+                
+                col_a, col_b = st.columns([2, 1])
+                with col_a:
+                    st.code(st.session_state.pyotp_secret, language="text")
+                with col_b:
+                    if st.button("Copy Secret", key="copy_secret"):
+                        st.code(st.session_state.pyotp_secret)
+                        st.success("Secret copied!")
+                
+                st.write("**Manual setup:** Enter this secret in your authenticator app")
+                
+            except Exception as e:
+                st.error(f"QR code generation failed: {e}")
+                st.info("Please use this secret for manual setup:")
+                st.code(st.session_state.pyotp_secret)
             
             # Verify setup
-            otp_input = st.text_input("Enter OTP from authenticator app")
-            if st.button("Verify 2FA Setup"):
-                if totp.verify(otp_input):
+            st.divider()
+            st.write("**Verify 2FA Setup**")
+            otp_input = st.text_input("Enter OTP from authenticator app", placeholder="6-digit code")
+            
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("Verify 2FA Setup", use_container_width=True):
+                    if otp_input and len(otp_input) == 6:
+                        if totp.verify(otp_input):
+                            st.session_state.two_factor_setup_complete = True
+                            st.session_state.totp = totp
+                            st.success("✅ Two-factor authentication setup complete!")
+                            st.rerun()
+                        else:
+                            st.error("Invalid OTP. Please try again.")
+                    else:
+                        st.error("Please enter a valid 6-digit OTP")
+            
+            with col2:
+                if st.button("Skip 2FA Setup", use_container_width=True):
                     st.session_state.two_factor_setup_complete = True
-                    st.success("✅ Two-factor authentication setup complete!")
+                    st.warning("2FA setup skipped. Please enable it later in settings for security.")
+                    st.rerun()
+
+def two_factor_verification():
+    """Handle two-factor authentication verification."""
+    st.title("🔒 Two-Factor Verification")
+    st.info("Please enter the OTP from your authenticator app to continue.")
+    
+    totp = pyotp.TOTP(st.session_state.pyotp_secret)
+    otp_input = st.text_input("Enter OTP", placeholder="6-digit code", key="2fa_verify")
+    
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        if st.button("Verify OTP", use_container_width=True):
+            if otp_input and len(otp_input) == 6:
+                if totp.verify(otp_input):
+                    st.session_state.two_factor_verified = True
+                    st.success("✅ Verification successful!")
                     st.rerun()
                 else:
                     st.error("Invalid OTP. Please try again.")
+            else:
+                st.error("Please enter a valid 6-digit OTP")
+    
+    with col2:
+        if st.button("Use Backup Code", key="backup_code"):
+            st.info("Backup code feature - to be implemented")
 
 # ================ 9. MAIN APPLICATION ================
 
@@ -3187,6 +3318,16 @@ def main():
     if not st.session_state.get('authenticated'):
         login_page()
         return
+    
+    # 2FA Verification Check (for existing sessions)
+    if (st.session_state.get('authenticated') and 
+        st.session_state.get('two_factor_setup_complete') and 
+        st.session_state.get('pyotp_secret') and
+        not st.session_state.get('two_factor_verified') and
+        st.session_state.get('broker') != "Demo"):
+        
+        two_factor_verification()
+        return  # Stop further execution until 2FA verification
     
     # Display overnight changes bar
     display_overnight_changes_bar()
