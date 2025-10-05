@@ -29,6 +29,10 @@ import requests
 import hashlib
 import random
 
+# Local Imports for User Management & Payments
+from users import signup_user, login_user
+from payments import display_subscription_plans, get_subscription_status
+
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
 
@@ -240,6 +244,11 @@ ML_DATA_SOURCES = {
 # ================ 1.5 INITIALIZATION ========================
 def initialize_session_state():
     """Initializes all necessary session state variables."""
+    # BlockVista Account
+    if 'bv_user' not in st.session_state: st.session_state.bv_user = None
+    if 'bv_logged_in' not in st.session_state: st.session_state.bv_logged_in = False
+    if 'subscription_status' not in st.session_state: st.session_state.subscription_status = 'none'
+
     # Broker and Login
     if 'broker' not in st.session_state: st.session_state.broker = None
     if 'kite' not in st.session_state: st.session_state.kite = None
@@ -518,7 +527,7 @@ def get_market_depth(instrument_token):
         return None
     try:
         depth = client.depth(instrument_token)
-        return depth.get(str(instrument_token))  # Zerodha returns a dict with token as string key
+        return depth.get(str(instrument_token)) # Zerodha returns a dict with token as string key
     except Exception as e:
         st.toast(f"Error fetching market depth: {e}", icon="⚠️")
         return None
@@ -567,8 +576,8 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
             pe_df['oi'] = pe_df['tradingsymbol'].apply(lambda x: quotes.get(f"{exchange}:{x}", {}).get('oi', 0))
             
             final_chain = pd.merge(ce_df[['tradingsymbol', 'strike', 'LTP', 'oi']], 
-                                   pe_df[['tradingsymbol', 'strike', 'LTP', 'oi']], 
-                                   on='strike', suffixes=('_CE', '_PE')).rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'oi_CE': 'CALL OI', 'oi_PE': 'PUT OI', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
+                                     pe_df[['tradingsymbol', 'strike', 'LTP', 'oi']], 
+                                     on='strike', suffixes=('_CE', '_PE')).rename(columns={'LTP_CE': 'CALL LTP', 'LTP_PE': 'PUT LTP', 'strike': 'STRIKE', 'oi_CE': 'CALL OI', 'oi_PE': 'PUT OI', 'tradingsymbol_CE': 'CALL', 'tradingsymbol_PE': 'PUT'}).fillna(0)
             
             return final_chain[['CALL', 'CALL LTP', 'CALL OI', 'STRIKE', 'PUT LTP', 'PUT OI', 'PUT']], expiry_date, underlying_ltp, available_expiries
         except Exception as e:
@@ -2645,6 +2654,100 @@ def page_hft_terminal():
             color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
             log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
 
+# ============ 5.6 FUNDAMENTAL ANALYTICS PAGE ============
+@st.cache_data(ttl=3600)
+def get_fundamental_data(ticker):
+    """Fetches fundamental data for a stock using yfinance."""
+    try:
+        stock = yf.Ticker(f"{ticker}.NS") # Append .NS for Indian stocks
+        info = stock.info
+        
+        # Format key metrics
+        fundamentals = {
+            "Market Cap": f"₹{info.get('marketCap', 0) / 10**7:.2f} Cr",
+            "P/E Ratio": f"{info.get('trailingPE', 0):.2f}",
+            "P/B Ratio": f"{info.get('priceToBook', 0):.2f}",
+            "Debt to Equity": f"{info.get('debtToEquity', 0):.2f}",
+            "ROE": f"{info.get('returnOnEquity', 0) * 100:.2f}%",
+            "EPS": f"{info.get('trailingEps', 0):.2f}",
+            "Dividend Yield": f"{info.get('dividendYield', 0) * 100:.2f}%"
+        }
+        
+        financials = {
+            "income_statement": stock.financials,
+            "balance_sheet": stock.balance_sheet,
+            "cash_flow": stock.cashflow
+        }
+        return fundamentals, financials, info.get('longBusinessSummary')
+    except Exception as e:
+        st.error(f"Could not fetch fundamental data for {ticker}: {e}")
+        return None, None, None
+
+def page_fundamental_analytics():
+    """A page for fundamental analysis and peer comparison."""
+    display_header()
+    st.title("Fundamental Analytics")
+
+    tab1, tab2 = st.tabs(["Single Company Deep-Dive", "Peer Comparison"])
+
+    with tab1:
+        st.subheader("Single Company Deep-Dive")
+        ticker = st.text_input("Enter Stock Symbol (e.g., RELIANCE)", "RELIANCE").upper()
+        
+        if st.button("Analyze", key="analyze_single"):
+            fundamentals, financials, summary = get_fundamental_data(ticker)
+            
+            if fundamentals:
+                st.header(f"Analysis for {ticker}")
+                st.markdown(f"**Business Summary:** {summary}")
+                st.markdown("---")
+                
+                st.subheader("Key Ratios")
+                cols = st.columns(4)
+                i = 0
+                for key, value in fundamentals.items():
+                    cols[i % 4].metric(key, value)
+                    i += 1
+
+                st.markdown("---")
+                st.subheader("Financial Statements")
+                
+                if not financials["income_statement"].empty:
+                    with st.expander("Income Statement (Annual)"):
+                        st.dataframe(financials["income_statement"])
+                
+                if not financials["balance_sheet"].empty:
+                    with st.expander("Balance Sheet (Annual)"):
+                        st.dataframe(financials["balance_sheet"])
+                
+                if not financials["cash_flow"].empty:
+                    with st.expander("Cash Flow Statement (Annual)"):
+                        st.dataframe(financials["cash_flow"])
+
+    with tab2:
+        st.subheader("Peer Comparison Tool")
+        tickers = st.multiselect(
+            "Select companies to compare (2 or more)",
+            ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN'],
+            default=['RELIANCE', 'TCS']
+        )
+        
+        if st.button("Compare Peers", key="compare_peers"):
+            if len(tickers) < 2:
+                st.warning("Please select at least two companies to compare.")
+            else:
+                with st.spinner("Fetching data for comparison..."):
+                    comparison_data = []
+                    for ticker in tickers:
+                        fundamentals, _, _ = get_fundamental_data(ticker)
+                        if fundamentals:
+                            fundamentals['Ticker'] = ticker
+                            comparison_data.append(fundamentals)
+                    
+                    if comparison_data:
+                        df = pd.DataFrame(comparison_data).set_index('Ticker')
+                        st.dataframe(df, use_container_width=True)
+
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -2725,10 +2828,10 @@ def show_login_animation():
     st.session_state['login_animation_complete'] = True
     st.rerun()
 
-def login_page():
+def broker_login_page():
     """Displays the login page for broker authentication."""
     st.title("BlockVista Terminal")
-    st.subheader("Broker Login")
+    st.subheader("Connect Your Broker")
     
     broker = st.selectbox("Select Your Broker", ["Zerodha"])
     
@@ -2760,6 +2863,42 @@ def login_page():
             st.link_button("Login with Zerodha Kite", kite.login_url())
             st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
 
+def blockvista_login_page():
+    """Handles BlockVista Terminal's own user signup and login."""
+    st.title("Welcome to BlockVista Terminal")
+    
+    choice = st.radio("Choose Action", ["Login", "Sign Up"], horizontal=True, label_visibility="collapsed")
+
+    if choice == "Login":
+        with st.form("login_form"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Login")
+            if submitted:
+                user = login_user(email, password)
+                if user:
+                    st.session_state.bv_user = user
+                    st.session_state.bv_logged_in = True
+                    st.session_state.subscription_status = get_subscription_status(email)
+                    st.rerun()
+                else:
+                    st.error("Invalid email or password.")
+    
+    else: # Sign Up
+        with st.form("signup_form"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            confirm_password = st.text_input("Confirm Password", type="password")
+            submitted = st.form_submit_button("Sign Up")
+            if submitted:
+                if password != confirm_password:
+                    st.error("Passwords do not match.")
+                else:
+                    if signup_user(email, password):
+                        st.success("Account created successfully! Please login.")
+                    else:
+                        st.error("An account with this email already exists.")
+
 def main_app():
     """The main application interface after successful login."""
     apply_custom_styling()
@@ -2780,16 +2919,19 @@ def main_app():
     
     st.sidebar.header("Terminal Controls")
     st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    
-    # Keep HFT mode as "coming soon" - remove from available modes
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options"], horizontal=True)
-    
+    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
     st.sidebar.divider()
     
     # Dynamic refresh interval based on mode
-    st.sidebar.header("Live Data")
-    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
+    if st.session_state.terminal_mode == "HFT":
+        refresh_interval = 2 # Faster refresh for HFT mode
+        auto_refresh = True
+        st.sidebar.header("HFT Mode Active")
+        st.sidebar.caption(f"Refresh Interval: {refresh_interval}s")
+    else:
+        st.sidebar.header("Live Data")
+        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
     
     st.sidebar.divider()
     
@@ -2797,6 +2939,7 @@ def main_app():
     pages = {
         "Cash": {
             "Dashboard": page_dashboard,
+            "Fundamental Analytics": page_fundamental_analytics,
             "Premarket Pulse": page_premarket_pulse,
             "Advanced Charting": page_advanced_charting,
             "Market Scanners": page_momentum_and_trend_finder,
@@ -2821,12 +2964,12 @@ def main_app():
             "Algo Strategy Hub": page_algo_strategy_maker,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant,
+        },
+        "HFT": {
+            "HFT Terminal": page_hft_terminal,
+            "Portfolio & Risk": page_portfolio_and_risk,
         }
     }
-    
-    # Add a note about HFT coming soon
-    st.sidebar.info("🚀 HFT Mode - Coming Soon!")
-    
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
     
     st.sidebar.divider()
@@ -2835,7 +2978,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub"]
+    no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub", "Fundamental Analytics"]
     if auto_refresh and selection not in no_refresh_pages:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
@@ -2844,11 +2987,17 @@ def main_app():
 # --- Application Entry Point ---
 if __name__ == "__main__":
     initialize_session_state()
-    
-    if 'profile' in st.session_state and st.session_state.profile:
-        if st.session_state.get('login_animation_complete', False):
-            main_app()
+
+    if st.session_state.bv_logged_in:
+        if st.session_state.subscription_status == 'active':
+            if 'profile' in st.session_state and st.session_state.profile:
+                if st.session_state.get('login_animation_complete', False):
+                    main_app()
+                else:
+                    show_login_animation()
+            else:
+                broker_login_page()
         else:
-            show_login_animation()
+            display_subscription_plans()
     else:
-        login_page()
+        blockvista_login_page()
