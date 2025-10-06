@@ -65,40 +65,6 @@ Built by students for India's traders, BlockVista includes a Bharatiya Market Pu
 
 ---
 
-## 3) Trading Technology Stack
-
-### 🏗️ **Trading Infrastructure**
-- **UI Framework**: `streamlit` (real-time web interface), `streamlit-autorefresh` (auto-updating dashboards)
-- **Time Management**: `datetime`, `pytz` (IST timezone handling, session tracking)
-
-### 📊 **Market Data Engine**
-- **Primary Feed**: `kiteconnect` (Zerodha KiteConnect API) – live quotes, tick data, market depth, order book
-- **Global Markets**: `yfinance` – international indices (S&P 500, Nikkei, Hang Seng, GIFT NIFTY)
-- **Market Intelligence**: `requests` (REST API calls), `feedparser` (RSS news aggregation)
-
-### 🧠 **Analytics Powerhouse**
-- **Core Analytics**: `pandas` (data manipulation), `numpy` (numerical computing), `tabulate` (formatted output)
-- **Technical Analysis**: `pandas-ta` (50+ indicators – RSI, MACD, EMA, Bollinger Bands, ADX, Stochastics, ATR)
-- **Statistical Modeling**: `scipy` (optimization, Greeks calculations), `statsmodels` (ARIMA forecasting, seasonality)
-
-### 📈 **Visualization Suite**
-- **Professional Charts**: `plotly` (`graph_objects`, `make_subplots`) – interactive, multi-timeframe, customizable themes
-
-### 🔒 **Security Arsenal**
-- **Authentication**: `pyotp` (TOTP 2FA), `qrcode` (authenticator provisioning)
-- **Cryptography**: `hashlib` (secure hashing), `base64` (encoding)
-- **Image Processing**: `Pillow` (PIL) for QR code generation and manipulation
-
-### 🤖 **AI & Sentiment**
-- **NLP Engine**: `vaderSentiment` (real-time news sentiment scoring)
-
-### ⚙️ **Core Utilities**
-- Pattern matching: `re` (regex)
-- Randomization: `random` (simulation, testing)
-- I/O operations: `io` (in-memory file handling)
-
----
-
 ## 4) Getting Started – Deploy Your Trading Edge
 
 ### 📋 **Prerequisites**
