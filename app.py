@@ -1,10 +1,3 @@
-⚠️
-Error fetching market depth: 'KiteConnect' object has no attribute 'depth'
-
-also add Fundamental Analytics page & allow comparison
-also user can check recent Balance Sheet, P&L & other info
-
-
 # ================ 0. REQUIRED LIBRARIES ================
 import streamlit as st
 import pandas as pd
