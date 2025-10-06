@@ -1,3 +1,10 @@
+⚠️
+Error fetching market depth: 'KiteConnect' object has no attribute 'depth'
+
+also add Fundamental Analytics page & allow comparison
+also user can check recent Balance Sheet, P&L & other info
+
+
 # ================ 0. REQUIRED LIBRARIES ================
 import streamlit as st
 import pandas as pd
@@ -170,10 +177,6 @@ def apply_custom_styling():
             min-width: 300px;
             max-width: 500px;
         }
-        .market-notification h3 {
-            margin-top: 0;
-            margin-bottom: 1rem;
-        }
         .market-notification.open {
             border-color: var(--green);
             background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(40, 167, 69, 0.1) 100%);
@@ -294,9 +297,14 @@ def initialize_session_state():
     if 'ml_forecast_df' not in st.session_state: st.session_state.ml_forecast_df = None
     if 'ml_instrument_name' not in st.session_state: st.session_state.ml_instrument_name = None
     if 'backtest_results' not in st.session_state: st.session_state.backtest_results = None
+    if 'fundamental_companies' not in st.session_state: st.session_state.fundamental_companies = []
+    
+    # HFT Terminal specific state variables
     if 'hft_last_price' not in st.session_state: st.session_state.hft_last_price = 0
     if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
     if 'market_notifications_shown' not in st.session_state: st.session_state.market_notifications_shown = {}
+    if 'show_2fa_dialog' not in st.session_state: st.session_state.show_2fa_dialog = False
+    if 'show_qr_dialog' not in st.session_state: st.session_state.show_qr_dialog = False
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -594,33 +602,17 @@ def get_watchlist_data(symbols_with_exchange):
 def get_market_depth(instrument_token):
     """Fetches market depth (order book) for a given instrument."""
     client = get_broker_client()
-    instrument_df = get_instrument_df() 
-    if not client or not instrument_token or instrument_df.empty:
+    if not client or not instrument_token:
         return None
     try:
-        # Find the trading symbol and exchange for the given token
-        instrument_details = instrument_df[instrument_df['instrument_token'] == instrument_token]
-        if instrument_details.empty:
-            return None
-        
-        tradingsymbol = instrument_details.iloc[0]['tradingsymbol']
-        exchange = instrument_details.iloc[0]['exchange']
-        instrument_name = f"{exchange}:{tradingsymbol}"
-
-        # The quote method returns a dictionary where keys are the instrument names
-        quote_result = client.quote(instrument_name)
-        
-        # The depth information is within the dictionary for that instrument
-        if quote_result and instrument_name in quote_result and 'depth' in quote_result[instrument_name]:
-            return quote_result[instrument_name]['depth']
-        else:
-            return None # No depth information available
-            
+        # Use quote method to get market depth data instead of depth
+        quote_data = client.quote([str(instrument_token)])
+        instrument_key = str(instrument_token)
+        if instrument_key in quote_data:
+            return quote_data[instrument_key].get('depth')
+        return None
     except Exception as e:
-        # Avoid showing the same toast message repeatedly on auto-refresh
-        if 'last_depth_error' not in st.session_state or str(e) != st.session_state.get('last_depth_error'):
-            st.toast(f"Error fetching market depth: {e}", icon="⚠️")
-            st.session_state['last_depth_error'] = str(e)
+        st.toast(f"Error fetching market depth: {e}", icon="⚠️")
         return None
 
 @st.cache_data(ttl=30)
@@ -906,38 +898,6 @@ def interpret_indicators(df):
         interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
     
     return interpretation
-    
-@st.cache_data(ttl=3600)
-def get_fundamental_data(ticker_symbol):
-    """Fetches fundamental data for a given stock ticker using yfinance."""
-    try:
-        # Append '.NS' for NSE stocks for yfinance compatibility
-        if not ticker_symbol.endswith(('.NS', '.BO')):
-            ticker_symbol += '.NS'
-            
-        ticker = yf.Ticker(ticker_symbol)
-        
-        info = ticker.info
-        financials = ticker.financials
-        balance_sheet = ticker.balance_sheet
-        
-        # Check if data is available
-        if 'longName' not in info or financials.empty or balance_sheet.empty:
-            return None
-
-        # Clean up the financial statements for better display
-        for df in [financials, balance_sheet]:
-            df.columns = [col.strftime('%Y-%m-%d') for col in df.columns]
-            for col in df.columns:
-                df[col] = df[col].apply(lambda x: f"₹{x/1e7:,.2f} Cr" if isinstance(x, (int, float)) else x)
-
-        return {
-            "info": info,
-            "pnl": financials,
-            "balance_sheet": balance_sheet
-        }
-    except Exception:
-        return None
 
 # ================ 4. HNI & PRO TRADER FEATURES ================
 
@@ -2566,6 +2526,8 @@ def page_momentum_and_trend_finder():
         - Check if market is open
         """)
 
+# Replace the existing page_momentum_and_trend_finder function with this clean version
+
 def calculate_strategy_pnl(legs, underlying_ltp):
     """Calculates the P&L for a given options strategy."""
     if not legs:
@@ -3285,6 +3247,355 @@ def page_hft_terminal():
             st.session_state.hft_tick_log = []
             st.rerun()
 
+# ============ NEW FUNDAMENTAL ANALYTICS PAGE ============
+
+@st.cache_data(ttl=3600)
+def get_fundamental_data(symbol):
+    """Fetches fundamental data for a given stock symbol using yfinance."""
+    try:
+        # Add .NS suffix for NSE stocks
+        if not symbol.endswith('.NS'):
+            symbol += '.NS'
+        
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        
+        # Extract key fundamental data
+        fundamental_data = {
+            'Company Name': info.get('longName', 'N/A'),
+            'Sector': info.get('sector', 'N/A'),
+            'Industry': info.get('industry', 'N/A'),
+            'Market Cap': info.get('marketCap', 0),
+            'P/E Ratio': info.get('trailingPE', 0),
+            'P/B Ratio': info.get('priceToBook', 0),
+            'Dividend Yield': info.get('dividendYield', 0),
+            'ROE': info.get('returnOnEquity', 0),
+            'ROA': info.get('returnOnAssets', 0),
+            'Debt to Equity': info.get('debtToEquity', 0),
+            'Current Ratio': info.get('currentRatio', 0),
+            'Profit Margins': info.get('profitMargins', 0),
+            'Operating Margins': info.get('operatingMargins', 0),
+            'Revenue Growth': info.get('revenueGrowth', 0),
+            'Earnings Growth': info.get('earningsGrowth', 0),
+            '52 Week High': info.get('fiftyTwoWeekHigh', 0),
+            '52 Week Low': info.get('fiftyTwoWeekLow', 0)
+        }
+        
+        return fundamental_data
+    except Exception as e:
+        st.error(f"Error fetching fundamental data for {symbol}: {e}")
+        return None
+
+@st.cache_data(ttl=3600)
+def get_balance_sheet(symbol):
+    """Fetches balance sheet data for a given stock symbol."""
+    try:
+        if not symbol.endswith('.NS'):
+            symbol += '.NS'
+        
+        ticker = yf.Ticker(symbol)
+        balance_sheet = ticker.balance_sheet
+        
+        if balance_sheet.empty:
+            return None
+            
+        # Convert to DataFrame and transpose for better readability
+        bs_df = balance_sheet.T
+        bs_df = bs_df[['Total Assets', 'Total Liabilities Net Minority Interest', 
+                      'Total Equity Gross Minority Interest', 'Current Assets', 
+                      'Current Liabilities', 'Cash And Cash Equivalents', 
+                      'Net Debt', 'Invested Capital']].tail(4)  # Last 4 quarters
+        
+        return bs_df
+    except Exception as e:
+        st.error(f"Error fetching balance sheet for {symbol}: {e}")
+        return None
+
+@st.cache_data(ttl=3600)
+def get_income_statement(symbol):
+    """Fetches income statement (P&L) data for a given stock symbol."""
+    try:
+        if not symbol.endswith('.NS'):
+            symbol += '.NS'
+        
+        ticker = yf.Ticker(symbol)
+        income_stmt = ticker.income_stmt
+        
+        if income_stmt.empty:
+            return None
+            
+        # Convert to DataFrame and transpose for better readability
+        is_df = income_stmt.T
+        is_df = is_df[['Total Revenue', 'Gross Profit', 'Operating Income', 
+                      'Net Income', 'EBITDA', 'Basic EPS']].tail(4)  # Last 4 quarters
+        
+        return is_df
+    except Exception as e:
+        st.error(f"Error fetching income statement for {symbol}: {e}")
+        return None
+
+@st.cache_data(ttl=3600)
+def get_cash_flow(symbol):
+    """Fetches cash flow statement data for a given stock symbol."""
+    try:
+        if not symbol.endswith('.NS'):
+            symbol += '.NS'
+        
+        ticker = yf.Ticker(symbol)
+        cash_flow = ticker.cash_flow
+        
+        if cash_flow.empty:
+            return None
+            
+        # Convert to DataFrame and transpose for better readability
+        cf_df = cash_flow.T
+        cf_df = cf_df[['Operating Cash Flow', 'Investing Cash Flow', 
+                      'Financing Cash Flow', 'Free Cash Flow']].tail(4)  # Last 4 quarters
+        
+        return cf_df
+    except Exception as e:
+        st.error(f"Error fetching cash flow for {symbol}: {e}")
+        return None
+
+def format_large_number(num):
+    """Formats large numbers into readable format (Cr, L, K)."""
+    if pd.isna(num) or num == 0:
+        return "0"
+    
+    if abs(num) >= 10000000:  # Crores
+        return f"₹{num/10000000:.2f}Cr"
+    elif abs(num) >= 100000:  # Lakhs
+        return f"₹{num/100000:.2f}L"
+    elif abs(num) >= 1000:  # Thousands
+        return f"₹{num/1000:.2f}K"
+    else:
+        return f"₹{num:.2f}"
+
+def create_fundamental_comparison_chart(companies_data):
+    """Creates comparison charts for multiple companies."""
+    if not companies_data:
+        return
+    
+    # Prepare data for comparison
+    metrics = ['P/E Ratio', 'P/B Ratio', 'ROE', 'Debt to Equity', 'Profit Margins']
+    company_names = [data['Company Name'] for data in companies_data.values()]
+    
+    # Create subplots
+    fig = make_subplots(
+        rows=2, cols=3,
+        subplot_titles=metrics,
+        specs=[[{"type": "bar"}, {"type": "bar"}, {"type": "bar"}],
+               [{"type": "bar"}, {"type": "bar"}, {"type": "bar"}]]
+    )
+    
+    for i, metric in enumerate(metrics):
+        row = i // 3 + 1
+        col = i % 3 + 1
+        
+        values = [data.get(metric, 0) for data in companies_data.values()]
+        
+        fig.add_trace(
+            go.Bar(name=metric, x=company_names, y=values),
+            row=row, col=col
+        )
+    
+    fig.update_layout(
+        height=600,
+        title_text="Fundamental Metrics Comparison",
+        showlegend=False,
+        template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def page_fundamental_analytics():
+    """Fundamental Analytics page with company comparison and financial statements."""
+    display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
+    st.title("📊 Fundamental Analytics")
+    st.info("Comprehensive fundamental analysis with company comparison, balance sheets, P&L statements, and cash flow analysis.", icon="📈")
+    
+    # Popular Indian stocks for quick selection
+    popular_stocks = {
+        "RELIANCE": "Reliance Industries",
+        "TCS": "Tata Consultancy Services", 
+        "HDFCBANK": "HDFC Bank",
+        "INFY": "Infosys",
+        "ICICIBANK": "ICICI Bank",
+        "HINDUNILVR": "Hindustan Unilever",
+        "ITC": "ITC Limited",
+        "SBIN": "State Bank of India",
+        "BAJFINANCE": "Bajaj Finance",
+        "KOTAKBANK": "Kotak Mahindra Bank"
+    }
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("Add Company for Analysis")
+        
+        # Quick selection buttons
+        st.write("**Popular Stocks:**")
+        quick_cols = st.columns(5)
+        for i, (symbol, name) in enumerate(popular_stocks.items()):
+            if quick_cols[i % 5].button(symbol, use_container_width=True):
+                if symbol not in [c['symbol'] for c in st.session_state.fundamental_companies]:
+                    st.session_state.fundamental_companies.append({
+                        'symbol': symbol,
+                        'name': name
+                    })
+                st.rerun()
+        
+        # Manual input
+        symbol_input = st.text_input("Or enter stock symbol:", placeholder="e.g., RELIANCE")
+        if st.button("Add Company") and symbol_input:
+            symbol = symbol_input.upper()
+            if symbol not in [c['symbol'] for c in st.session_state.fundamental_companies]:
+                st.session_state.fundamental_companies.append({
+                    'symbol': symbol,
+                    'name': symbol  # Will be updated with actual name when data is fetched
+                })
+            st.rerun()
+    
+    with col2:
+        st.subheader("Selected Companies")
+        if st.session_state.fundamental_companies:
+            for i, company in enumerate(st.session_state.fundamental_companies):
+                col1, col2 = st.columns([3, 1])
+                col1.write(f"**{company['symbol']}**")
+                if col2.button("❌", key=f"del_{i}"):
+                    st.session_state.fundamental_companies.pop(i)
+                    st.rerun()
+            
+            if st.button("Clear All", use_container_width=True):
+                st.session_state.fundamental_companies = []
+                st.rerun()
+        else:
+            st.info("No companies added. Select from popular stocks or enter a symbol.")
+    
+    st.markdown("---")
+    
+    # Fetch and display fundamental data for selected companies
+    if st.session_state.fundamental_companies:
+        st.subheader("📈 Fundamental Comparison")
+        
+        with st.spinner("Fetching fundamental data..."):
+            companies_data = {}
+            for company in st.session_state.fundamental_companies:
+                data = get_fundamental_data(company['symbol'])
+                if data:
+                    companies_data[company['symbol']] = data
+                    # Update company name with actual name from data
+                    company['name'] = data.get('Company Name', company['symbol'])
+            
+            if companies_data:
+                # Display key metrics in a table
+                st.write("**Key Financial Metrics**")
+                
+                # Prepare comparison table
+                comparison_data = []
+                metrics_to_display = [
+                    'Market Cap', 'P/E Ratio', 'P/B Ratio', 'Dividend Yield', 
+                    'ROE', 'Debt to Equity', 'Profit Margins', 'Revenue Growth'
+                ]
+                
+                for symbol, data in companies_data.items():
+                    row = {'Company': data['Company Name']}
+                    for metric in metrics_to_display:
+                        value = data.get(metric, 0)
+                        if metric == 'Market Cap':
+                            row[metric] = format_large_number(value)
+                        elif metric in ['Dividend Yield', 'Profit Margins', 'Revenue Growth']:
+                            row[metric] = f"{value*100:.2f}%" if value else "N/A"
+                        else:
+                            row[metric] = f"{value:.2f}" if value else "N/A"
+                    comparison_data.append(row)
+                
+                comparison_df = pd.DataFrame(comparison_data)
+                st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                
+                # Create comparison charts
+                create_fundamental_comparison_chart(companies_data)
+                
+                st.markdown("---")
+                
+                # Detailed financial statements for selected company
+                st.subheader("📋 Detailed Financial Statements")
+                
+                selected_company = st.selectbox(
+                    "Select company for detailed analysis:",
+                    options=[c['symbol'] for c in st.session_state.fundamental_companies],
+                    format_func=lambda x: next((c['name'] for c in st.session_state.fundamental_companies if c['symbol'] == x), x)
+                )
+                
+                if selected_company:
+                    tab1, tab2, tab3 = st.tabs(["Balance Sheet", "Income Statement", "Cash Flow"])
+                    
+                    with tab1:
+                        st.write("**Balance Sheet**")
+                        balance_sheet = get_balance_sheet(selected_company)
+                        if balance_sheet is not None:
+                            # Format large numbers
+                            formatted_bs = balance_sheet.copy()
+                            for col in formatted_bs.columns:
+                                formatted_bs[col] = formatted_bs[col].apply(format_large_number)
+                            
+                            st.dataframe(formatted_bs, use_container_width=True)
+                        else:
+                            st.info("Balance sheet data not available.")
+                    
+                    with tab2:
+                        st.write("**Income Statement (P&L)**")
+                        income_stmt = get_income_statement(selected_company)
+                        if income_stmt is not None:
+                            # Format large numbers
+                            formatted_is = income_stmt.copy()
+                            for col in formatted_is.columns:
+                                formatted_is[col] = formatted_is[col].apply(format_large_number)
+                            
+                            st.dataframe(formatted_is, use_container_width=True)
+                        else:
+                            st.info("Income statement data not available.")
+                    
+                    with tab3:
+                        st.write("**Cash Flow Statement**")
+                        cash_flow = get_cash_flow(selected_company)
+                        if cash_flow is not None:
+                            # Format large numbers
+                            formatted_cf = cash_flow.copy()
+                            for col in formatted_cf.columns:
+                                formatted_cf[col] = formatted_cf[col].apply(format_large_number)
+                            
+                            st.dataframe(formatted_cf, use_container_width=True)
+                        else:
+                            st.info("Cash flow statement data not available.")
+            else:
+                st.error("Could not fetch fundamental data for the selected companies.")
+    else:
+        st.info("""
+        ## 🚀 Get Started with Fundamental Analysis
+        
+        **Add companies to compare their fundamental metrics:**
+        
+        1. **Click on popular stocks** above for quick selection
+        2. **Or enter stock symbols** manually (e.g., RELIANCE, TCS, HDFCBANK)
+        3. **View comparisons** of P/E ratios, ROE, debt levels, and more
+        4. **Analyze detailed financial statements** including:
+           - Balance Sheets
+           - Profit & Loss Statements  
+           - Cash Flow Statements
+        
+        **Popular metrics to compare:**
+        - **P/E Ratio**: Valuation multiple
+        - **ROE**: Return on Equity
+        - **Debt/Equity**: Financial leverage
+        - **Profit Margins**: Operating efficiency
+        - **Revenue Growth**: Business expansion
+        """)
+
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
 def get_user_secret(user_profile):
@@ -3569,6 +3880,7 @@ def main_app():
             "AI Discovery": page_ai_discovery,
             "AI Assistant": page_ai_assistant,
             "Economic Calendar": page_economic_calendar,
+            "Fundamental Analytics": page_fundamental_analytics,  # NEW PAGE ADDED
         },
         "Options": {
             "F&O Analytics": page_fo_analytics,
@@ -3576,6 +3888,7 @@ def main_app():
             "Greeks Calculator": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant,
+            "Fundamental Analytics": page_fundamental_analytics,  # NEW PAGE ADDED
         },
         "Futures": {
             "Futures Terminal": page_futures_terminal,
@@ -3583,6 +3896,7 @@ def main_app():
             "Algo Strategy Hub": page_algo_strategy_maker,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant,
+            "Fundamental Analytics": page_fundamental_analytics,  # NEW PAGE ADDED
         },
         "HFT": {
             "HFT Terminal": page_hft_terminal,
@@ -3597,7 +3911,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub"]
+    no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub", "Fundamental Analytics"]
     if auto_refresh and selection not in no_refresh_pages:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
