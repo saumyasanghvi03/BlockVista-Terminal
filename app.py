@@ -155,6 +155,42 @@ def apply_custom_styling():
             white-space: nowrap;
         }
         
+        .market-notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--widget-bg);
+            border: 2px solid;
+            border-radius: 15px;
+            padding: 2rem;
+            z-index: 1000;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            text-align: center;
+            min-width: 300px;
+            max-width: 500px;
+        }
+        .market-notification h3 {
+            margin-top: 0;
+            margin-bottom: 1rem;
+        }
+        .market-notification.open {
+            border-color: var(--green);
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(40, 167, 69, 0.1) 100%);
+        }
+        .market-notification.warning {
+            border-color: #ffc107;
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(255, 193, 7, 0.1) 100%);
+        }
+        .market-notification.closed {
+            border-color: var(--red);
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(220, 53, 69, 0.1) 100%);
+        }
+        .market-notification.info {
+            border-color: #17a2b8;
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(23, 162, 184, 0.1) 100%);
+        }
+        
         .hft-depth-bid {
             background: linear-gradient(to left, rgba(0, 128, 0, 0.3), rgba(0, 128, 0, 0.05));
             padding: 2px 5px;
@@ -260,6 +296,7 @@ def initialize_session_state():
     if 'backtest_results' not in st.session_state: st.session_state.backtest_results = None
     if 'hft_last_price' not in st.session_state: st.session_state.hft_last_price = 0
     if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
+    if 'market_notifications_shown' not in st.session_state: st.session_state.market_notifications_shown = {}
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -269,27 +306,39 @@ def get_broker_client():
         return st.session_state.get('kite')
     return None
 
-@st.dialog("Quick Trade")
 def quick_trade_dialog(symbol=None, exchange=None):
     """A quick trade dialog for placing market or limit orders."""
-    instrument_df = get_instrument_df()
-    st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
+    if 'show_quick_trade' not in st.session_state:
+        st.session_state.show_quick_trade = False
     
-    if symbol is None:
-        symbol = st.text_input("Symbol").upper()
+    if symbol or st.button("Quick Trade", key="quick_trade_btn"):
+        st.session_state.show_quick_trade = True
     
-    transaction_type = st.radio("Transaction", ["BUY", "SELL"], horizontal=True, key="diag_trans_type")
-    product = st.radio("Product", ["MIS", "CNC"], horizontal=True, key="diag_prod_type")
-    order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="diag_order_type")
-    quantity = st.number_input("Quantity", min_value=1, step=1, key="diag_qty")
-    price = st.number_input("Price", min_value=0.01, key="diag_price") if order_type == "LIMIT" else 0
+    if st.session_state.show_quick_trade:
+        st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
+        
+        if symbol is None:
+            symbol = st.text_input("Symbol").upper()
+        
+        transaction_type = st.radio("Transaction", ["BUY", "SELL"], horizontal=True, key="diag_trans_type")
+        product = st.radio("Product", ["MIS", "CNC"], horizontal=True, key="diag_prod_type")
+        order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="diag_order_type")
+        quantity = st.number_input("Quantity", min_value=1, step=1, key="diag_qty")
+        price = st.number_input("Price", min_value=0.01, key="diag_price") if order_type == "LIMIT" else 0
 
-    if st.button("Submit Order", use_container_width=True):
-        if symbol and quantity > 0:
-            place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price if price > 0 else None)
+        col1, col2 = st.columns(2)
+        if col1.button("Submit Order", use_container_width=True):
+            if symbol and quantity > 0:
+                instrument_df = get_instrument_df()
+                place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price if price > 0 else None)
+                st.session_state.show_quick_trade = False
+                st.rerun()
+            else:
+                st.warning("Please fill in all fields.")
+        
+        if col2.button("Cancel", use_container_width=True):
+            st.session_state.show_quick_trade = False
             st.rerun()
-        else:
-            st.warning("Please fill in all fields.")
 
 @st.cache_data(ttl=3600)
 def get_market_holidays(year):
@@ -313,6 +362,59 @@ def get_market_status():
     if market_open_time <= now.time() <= market_close_time:
         return {"status": "OPEN", "color": "#28a745"}
     return {"status": "CLOSED", "color": "#FF4B4B"}
+
+def check_market_timing_notifications():
+    """Checks for market timing events and shows notifications."""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    current_time = now.time()
+    today_str = now.strftime('%Y-%m-%d')
+    
+    # Initialize notification tracking for today
+    if 'market_notifications_shown' not in st.session_state:
+        st.session_state.market_notifications_shown = {}
+    if today_str not in st.session_state.market_notifications_shown:
+        st.session_state.market_notifications_shown[today_str] = {}
+    
+    notifications_shown_today = st.session_state.market_notifications_shown[today_str]
+    
+    # Market timing events
+    market_events = [
+        {"time": time(9, 15), "type": "open", "title": "Market Open", "message": "Indian Stock Market is now open for trading", "class": "open", "duration": 10},
+        {"time": time(9, 45), "type": "ipo_preopen", "title": "IPO Pre-Opening Window", "message": "IPO pre-opening session has started. Orders can be placed but will be executed after 10:00 AM", "class": "info", "duration": 10},
+        {"time": time(10, 0), "type": "ipo_open", "title": "IPO Trading Starts", "message": "IPO orders are now being executed in the market", "class": "info", "duration": 10},
+        {"time": time(15, 15), "type": "closing_warning", "title": "Market Closing Soon", "message": "Market will close in 15 minutes. Place your final orders", "class": "warning", "duration": 10},
+        {"time": time(15, 30), "type": "closed", "title": "Market Closed", "message": "Indian Stock Market is now closed for the day", "class": "closed", "duration": 10}
+    ]
+    
+    # Check if we should show any notifications
+    for event in market_events:
+        event_key = f"{today_str}_{event['type']}"
+        
+        # Check if it's time for this event and we haven't shown it yet
+        if (current_time >= event["time"] and 
+            current_time <= (datetime.combine(now.date(), event["time"]) + timedelta(seconds=event["duration"])).time() and
+            event_key not in notifications_shown_today):
+            
+            # Show the notification
+            show_market_notification(event["title"], event["message"], event["class"], event["duration"])
+            
+            # Mark as shown
+            notifications_shown_today[event_key] = True
+            break
+
+def show_market_notification(title, message, notification_class, duration=10):
+    """Displays a market timing notification."""
+    notification_html = f"""
+    <div class="market-notification {notification_class}">
+        <h3>{title}</h3>
+        <p>{message}</p>
+        <small>This notification will auto-close in {duration} seconds</small>
+    </div>
+    """
+    st.markdown(notification_html, unsafe_allow_html=True)
+    st.session_state.market_notification_time = datetime.now()
+    st.session_state.market_notification_duration = duration
 
 def display_header():
     """Displays the main header with market status, a live clock, and trade buttons."""
@@ -853,16 +955,26 @@ def style_option_chain(df, ltp):
 
     return df.style.apply(highlight_itm, axis=1)
 
-@st.dialog("Most Active Options")
 def show_most_active_dialog(underlying, instrument_df):
     """Dialog to display the most active options by volume."""
-    st.subheader(f"Most Active {underlying} Options (By Volume)")
-    with st.spinner("Fetching data..."):
-        active_df = get_most_active_options(underlying, instrument_df)
-        if not active_df.empty:
-            st.dataframe(active_df, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Could not retrieve data for most active options.")
+    if 'show_most_active' not in st.session_state:
+        st.session_state.show_most_active = False
+    
+    if st.button("Most Active Options", key="most_active_btn"):
+        st.session_state.show_most_active = True
+    
+    if st.session_state.show_most_active:
+        st.subheader(f"Most Active {underlying} Options (By Volume)")
+        with st.spinner("Fetching data..."):
+            active_df = get_most_active_options(underlying, instrument_df)
+            if not active_df.empty:
+                st.dataframe(active_df, use_container_width=True, hide_index=True)
+            else:
+                st.warning("Could not retrieve data for most active options.")
+        
+        if st.button("Close", key="close_most_active"):
+            st.session_state.show_most_active = False
+            st.rerun()
 
 def get_most_active_options(underlying, instrument_df):
     """Fetches the most active options by volume for a given underlying."""
@@ -1055,6 +1167,9 @@ def page_dashboard():
         st.info("Please connect to a broker to view the dashboard.")
         return
     
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     index_symbols = [
         {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
         {'symbol': 'SENSEX', 'exchange': 'BSE'},
@@ -1219,6 +1334,10 @@ def page_advanced_charting():
     """A page for advanced charting with custom intervals and indicators."""
     display_header()
     st.title("Advanced Multi-Chart Terminal")
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     instrument_df = get_instrument_df()
     if instrument_df.empty:
         st.info("Please connect to a broker to use the charting tools.")
@@ -1287,6 +1406,10 @@ def render_chart_controls(i, instrument_df):
 def page_premarket_pulse():
     """Global market overview and premarket indicators with a trader-focused UI."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Premarket & Global Cues")
     st.markdown("---")
 
@@ -1357,6 +1480,10 @@ def page_premarket_pulse():
 def page_fo_analytics():
     """F&O Analytics page with comprehensive options analysis."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("F&O Analytics Hub")
     
     instrument_df = get_instrument_df()
@@ -1459,6 +1586,10 @@ def page_fo_analytics():
 def page_forecasting_ml():
     """A page for advanced ML forecasting with an improved UI and corrected formulas."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Advanced ML Forecasting")
     st.info("Train a Seasonal ARIMA model to forecast future prices. This is for educational purposes and not financial advice.", icon="🧠")
     
@@ -1531,6 +1662,10 @@ def page_forecasting_ml():
 def page_portfolio_and_risk():
     """A page for portfolio and risk management, including live P&L and holdings."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Portfolio & Risk")
 
     client = get_broker_client()
@@ -1623,6 +1758,10 @@ def page_portfolio_and_risk():
 def page_ai_assistant():
     """An AI-powered assistant for portfolio management and market queries."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Portfolio-Aware Assistant")
     instrument_df = get_instrument_df()
 
@@ -1747,6 +1886,10 @@ def page_ai_assistant():
 def page_basket_orders():
     """A page for creating, managing, and executing basket orders."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Basket Orders")
 
     instrument_df = get_instrument_df()
@@ -1861,6 +2004,10 @@ def supertrend_strategy(df, period=7, multiplier=3):
 def page_algo_strategy_maker():
     """Algo Strategy Maker page with pre-built, backtestable, and executable strategies."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Algo Strategy Hub")
     instrument_df = get_instrument_df()
     if instrument_df.empty:
@@ -2229,6 +2376,10 @@ def run_breakout_scanner(instrument_df, holdings_df=None):
 def page_momentum_and_trend_finder():
     """Clean and functional Market Scanners page."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Market Scanners")
     
     instrument_df = get_instrument_df()
@@ -2409,6 +2560,10 @@ def calculate_strategy_pnl(legs, underlying_ltp):
 def page_option_strategy_builder():
     """Option Strategy Builder page with live data and P&L calculation."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Options Strategy Builder")
     
     instrument_df = get_instrument_df()
@@ -2524,6 +2679,10 @@ def get_futures_contracts(instrument_df, underlying, exchange):
 def page_futures_terminal():
     """Futures Terminal page with live data."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Futures Terminal")
     
     instrument_df = get_instrument_df()
@@ -2602,7 +2761,7 @@ def generate_ai_trade_idea(instrument_df, active_list):
         token = get_instrument_token(item['symbol'], instrument_df, exchange=item['exchange'])
         if token:
             data = get_historical_data(token, 'day', period='6mo')
-            if not data.empty:
+            if not data.empty and len(data) > 20:  # Ensure we have enough data
                 interpretation = interpret_indicators(data)
                 signals = [v for k, v in interpretation.items() if "Bullish" in v or "Bearish" in v]
                 if signals:
@@ -2611,13 +2770,20 @@ def generate_ai_trade_idea(instrument_df, active_list):
     if not discovery_results:
         return None
 
+    # Find the ticker with the most signals
     best_ticker = max(discovery_results, key=lambda k: len(discovery_results[k]['signals']))
     
     ticker_data = discovery_results[best_ticker]['data']
     ltp = ticker_data['close'].iloc[-1]
+    
+    # Handle case where ATR might not be available
     atr_col = next((c for c in ticker_data.columns if 'atr' in c), None) 
-    if not atr_col or pd.isna(ticker_data[atr_col].iloc[-1]): return None 
-    atr = ticker_data[atr_col].iloc[-1]
+    if not atr_col or pd.isna(ticker_data[atr_col].iloc[-1]):
+        # Use a default ATR value based on recent volatility if ATR is not available
+        recent_volatility = ticker_data['close'].pct_change().std() * 100  # Percentage volatility
+        atr = ltp * (recent_volatility / 100) if not pd.isna(recent_volatility) else ltp * 0.02  # Default to 2%
+    else:
+        atr = ticker_data[atr_col].iloc[-1]
     
     is_bullish = any("Bullish" in s for s in discovery_results[best_ticker]['signals'])
 
@@ -2647,6 +2813,10 @@ def generate_ai_trade_idea(instrument_df, active_list):
 def page_ai_discovery():
     """AI-driven discovery engine with real data analysis."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("AI Discovery Engine")
     st.info("This engine discovers technical patterns and suggests high-conviction trade setups based on your active watchlist. The suggestions are for informational purposes only.", icon="🧠")
     
@@ -2666,7 +2836,7 @@ def page_ai_discovery():
             token = get_instrument_token(item['symbol'], instrument_df, exchange=item['exchange'])
             if token:
                 data = get_historical_data(token, 'day', period='6mo')
-                if not data.empty:
+                if not data.empty and len(data) > 20:  # Ensure we have enough data
                     interpretation = interpret_indicators(data)
                     signals = [f"{k}: {v}" for k, v in interpretation.items() if "Bullish" in v or "Bearish" in v]
                     if signals:
@@ -2702,6 +2872,10 @@ def page_ai_discovery():
 def page_greeks_calculator():
     """Calculates Greeks for any option contract."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("F&O Greeks Calculator")
     st.info("Calculate the theoretical value and greeks (Delta, Gamma, Vega, Theta, Rho) for any option contract.")
     
@@ -2762,6 +2936,10 @@ def page_greeks_calculator():
 def page_economic_calendar():
     """Economic Calendar page for Indian market events."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Economic Calendar")
     st.info("Upcoming economic events for the Indian market, updated until October 2025.")
 
@@ -2812,6 +2990,10 @@ def page_economic_calendar():
 def page_hft_terminal():
     """A dedicated terminal for High-Frequency Trading with Level 2 data."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("HFT Terminal (High-Frequency Trading)")
     st.info("This interface provides a simulated high-speed view of market depth and one-click trading. For liquid, F&O instruments only.", icon="⚡️")
 
@@ -2924,51 +3106,67 @@ def get_user_secret(user_profile):
     secret = base64.b32encode(user_hash).decode('utf-8').replace('=', '')[:16]
     return secret
 
-@st.dialog("Two-Factor Authentication")
 def two_factor_dialog():
     """Dialog for 2FA login."""
-    st.subheader("Enter your 2FA code")
-    st.caption("Please enter the 6-digit code from your authenticator app to continue.")
+    if 'show_2fa_dialog' not in st.session_state:
+        st.session_state.show_2fa_dialog = False
     
-    auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
+    # This would be triggered by the login process
+    st.session_state.show_2fa_dialog = True
     
-    if st.button("Authenticate", use_container_width=True):
-        if auth_code:
-            try:
-                totp = pyotp.TOTP(st.session_state.pyotp_secret)
-                if totp.verify(auth_code):
-                    st.session_state.authenticated = True
-                    st.rerun()
-                else:
-                    st.error("Invalid code. Please try again.")
-            except Exception as e:
-                st.error(f"An error occurred during authentication: {e}")
-        else:
-            st.warning("Please enter a code.")
+    if st.session_state.show_2fa_dialog:
+        st.subheader("Enter your 2FA code")
+        st.caption("Please enter the 6-digit code from your authenticator app to continue.")
+        
+        auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
+        
+        col1, col2 = st.columns(2)
+        if col1.button("Authenticate", use_container_width=True):
+            if auth_code:
+                try:
+                    totp = pyotp.TOTP(st.session_state.pyotp_secret)
+                    if totp.verify(auth_code):
+                        st.session_state.authenticated = True
+                        st.session_state.show_2fa_dialog = False
+                        st.rerun()
+                    else:
+                        st.error("Invalid code. Please try again.")
+                except Exception as e:
+                    st.error(f"An error occurred during authentication: {e}")
+            else:
+                st.warning("Please enter a code.")
+        
+        if col2.button("Cancel", use_container_width=True):
+            st.session_state.show_2fa_dialog = False
+            st.rerun()
 
-@st.dialog("Generate QR Code for 2FA")
 def qr_code_dialog():
     """Dialog to generate a QR code for 2FA setup."""
-    st.subheader("Set up Two-Factor Authentication")
-    st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
+    if 'show_qr_dialog' not in st.session_state:
+        st.session_state.show_qr_dialog = True  # Show by default when needed
+    
+    if st.session_state.show_qr_dialog:
+        st.subheader("Set up Two-Factor Authentication")
+        st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
 
-    if st.session_state.pyotp_secret is None:
-        st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
-    
-    secret = st.session_state.pyotp_secret
-    user_name = st.session_state.get('profile', {}).get('user_name', 'User')
-    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
-    
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    
-    st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
-    st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
-    
-    if st.button("I have scanned the code. Continue.", use_container_width=True):
-        st.session_state.two_factor_setup_complete = True
-        st.rerun()
+        if st.session_state.pyotp_secret is None:
+            st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
+        
+        secret = st.session_state.pyotp_secret
+        user_name = st.session_state.get('profile', {}).get('user_name', 'User')
+        uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
+        
+        img = qrcode.make(uri)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        
+        st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
+        st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
+        
+        if st.button("I have scanned the code. Continue.", use_container_width=True):
+            st.session_state.two_factor_setup_complete = True
+            st.session_state.show_qr_dialog = False
+            st.rerun()
 
 def show_login_animation():
     """Displays a boot-up animation after login."""
