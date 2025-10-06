@@ -170,6 +170,10 @@ def apply_custom_styling():
             min-width: 300px;
             max-width: 500px;
         }
+        .market-notification h3 {
+            margin-top: 0;
+            margin-bottom: 1rem;
+        }
         .market-notification.open {
             border-color: var(--green);
             background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(40, 167, 69, 0.1) 100%);
@@ -290,13 +294,9 @@ def initialize_session_state():
     if 'ml_forecast_df' not in st.session_state: st.session_state.ml_forecast_df = None
     if 'ml_instrument_name' not in st.session_state: st.session_state.ml_instrument_name = None
     if 'backtest_results' not in st.session_state: st.session_state.backtest_results = None
-    
-    # HFT Terminal specific state variables
     if 'hft_last_price' not in st.session_state: st.session_state.hft_last_price = 0
     if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
     if 'market_notifications_shown' not in st.session_state: st.session_state.market_notifications_shown = {}
-    if 'show_2fa_dialog' not in st.session_state: st.session_state.show_2fa_dialog = False
-    if 'show_qr_dialog' not in st.session_state: st.session_state.show_qr_dialog = False
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -594,13 +594,33 @@ def get_watchlist_data(symbols_with_exchange):
 def get_market_depth(instrument_token):
     """Fetches market depth (order book) for a given instrument."""
     client = get_broker_client()
-    if not client or not instrument_token:
+    instrument_df = get_instrument_df() 
+    if not client or not instrument_token or instrument_df.empty:
         return None
     try:
-        depth = client.depth(instrument_token)
-        return depth.get(str(instrument_token))
+        # Find the trading symbol and exchange for the given token
+        instrument_details = instrument_df[instrument_df['instrument_token'] == instrument_token]
+        if instrument_details.empty:
+            return None
+        
+        tradingsymbol = instrument_details.iloc[0]['tradingsymbol']
+        exchange = instrument_details.iloc[0]['exchange']
+        instrument_name = f"{exchange}:{tradingsymbol}"
+
+        # The quote method returns a dictionary where keys are the instrument names
+        quote_result = client.quote(instrument_name)
+        
+        # The depth information is within the dictionary for that instrument
+        if quote_result and instrument_name in quote_result and 'depth' in quote_result[instrument_name]:
+            return quote_result[instrument_name]['depth']
+        else:
+            return None # No depth information available
+            
     except Exception as e:
-        st.toast(f"Error fetching market depth: {e}", icon="⚠️")
+        # Avoid showing the same toast message repeatedly on auto-refresh
+        if 'last_depth_error' not in st.session_state or str(e) != st.session_state.get('last_depth_error'):
+            st.toast(f"Error fetching market depth: {e}", icon="⚠️")
+            st.session_state['last_depth_error'] = str(e)
         return None
 
 @st.cache_data(ttl=30)
@@ -886,6 +906,38 @@ def interpret_indicators(df):
         interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
     
     return interpretation
+    
+@st.cache_data(ttl=3600)
+def get_fundamental_data(ticker_symbol):
+    """Fetches fundamental data for a given stock ticker using yfinance."""
+    try:
+        # Append '.NS' for NSE stocks for yfinance compatibility
+        if not ticker_symbol.endswith(('.NS', '.BO')):
+            ticker_symbol += '.NS'
+            
+        ticker = yf.Ticker(ticker_symbol)
+        
+        info = ticker.info
+        financials = ticker.financials
+        balance_sheet = ticker.balance_sheet
+        
+        # Check if data is available
+        if 'longName' not in info or financials.empty or balance_sheet.empty:
+            return None
+
+        # Clean up the financial statements for better display
+        for df in [financials, balance_sheet]:
+            df.columns = [col.strftime('%Y-%m-%d') for col in df.columns]
+            for col in df.columns:
+                df[col] = df[col].apply(lambda x: f"₹{x/1e7:,.2f} Cr" if isinstance(x, (int, float)) else x)
+
+        return {
+            "info": info,
+            "pnl": financials,
+            "balance_sheet": balance_sheet
+        }
+    except Exception:
+        return None
 
 # ================ 4. HNI & PRO TRADER FEATURES ================
 
@@ -2513,8 +2565,6 @@ def page_momentum_and_trend_finder():
         - Try a different scanner type
         - Check if market is open
         """)
-
-# Replace the existing page_momentum_and_trend_finder function with this clean version
 
 def calculate_strategy_pnl(legs, underlying_ltp):
     """Calculates the P&L for a given options strategy."""
