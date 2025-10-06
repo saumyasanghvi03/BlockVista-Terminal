@@ -170,10 +170,6 @@ def apply_custom_styling():
             min-width: 300px;
             max-width: 500px;
         }
-        .market-notification h3 {
-            margin-top: 0;
-            margin-bottom: 1rem;
-        }
         .market-notification.open {
             border-color: var(--green);
             background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(40, 167, 69, 0.1) 100%);
@@ -294,9 +290,13 @@ def initialize_session_state():
     if 'ml_forecast_df' not in st.session_state: st.session_state.ml_forecast_df = None
     if 'ml_instrument_name' not in st.session_state: st.session_state.ml_instrument_name = None
     if 'backtest_results' not in st.session_state: st.session_state.backtest_results = None
+    
+    # HFT Terminal specific state variables
     if 'hft_last_price' not in st.session_state: st.session_state.hft_last_price = 0
     if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
     if 'market_notifications_shown' not in st.session_state: st.session_state.market_notifications_shown = {}
+    if 'show_2fa_dialog' not in st.session_state: st.session_state.show_2fa_dialog = False
+    if 'show_qr_dialog' not in st.session_state: st.session_state.show_qr_dialog = False
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -2986,16 +2986,16 @@ def page_economic_calendar():
 
     st.dataframe(calendar_df, use_container_width=True, hide_index=True)
 
-# ============ 5.5 HFT TERMINAL PAGE ============
+# ============ 5.5 HFT TERMINAL PAGE - REPAIRED ============
 def page_hft_terminal():
-    """A dedicated terminal for High-Frequency Trading with Level 2 data."""
+    """A dedicated terminal for High-Frequency Trading with Level 2 data - REPAIRED VERSION."""
     display_header()
     
     # Check for market timing notifications
     check_market_timing_notifications()
     
-    st.title("HFT Terminal (High-Frequency Trading)")
-    st.info("This interface provides a simulated high-speed view of market depth and one-click trading. For liquid, F&O instruments only.", icon="⚡️")
+    st.title("⚡ HFT Terminal")
+    st.info("High-frequency trading interface with real-time market depth and one-click execution. Optimized for liquid F&O instruments.", icon="⚡")
 
     instrument_df = get_instrument_df()
     if instrument_df.empty:
@@ -3003,39 +3003,74 @@ def page_hft_terminal():
         return
 
     # --- Instrument Selection and Key Stats ---
-    top_cols = st.columns([2, 1, 1, 1])
-    with top_cols[0]:
-        symbol = st.text_input("Instrument Symbol", "NIFTY24OCTFUT", key="hft_symbol").upper()
+    st.subheader("Instrument Selection")
+    col1, col2, col3 = st.columns([2, 1, 1])
     
+    with col1:
+        symbol = st.text_input(
+            "Instrument Symbol", 
+            "NIFTY24OCTFUT", 
+            key="hft_symbol",
+            placeholder="e.g., NIFTY24OCTFUT, BANKNIFTY24OCT23500CE",
+            help="Enter the exact trading symbol for the instrument"
+        ).upper()
+    
+    # Validate instrument
     instrument_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
     if instrument_info.empty:
-        st.error(f"Instrument '{symbol}' not found. Please enter a valid symbol.")
+        st.error(f"❌ Instrument '{symbol}' not found. Please enter a valid symbol.")
+        
+        # Show popular suggestions
+        st.info("💡 Popular instruments:")
+        suggestions = st.columns(4)
+        popular_instruments = [
+            ("NIFTY24OCTFUT", "Nifty Futures"),
+            ("BANKNIFTY24OCTFUT", "Bank Nifty Futures"), 
+            ("RELIANCE", "Reliance Equity"),
+            ("SBIN", "SBI Equity")
+        ]
+        
+        for i, (sugg_symbol, sugg_name) in enumerate(popular_instruments):
+            if suggestions[i].button(f"{sugg_symbol}", use_container_width=True):
+                st.session_state.hft_symbol = sugg_symbol
+                st.rerun()
         return
     
     exchange = instrument_info.iloc[0]['exchange']
     instrument_token = instrument_info.iloc[0]['instrument_token']
+    lot_size = instrument_info.iloc[0].get('lot_size', 1)
 
     # --- Fetch Live Data ---
     quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
     depth_data = get_market_depth(instrument_token)
 
     # --- Display Key Stats ---
+    st.subheader("Live Market Data")
+    
     if not quote_data.empty:
         ltp = quote_data.iloc[0]['Price']
         change = quote_data.iloc[0]['Change']
+        pct_change = quote_data.iloc[0]['% Change']
         
-        tick_direction = "tick-up" if ltp > st.session_state.hft_last_price else "tick-down" if ltp < st.session_state.hft_last_price else ""
+        # Determine tick direction for animation
+        tick_direction = ""
+        if ltp > st.session_state.hft_last_price:
+            tick_direction = "tick-up"
+        elif ltp < st.session_state.hft_last_price:
+            tick_direction = "tick-down"
         
-        with top_cols[1]:
-            st.markdown(f"##### LTP: <span class='{tick_direction}' style='font-size: 1.2em;'>₹{ltp:,.2f}</span>", unsafe_allow_html=True)
-
-        with top_cols[2]:
+        # Display metrics in a card layout
+        metric_cols = st.columns(4)
+        with metric_cols[0]:
+            st.markdown(f"<div class='metric-card {tick_direction}'>LTP<br><h3>₹{ltp:,.2f}</h3></div>", unsafe_allow_html=True)
+        with metric_cols[1]:
             color = 'var(--green)' if change > 0 else 'var(--red)'
-            st.markdown(f"##### Change: <span style='color:{color}; font-size: 1.2em;'>{change:,.2f}</span>", unsafe_allow_html=True)
-        
-        with top_cols[3]:
+            st.markdown(f"<div class='metric-card'>Change<br><h3 style='color:{color};'>{change:+.2f}</h3></div>", unsafe_allow_html=True)
+        with metric_cols[2]:
+            st.markdown(f"<div class='metric-card'>Change %<br><h3 style='color:{color};'>{pct_change:+.2f}%</h3></div>", unsafe_allow_html=True)
+        with metric_cols[3]:
             latency = random.uniform(20, 80)
-            st.metric("Latency (ms)", f"{latency:.2f}")
+            st.markdown(f"<div class='metric-card'>Latency<br><h3>{latency:.1f}ms</h3></div>", unsafe_allow_html=True)
 
         # Update tick log
         if ltp != st.session_state.hft_last_price and st.session_state.hft_last_price != 0:
@@ -3056,46 +3091,149 @@ def page_hft_terminal():
     main_cols = st.columns([1, 1, 1], gap="large")
 
     with main_cols[0]:
-        st.subheader("Market Depth")
+        st.subheader("📊 Market Depth")
         if depth_data and depth_data.get('buy') and depth_data.get('sell'):
-            bids = pd.DataFrame(depth_data['buy']).sort_values('price', ascending=False).head(5)
-            asks = pd.DataFrame(depth_data['sell']).sort_values('price', ascending=True).head(5)
+            bids = pd.DataFrame(depth_data['buy']).sort_values('price', ascending=False).head(8)
+            asks = pd.DataFrame(depth_data['sell']).sort_values('price', ascending=True).head(8)
             
-            st.write("**Bids (Buyers)**")
-            for _, row in bids.iterrows():
-                st.markdown(f"<div class='hft-depth-bid'>{row['quantity']} @ **{row['price']:.2f}** ({row['orders']})</div>", unsafe_allow_html=True)
+            # Display bids and asks in a more organized way
+            depth_cols = st.columns(2)
             
-            st.write("**Asks (Sellers)**")
-            for _, row in asks.iterrows():
-                st.markdown(f"<div class='hft-depth-ask'>({row['orders']}) **{row['price']:.2f}** @ {row['quantity']}</div>", unsafe_allow_html=True)
+            with depth_cols[0]:
+                st.markdown("**🟢 Bids (Buyers)**")
+                for _, row in bids.iterrows():
+                    st.markdown(
+                        f"<div class='hft-depth-bid' style='margin: 2px 0; padding: 4px 8px; border-radius: 4px;'>"
+                        f"<strong>{row['price']:.2f}</strong><br>"
+                        f"<small>Qty: {row['quantity']} | Orders: {row['orders']}</small>"
+                        f"</div>", 
+                        unsafe_allow_html=True
+                    )
+            
+            with depth_cols[1]:
+                st.markdown("**🔴 Asks (Sellers)**")
+                for _, row in asks.iterrows():
+                    st.markdown(
+                        f"<div class='hft-depth-ask' style='margin: 2px 0; padding: 4px 8px; border-radius: 4px;'>"
+                        f"<strong>{row['price']:.2f}</strong><br>"
+                        f"<small>Qty: {row['quantity']} | Orders: {row['orders']}</small>"
+                        f"</div>", 
+                        unsafe_allow_html=True
+                    )
         else:
-            st.info("Waiting for market depth data...")
+            st.info("⏳ Waiting for market depth data...")
+            st.caption("Market depth data may not be available for all instruments or during market closed hours.")
 
     with main_cols[1]:
-        st.subheader("One-Click Execution")
-        quantity = st.number_input("Order Quantity", min_value=1, value=instrument_info.iloc[0]['lot_size'], step=instrument_info.iloc[0]['lot_size'], key="hft_qty")
+        st.subheader("⚡ Quick Execution")
         
-        btn_cols = st.columns(2)
-        if btn_cols[0].button("MARKET BUY", use_container_width=True, type="primary"):
+        # Quantity input with lot size info
+        quantity = st.number_input(
+            "Order Quantity", 
+            min_value=lot_size, 
+            value=lot_size, 
+            step=lot_size, 
+            key="hft_qty",
+            help=f"Lot size: {lot_size} (minimum quantity)"
+        )
+        
+        # Market orders
+        st.markdown("**Market Orders**")
+        mkt_cols = st.columns(2)
+        if mkt_cols[0].button("🟢 MARKET BUY", use_container_width=True, type="primary"):
             place_order(instrument_df, symbol, quantity, 'MARKET', 'BUY', 'MIS')
-        if btn_cols[1].button("MARKET SELL", use_container_width=True):
+        if mkt_cols[1].button("🔴 MARKET SELL", use_container_width=True, type="secondary"):
             place_order(instrument_df, symbol, quantity, 'MARKET', 'SELL', 'MIS')
         
         st.markdown("---")
-        st.subheader("Manual Order")
-        price = st.number_input("Limit Price", min_value=0.01, step=0.05, key="hft_limit_price")
-        limit_btn_cols = st.columns(2)
-        if limit_btn_cols[0].button("LIMIT BUY", use_container_width=True):
+        
+        # Limit orders
+        st.markdown("**Limit Orders**")
+        price = st.number_input(
+            "Limit Price", 
+            min_value=0.01, 
+            value=st.session_state.hft_last_price if st.session_state.hft_last_price > 0 else 0.01,
+            step=0.05, 
+            key="hft_limit_price",
+            format="%.2f"
+        )
+        
+        limit_cols = st.columns(2)
+        if limit_cols[0].button("🟢 LIMIT BUY", use_container_width=True):
             place_order(instrument_df, symbol, quantity, 'LIMIT', 'BUY', 'MIS', price=price)
-        if limit_btn_cols[1].button("LIMIT SELL", use_container_width=True):
+        if limit_cols[1].button("🔴 LIMIT SELL", use_container_width=True):
             place_order(instrument_df, symbol, quantity, 'LIMIT', 'SELL', 'MIS', price=price)
+            
+        # Order info
+        st.markdown("---")
+        st.markdown(f"""
+        <div style='background: var(--secondary-bg); padding: 1rem; border-radius: 6px;'>
+            <small>💡 <strong>Order Info:</strong></small><br>
+            <small>Symbol: <code>{symbol}</code></small><br>
+            <small>Exchange: <code>{exchange}</code></small><br>
+            <small>Quantity: <code>{quantity}</code></small><br>
+            <small>Product: <code>MIS</code> (Intraday)</small>
+        </div>
+        """, unsafe_allow_html=True)
 
     with main_cols[2]:
-        st.subheader("Tick Log")
+        st.subheader("📈 Tick Log")
+        
+        # Tick log with better styling
         log_container = st.container(height=400)
-        for entry in st.session_state.hft_tick_log:
-            color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
-            log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
+        
+        if st.session_state.hft_tick_log:
+            for entry in st.session_state.hft_tick_log:
+                color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
+                icon = "📈" if entry['change'] > 0 else "📉" if entry['change'] < 0 else "➡️"
+                
+                log_container.markdown(
+                    f"<div style='padding: 4px 8px; margin: 2px 0; border-radius: 4px; background: var(--widget-bg);'>"
+                    f"<small>{entry['time']}</small> {icon} "
+                    f"<strong>{entry['price']:.2f}</strong> "
+                    f"<span style='color:{color}; font-weight: bold;'>({entry['change']:+.2f})</span>"
+                    f"</div>", 
+                    unsafe_allow_html=True
+                )
+        else:
+            log_container.info("No ticks recorded yet. Ticks will appear when price changes.")
+            
+        # Tick log controls
+        if st.session_state.hft_tick_log:
+            if st.button("🗑️ Clear Tick Log", use_container_width=True):
+                st.session_state.hft_tick_log = []
+                st.rerun()
+
+    # --- Additional HFT Features ---
+    st.markdown("---")
+    st.subheader("🛠️ HFT Tools")
+    
+    tool_cols = st.columns(3)
+    
+    with tool_cols[0]:
+        if st.button("📊 Refresh Data", use_container_width=True):
+            st.rerun()
+    
+    with tool_cols[1]:
+        if st.button("💾 Export Ticks", use_container_width=True):
+            if st.session_state.hft_tick_log:
+                df = pd.DataFrame(st.session_state.hft_tick_log)
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"hft_ticks_{symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            else:
+                st.warning("No tick data to export")
+    
+    with tool_cols[2]:
+        if st.button("🔄 Reset Terminal", use_container_width=True):
+            st.session_state.hft_last_price = 0
+            st.session_state.hft_tick_log = []
+            st.rerun()
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -3107,124 +3245,229 @@ def get_user_secret(user_profile):
     return secret
 
 def two_factor_dialog():
-    """Dialog for 2FA login."""
+    """Dialog for 2FA login with improved UI."""
     if 'show_2fa_dialog' not in st.session_state:
         st.session_state.show_2fa_dialog = False
     
-    # This would be triggered by the login process
-    st.session_state.show_2fa_dialog = True
-    
     if st.session_state.show_2fa_dialog:
-        st.subheader("Enter your 2FA code")
-        st.caption("Please enter the 6-digit code from your authenticator app to continue.")
-        
-        auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
-        
-        col1, col2 = st.columns(2)
-        if col1.button("Authenticate", use_container_width=True):
-            if auth_code:
-                try:
-                    totp = pyotp.TOTP(st.session_state.pyotp_secret)
-                    if totp.verify(auth_code):
-                        st.session_state.authenticated = True
-                        st.session_state.show_2fa_dialog = False
-                        st.rerun()
-                    else:
-                        st.error("Invalid code. Please try again.")
-                except Exception as e:
-                    st.error(f"An error occurred during authentication: {e}")
-            else:
-                st.warning("Please enter a code.")
-        
-        if col2.button("Cancel", use_container_width=True):
-            st.session_state.show_2fa_dialog = False
-            st.rerun()
+        # Create a centered container for better UI
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("""
+            <div style='text-align: center; padding: 2rem; border-radius: 10px; background: var(--widget-bg); border: 1px solid var(--border-color);'>
+                <h3>🔐 Two-Factor Authentication</h3>
+                <p>Enter the 6-digit code from your authenticator app</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            auth_code = st.text_input(
+                "2FA Code", 
+                max_chars=6, 
+                key="2fa_code",
+                placeholder="000000",
+                label_visibility="collapsed"
+            )
+            
+            btn_col1, btn_col2 = st.columns(2)
+            if btn_col1.button("✅ Authenticate", use_container_width=True, type="primary"):
+                if auth_code and len(auth_code) == 6:
+                    try:
+                        totp = pyotp.TOTP(st.session_state.pyotp_secret)
+                        if totp.verify(auth_code):
+                            st.session_state.authenticated = True
+                            st.session_state.show_2fa_dialog = False
+                            st.rerun()
+                        else:
+                            st.error("❌ Invalid code. Please try again.")
+                    except Exception as e:
+                        st.error(f"Authentication error: {e}")
+                else:
+                    st.warning("⚠️ Please enter a valid 6-digit code.")
+            
+            if btn_col2.button("❌ Cancel", use_container_width=True):
+                st.session_state.show_2fa_dialog = False
+                st.rerun()
 
 def qr_code_dialog():
-    """Dialog to generate a QR code for 2FA setup."""
+    """Dialog to generate a QR code for 2FA setup with improved UI."""
     if 'show_qr_dialog' not in st.session_state:
-        st.session_state.show_qr_dialog = True  # Show by default when needed
+        st.session_state.show_qr_dialog = True
     
     if st.session_state.show_qr_dialog:
-        st.subheader("Set up Two-Factor Authentication")
-        st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
+        # Centered container for QR setup
+        col1, col2, col3 = st.columns([1, 3, 1])
+        with col2:
+            st.markdown("""
+            <div style='text-align: center; padding: 2rem; border-radius: 10px; background: var(--widget-bg); border: 1px solid var(--border-color);'>
+                <h3>🔒 Set Up Two-Factor Authentication</h3>
+                <p>Scan this QR code with your authenticator app for enhanced security</p>
+            </div>
+            """, unsafe_allow_html=True)
 
-        if st.session_state.pyotp_secret is None:
-            st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
-        
-        secret = st.session_state.pyotp_secret
-        user_name = st.session_state.get('profile', {}).get('user_name', 'User')
-        uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
-        
-        img = qrcode.make(uri)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        
-        st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
-        st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
-        
-        if st.button("I have scanned the code. Continue.", use_container_width=True):
-            st.session_state.two_factor_setup_complete = True
-            st.session_state.show_qr_dialog = False
-            st.rerun()
+            if st.session_state.pyotp_secret is None:
+                st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
+            
+            secret = st.session_state.pyotp_secret
+            user_name = st.session_state.get('profile', {}).get('user_name', 'User')
+            uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
+            
+            # Generate QR code
+            img = qrcode.make(uri)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            
+            # Display QR code
+            st.image(buf.getvalue(), caption="Scan with Google Authenticator or similar app", use_container_width=True)
+            
+            # Manual secret entry option
+            with st.expander("Manual Setup"):
+                st.code(secret, language="text")
+                st.caption("If you can't scan the QR code, enter this secret manually in your authenticator app.")
+            
+            if st.button("✅ I've scanned the code. Continue to login.", use_container_width=True, type="primary"):
+                st.session_state.two_factor_setup_complete = True
+                st.session_state.show_qr_dialog = False
+                st.session_state.show_2fa_dialog = True  # Immediately show 2FA entry
+                st.rerun()
 
 def show_login_animation():
-    """Displays a boot-up animation after login."""
-    st.title("BlockVista Terminal")
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    steps = {
-        "Authenticating user...": 25,
-        "Establishing secure connection...": 50,
-        "Fetching live market data feeds...": 75,
-        "Initializing terminal... COMPLETE": 100
-    }
-    
-    for text, progress in steps.items():
-        status_text.text(f"STATUS: {text}")
-        progress_bar.progress(progress)
-        a_time.sleep(0.7)
-    
-    a_time.sleep(0.5)
-    st.session_state['login_animation_complete'] = True
-    st.rerun()
+    """Displays a boot-up animation after login with improved design."""
+    # Center the animation
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("""
+        <div style='text-align: center; padding: 3rem;'>
+            <h1 style='color: var(--text-color); margin-bottom: 2rem;'>🚀 BlockVista Terminal</h1>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        steps = {
+            "🔐 Authenticating user credentials...": 20,
+            "🌐 Establishing secure connection...": 40, 
+            "📡 Fetching live market data feeds...": 65,
+            "⚡ Initializing trading terminal...": 85,
+            "✅ Terminal ready! Loading interface...": 100
+        }
+        
+        for text, progress in steps.items():
+            status_text.markdown(f"<div style='text-align: center; padding: 1rem;'>{text}</div>", unsafe_allow_html=True)
+            progress_bar.progress(progress)
+            a_time.sleep(0.8)
+        
+        a_time.sleep(0.5)
+        st.session_state['login_animation_complete'] = True
+        st.rerun()
 
 def login_page():
-    """Displays the login page for broker authentication."""
-    st.title("BlockVista Terminal")
-    st.subheader("Broker Login")
+    """Displays the login page for broker authentication with improved UI."""
+    # Apply styling first
+    apply_custom_styling()
     
-    broker = st.selectbox("Select Your Broker", ["Zerodha"])
+    # Center the login form
+    col1, col2, col3 = st.columns([1, 2, 1])
     
-    if broker == "Zerodha":
-        api_key = st.secrets.get("ZERODHA_API_KEY")
-        api_secret = st.secrets.get("ZERODHA_API_SECRET")
+    with col2:
+        st.markdown("""
+        <div style='text-align: center; margin-bottom: 3rem;'>
+            <h1>BlockVista Terminal</h1>
+            <p style='color: var(--text-light);'>Professional Trading Platform</p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        if not api_key or not api_secret:
-            st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
-            st.stop()
+        # Login card
+        st.markdown("""
+        <div style='
+            background: var(--widget-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        '>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.subheader("🔐 Broker Login")
+        
+        broker = st.selectbox("Select Your Broker", ["Zerodha"], key="broker_select")
+        
+        if broker == "Zerodha":
+            api_key = st.secrets.get("ZERODHA_API_KEY")
+            api_secret = st.secrets.get("ZERODHA_API_SECRET")
             
-        kite = KiteConnect(api_key=api_key)
-        request_token = st.query_params.get("request_token")
-        
-        if request_token:
-            try:
-                data = kite.generate_session(request_token, api_secret=api_secret)
-                st.session_state.access_token = data["access_token"]
-                kite.set_access_token(st.session_state.access_token)
-                st.session_state.kite = kite
-                st.session_state.profile = kite.profile()
-                st.session_state.broker = "Zerodha"
-                st.query_params.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Authentication failed: {e}")
-                st.query_params.clear()
-        else:
-            st.link_button("Login with Zerodha Kite", kite.login_url())
-            st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
+            if not api_key or not api_secret:
+                st.error("""
+                ❌ Kite API credentials not found. 
+                
+                Please set these secrets in your Streamlit app:
+                - `ZERODHA_API_KEY`
+                - `ZERODHA_API_SECRET`
+                
+                [Learn how to set secrets](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management)
+                """)
+                st.stop()
+                
+            kite = KiteConnect(api_key=api_key)
+            request_token = st.query_params.get("request_token")
+            
+            if request_token:
+                try:
+                    with st.spinner("🔄 Authenticating with Zerodha..."):
+                        data = kite.generate_session(request_token, api_secret=api_secret)
+                        st.session_state.access_token = data["access_token"]
+                        kite.set_access_token(st.session_state.access_token)
+                        st.session_state.kite = kite
+                        st.session_state.profile = kite.profile()
+                        st.session_state.broker = "Zerodha"
+                        st.query_params.clear()
+                        st.success("✅ Authentication successful!")
+                        a_time.sleep(1)
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Authentication failed: {e}")
+                    st.query_params.clear()
+                    if st.button("🔄 Try Again"):
+                        st.rerun()
+            else:
+                st.markdown("""
+                <div style='
+                    background: var(--secondary-bg);
+                    border-radius: 8px;
+                    padding: 1.5rem;
+                    margin: 1rem 0;
+                '>
+                    <h4>📋 Login Instructions:</h4>
+                    <ol>
+                        <li>Click the login button below</li>
+                        <li>You'll be redirected to Zerodha</li>
+                        <li>Login with your Kite credentials</li>
+                        <li>You'll be redirected back automatically</li>
+                    </ol>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Login button with better styling
+                login_url = kite.login_url()
+                st.markdown(f"""
+                <a href="{login_url}" style='
+                    display: inline-block;
+                    width: 100%;
+                    padding: 0.75rem 1.5rem;
+                    background: #387ed1;
+                    color: white;
+                    text-align: center;
+                    text-decoration: none;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    border: none;
+                    cursor: pointer;
+                    margin: 1rem 0;
+                '>🔗 Login with Zerodha Kite</a>
+                """, unsafe_allow_html=True)
+                
+                st.caption("🔒 Your credentials are handled securely by Zerodha. We never store your password.")
 
 def main_app():
     """The main application interface after successful login."""
