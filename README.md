@@ -1,146 +1,173 @@
-# 🚀 BlockVista Terminal™
-![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=Streamlit)
-![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)
-![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-green?style=for-the-badge)
-![License](https://img.shields.io/badge/License-CC0--1.0-lightgrey?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Active-success?style=for-the-badge)
-![Made for India](https://img.shields.io/badge/Made%20for-India%20🇮🇳-orange?style=for-the-badge)
+# BlockVista Terminal – Next-Gen Indian Trading Terminal
 
-## **Democratizing Professional Trading Infrastructure for India**
+## 1) Project Overview and Description
+BlockVista Terminal is a professional, Streamlit-powered trading and analytics terminal tailored for Indian markets (NSE, BSE, CDS, MCX). It brings institutional-grade features—advanced charting, F&O analytics, ML forecasting, scanners, and portfolio/risk tools—into a modern web UI with optional Zerodha KiteConnect broker integration for quotes and order placement.
 
-**Made by Saumya & Kanishk—Students of MMS Financial Technology, FinX Institute (Former BSE Institute Ltd), Mumbai | 2024-2026**
-
-BlockVista Terminal™ is the fintech innovation that transforms access for India's traders and investors, making institutional-grade fintech tools affordable, intuitive, and inspiring. Our vision: **Every Indian trader empowered and every student innovator contributing to the future of finance.**
-
-BlockVista Terminal is offered as an affordable yearly subscription in the range of **₹1,999 to ₹4,999**, putting world-class fintech tools within reach.
+Built by students for India’s traders, BlockVista includes a Bharatiya Market Pulse (BMP) score, live market dashboards, options analytics with Greeks and IV, AI discovery and chat, multi-leg strategy payoff, an HFT simulator, and end-to-end portfolio workflows.
 
 ---
 
-## 🏆 What is BlockVista Terminal?
+## 2) Complete Feature List
 
-BlockVista Terminal™ is the **next-gen financial command center**—Bloomberg Terminal reimagined for India. It delivers an intelligent, browser-based dashboard for NSE/BSE intraday trading, technical analysis, option analytics, and innovation-driven fintech features.
+- Dashboard
+  - Bharatiya Market Pulse (BMP): Composite market sentiment score using NIFTY/SENSEX % change and INDIA VIX normalization over lookback window with color-coded labels (Udaan/Pragati/Santulan/Sanket/Mandhi)
+  - Index tiles: NIFTY 50, SENSEX, INDIA VIX live metrics; global indices snapshots (S&P 500, Nikkei 225, Hang Seng) via yfinance; GIFT NIFTY proxy intraday chart (ticker IN=F)
+  - NIFTY 50 Heatmap: Live treemap of NIFTY constituents sized by price and colored by % change
+  - Latest Market News with Sentiment: Aggregated RSS feeds (Economic Times, Moneycontrol, Business Standard, Livemint, Reuters, BBC) with VADER sentiment icons
 
-### 🇮🇳 Made for India | Built by Students | Inspired by Innovation
+- Advanced Charting
+  - Plotly charts with multiple layouts, dynamic tooltips, custom themes (dark/light), and multi-timeframes
+  - 50+ technical indicators (via pandas-ta): RSI, Stochastics, MACD, ADX, EMA/SMA, Bollinger Bands, ATR, etc.
+  - Interpretation helper: summarizes latest RSI/Stoch/MACD/ADX states (overbought/oversold, crossovers, trend strength)
 
-✅ NSE/BSE Live Data: Prices, volumes, market depth  
-✅ Intraday Focus: Technicals & execution for day trading  
-✅ Zerodha/Kite API Integration: Direct broker connectivity  
-✅ Actionable Intelligence: Pro charting, instant orders  
-✅ Affordable Subscription: (₹1,999–₹4,999/year)
+- F&O Analytics Hub
+  - Options Chain (NIFTY/BANKNIFTY/FINNIFTY): CE/PE OI, LTP, strikes, expiries, Most Active options dialog
+  - Greeks & IV: Black–Scholes calculator for price, Delta, Gamma, Vega, Theta, Rho; implied volatility via Newton-Raphson
+  - PCR Analysis: Total CE vs PE OI and sentiment bands with metrics
+  - Volatility & OI Surface: Per-strike IVs and OI exploration with expiry-based T and risk-free rate inputs
 
----
+- AI Discovery and Portfolio-Aware Assistant
+  - In-app chat that can answer portfolio, holdings, and market questions (broker-connected context)
+  - Smart prompts for common workflows (e.g., “show option chain for BANKNIFTY”)
 
-## 🌐 Why Choose BlockVista Terminal?
+- ML Forecasting
+  - Seasonal ARIMA training with seasonal decomposition; backtest fitted values and forecast next N days
+  - Confidence intervals with seasonality reintroduced; MAPE utility; combined static CSV + live data loader (Zerodha or yfinance)
 
-| Feature | 🚩 BlockVista Terminal™ | 🏢 Bloomberg Terminal |
-|---------|-------------------------|------------------------|
-| **Pricing** | Affordable | $24,000/year |
-| **Philosophy** | Fintech Innovation | Legacy Enterprise |
-| **Community** | Community-Led | Closed Corporate |
-| **Market Focus** | Intraday-Optimized | Multi-market, Heavy |
-| **User Interface** | Modern Web-Based UI | Legacy Desktop Interface |
-| **Target Audience** | Gen Z Traders | Institutional Professionals |
-| **Innovation Approach** | Student-Led Innovation | Corporate Development |
-| **Setup Time** | 5 Minutes Quick Setup | Complex Installation & Training |
-| **Regional Support** | Indian Market Expertise | Global Focus |
-| **Language Support** | Multi-language (Hindi, English) | English Only |
-| **Mentorship** | Peer-to-Peer Learning | Professional Training Required |
-| **Compliance** | Indian Regulations (SEBI) | International Standards |
-| **Mobile Ready** | Progressive Web App | Desktop Only |
-| **Open Source** | Community Contributions | Proprietary Closed |
-| **Data Latency** | Real-time NSE/BSE,MCX,CDS | Multiple Global Exchanges |
-| **Customization** | Full UI Customization | Limited Customization |
+- Algo Strategy Hub (Options Strategies)
+  - Multi-leg strategy builder (calls/puts, buy/sell, quantities, limit/market)
+  - Payoff chart at expiry with breakeven points, max profit, max loss
+  - Greeks aggregation and sensitivity exploration
 
----
+- Portfolio & Risk
+  - Live positions and holdings (via broker), order book, and day P&L
+  - Allocation pies: stock-wise and sector-wise (sector mapping CSV)
 
-## 🔥 Expanded Features
+- Market Scanners
+  - Momentum (RSI): overbought/oversold signals
+  - Trend (EMA alignment): uptrend/downtrend detection
+  - Breakout: 20-day high/low breakout/breakdown
+  - CSV export and quick add-to-watchlist actions
 
-### 📊 Core Trading Features
-• Real-Time Data & Level II Order Book  
-• Advanced Charting: 50+ indicators, custom timeframes  
-• Options Chain, Greeks, IV Surface  
-• Instant Buy/Sell from Analytics  
-• Screener Engine, Custom Alerts
+- HFT Simulator
+  - Live tick log, market depth (top bids/asks), latency metric simulation
+  - One-click market/limit buy/sell with lot-size aware quantity inputs
 
-### 🤖 Fintech Innovation Themes
-• ML-Based Forecasts, Pattern Discovery  
-• AI Trade Discovery Engine  
-• Backtesting & Paper Trading Modes  
-• Student-driven Customization
+- Basket Orders
+  - Prepare and place multiple orders in one flow (Zerodha variety=REGULAR), with symbol validation from instruments
 
----
+- Authentication & Security
+  - 2FA with pyotp TOTP, QR provisioning (qrcode), persistent secret derived via SHA-256 + base32
 
-## 📚 Usage Tips
-
-• Use during market hours (NSE/BSE: 9:15–3:30 IST)  
-• Chrome/Edge recommended for speed  
-• Dual monitor setup enables multitasking  
-• Join our mission: students, traders, devs
+- Utilities
+  - India market holiday calendar cache; watchlists; quick trade dialog; session state bootstrap; autorefresh support
 
 ---
 
-## 🤝 Contributor Guide
-
-Submit features, bugfixes, documentation, or new student modules! Join the fintech innovation—students, traders, and developers are welcomed for genuine collaboration.
-
-### How to Contribute
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Areas for Contribution
-
-• 📈 New technical indicators  
-• 🤖 AI/ML trading models  
-• 📱 Mobile optimization  
-• 🔐 Security enhancements  
-• 📖 Documentation improvements  
-• 🌐 Internationalization
+## 3) Technical Specifications (Libraries)
+- UI/Framework: streamlit, streamlit-autorefresh
+- Data/Analysis: pandas, numpy, pandas-ta, scipy, statsmodels, tabulate
+- Charting: plotly (graph_objects, make_subplots)
+- Market/Broker APIs: kiteconnect (Zerodha), yfinance, requests
+- Time/Locale: datetime, pytz
+- News & NLP: feedparser, vaderSentiment
+- Auth/Security: pyotp, qrcode, hashlib, base64
+- Imaging/IO: Pillow (PIL), io, qrcode
+- Misc: re, random
 
 ---
 
-## ⓒ Copyright & Legal Notice
+## 4) Installation and Setup
 
-BlockVista Terminal™ is a proprietary, copyright financial technology product by Saumya & Kanishk, FinX Institute, Mumbai. Cloning, unauthorized copying, or commercial replication is strictly prohibited.
+Prerequisites
+- Python 3.9+
+- Zerodha Kite API key (optional, required for live trading and authenticated quotes)
 
-Only official feature submissions, improvements, and documentation are accepted through direct collaboration. Unauthorized duplication is a copyright violation.
+Install
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
----
+Run
+```bash
+streamlit run app.py
+```
 
-## 🏅 Credits & License
-
-**Creators:** Saumya Sanghvi & Kanishk D (FinX Institute, Mumbai, MMS FinTech Class of 2026)  
-**Supported by** open-source contributors and India's fintech ecosystem
-
-### 📄 Licensing
-
-BlockVista Terminal™ — Open Source for authorized collaboration, under Creative Commons Zero v1.0 Universal (CC0-1.0). Unauthorized commercial use prohibited. Copyright 2025.
-
----
-
-## ⚖️ Disclaimers
-
-• BlockVista Terminal™ is for analysis—not investment advice  
-• Trading involves risk  
-• All real-time data subject to exchange latency  
-• Beta software—project, continuous development
-
----
-
-## 📞 Contact & Collaboration
-
-**BlockVista Terminal™ — Made in Mumbai for Indian Fintech Innovation. Copyright Protected.**
-
-Contact: idcfintechsolutions@zohomail.in
-
-### 🌟 Star History
-
-If you find BlockVista Terminal useful, please consider giving it a ⭐ on GitHub!
+Broker Setup (Optional)
+- Generate API key/secret in Zerodha console
+- Authenticate session (handled in app); follow on-screen login and 2FA steps
+- 2FA: Open the “Generate QR for 2FA” dialog in-app, scan with Google/Microsoft Authenticator, then verify OTP
 
 ---
 
-© 2025 BlockVista Terminal™ | Saumya Sanghvi & Kanishk | FinX Institute, Mumbai
+## 5) Usage Guide
+- Dashboard
+  - Monitor BMP score, index tiles, global indices, and sentiment-tagged news
+  - Explore NIFTY 50 heatmap to spot top movers
+- Advanced Charting
+  - Choose symbols, add indicators, and switch layouts/timeframes; use interpretation helper for quick bias
+- F&O Analytics
+  - Load options chain for NIFTY/BANKNIFTY/FINNIFTY; compute IV and Greeks; check PCR and Most Active contracts
+- Algo Strategy Hub
+  - Add option legs; review payoff curve, breakevens, max profit/loss, and leg Greeks
+- Portfolio & Risk
+  - View holdings/positions with P&L; analyze allocation pies by stock and sector; inspect order book
+- Scanners
+  - Run Momentum/Trend/Breakout scans; export to CSV; add top candidates to watchlist
+- HFT Simulator
+  - Watch tick-by-tick changes and depth; place one-click market/limit orders
+- ML Forecasting
+  - Select instrument; train Seasonal ARIMA; review backtest and forecast with confidence bands
+
+---
+
+## 6) Screenshots / Demo
+Place your screenshots or GIFs under docs/screenshots and link them here:
+- docs/screenshots/overview.png — Dashboard & BMP
+- docs/screenshots/options_chain.png — Options Chain & Greeks
+- docs/screenshots/strategy_payoff.png — Strategy Payoff & Risk
+- docs/screenshots/hft.png — HFT Simulator & Depth
+- docs/screenshots/ml_forecast.png — ML Forecasting
+
+---
+
+## 7) API Integrations
+- Zerodha KiteConnect: instruments, quotes, order placement, depth, positions/holdings/orders
+- yfinance: global indices (^GSPC, ^N225, ^HSI), GIFT NIFTY proxy (IN=F)
+- RSS feeds: Economic Times, Moneycontrol, Business Standard, Livemint, Reuters, BBC
+
+---
+
+## 8) Technical Indicators Supported
+Examples via pandas-ta and in-app logic:
+- Momentum: RSI(14), Stochastic (14,3,3), MACD(12,26,9), ADX(14)
+- Trend: EMA/SMA crossovers, multi-EMA alignment
+- Volatility: ATR, Bollinger Bands
+- Options: Black–Scholes Greeks (Delta, Gamma, Vega, Theta, Rho), Implied Volatility (Newton)
+
+---
+
+## 9) Contributing
+We welcome contributions from students, traders, and developers!
+1. Fork the repo
+2. Create a feature branch: git checkout -b feature/amazing-feature
+3. Commit with clear messages: git commit -m "feat: add amazing feature"
+4. Push and open a Pull Request
+Areas: new indicators, scanners, ML models, UI polish, docs, tests, broker adapters
+
+---
+
+## 10) License
+BlockVista Terminal — Creative Commons Zero v1.0 Universal (CC0-1.0) for authorized collaboration as stated by the project. See repository notices for commercial usage restrictions.
+
+---
+
+## Notes and Disclaimers
+- BMP methodology: weighted blend of normalized recent NIFTY/SENSEX returns and inverse-normalized VIX
+- Options analytics are for educational purposes; trading involves risk
+- Real-time data subject to broker/exchange terms and latency
+- Beta software; features may evolve frequently
