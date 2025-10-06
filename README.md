@@ -102,45 +102,11 @@ Notes:
 
 ---
 
-## 🚀 Quick Start Guide
-
-### Prerequisites
-- 🐍 Python 3.9+ (Recommended: 3.10 or 3.11)
-- 💡 Zerodha KiteConnect API credentials (optional for live trading)
-- 🌐 Internet connection for real-time data
-
-### Installation
-```bash
-# Clone the repository
-git clone https://github.com/saumyasanghvi03/BlockVista-Terminal.git
-cd BlockVista-Terminal
-
-# Create virtual environment
-python -m venv .venv
-
-# Activate environment
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Launch Terminal
-```bash
-streamlit run app.py
-```
-🎯 Access your trading terminal at: http://localhost:8501
-
----
-
 ## 📱 Usage Guide
 
 ### 🏠 Getting Started
 1. Launch: open Dashboard
-2. Connect: optional Zerodha broker integration for live data
+2. Connect: optional broker integration for live data
 3. Explore: browse modules and features
 4. Customize: watchlists and indicators
 
@@ -165,35 +131,6 @@ streamlit run app.py
 4. Set up risk alerts and limits
 
 ---
-
-## 🔌 Data Sources & Integrations
-
-### 🇮🇳 Indian Markets
-- Zerodha KiteConnect: live quotes, orders, portfolio
-  - NSE, BSE, MCX, CDS coverage
-  - Real-time tick data and market depth
-  - Historical data for backtesting
-
-### 🌍 Global Markets
-- yfinance API: S&P 500, Nikkei 225, Hang Seng; GIFT NIFTY (IN=F)
-
-### 📰 News & Sentiment
-- RSS feeds + sentiment scoring; multiple business sources
-
-### 📊 Technical Data
-- Static CSVs, live streams, and proprietary calculations
-
----
-
-## 🔧 Configuration
-
-### Broker Setup (Optional)
-```python
-# For Zerodha KiteConnect integration
-API_KEY = "your_api_key"
-API_SECRET = "your_api_secret"
-REQUEST_TOKEN = "your_request_token"
-```
 
 ### ML Data Sources
 Pre-configured instruments for forecasting:
