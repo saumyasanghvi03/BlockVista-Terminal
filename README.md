@@ -147,29 +147,8 @@ streamlit run app.py
 
 ---
 
-### 🔐 **Broker Setup (For Live Trading)**
 
-**For Zerodha KiteConnect Integration:**
-
-1️⃣ **Obtain API Credentials**  
-   - Login to [Zerodha Kite Developer Console](https://developers.kite.trade/)  
-   - Create a new app and note your **API Key** and **API Secret**
-
-2️⃣ **Authenticate Your Session**  
-   - Launch BlockVista Terminal  
-   - Navigate to broker settings  
-   - Enter your API credentials and complete authentication flow
-
-3️⃣ **Enable 2FA Protection**  
-   - Open "Generate QR for 2FA" dialog in-app  
-   - Scan QR code with Google Authenticator or Microsoft Authenticator  
-   - Verify OTP to secure your trading session
-
-💡 **Pro Tip**: Keep your API credentials secure and never share them publicly
-
----
-
-## 5) Usage Guide
+## 4) Usage Guide
 
 - **Dashboard**
   - Monitor BMP score, index tiles, global indices, and sentiment-tagged news
@@ -198,7 +177,7 @@ streamlit run app.py
 
 ---
 
-## 6) Market Data Integrations
+## 5) Market Data Integrations
 
 ### 🔌 **Live Trading & Market Depth**
 **Zerodha KiteConnect API** – Your gateway to Indian markets  
@@ -229,7 +208,7 @@ streamlit run app.py
 
 ---
 
-## 7) Technical Indicators Supported
+## 6) Technical Indicators Supported
 
 Examples via pandas-ta and in-app logic:
 
@@ -240,7 +219,7 @@ Examples via pandas-ta and in-app logic:
 
 ---
 
-## 8) Contributing
+## 7) Contributing
 
 We welcome contributions from students, traders, and developers!
 
@@ -253,7 +232,7 @@ Areas: new indicators, scanners, ML models, UI polish, docs, tests, broker adapt
 
 ---
 
-## 9) License
+## 8) License
 
 BlockVista Terminal — Creative Commons Zero v1.0 Universal (CC0-1.0) for authorized collaboration as stated by the project. See repository notices for commercial usage restrictions.
 
