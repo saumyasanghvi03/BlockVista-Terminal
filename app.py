@@ -489,7 +489,10 @@ def initialize_session_state():
                 "capital": 1000,
                 "trades": [],
                 "pnl": 0,
-                "active_since": None
+                "active_since": None,
+                "auto_trade_enabled": False,
+                "position": None,
+                "entry_price": 0
             },
             "mean_reversion": {
                 "name": "Mean Reversion",
@@ -498,7 +501,10 @@ def initialize_session_state():
                 "capital": 1000,
                 "trades": [],
                 "pnl": 0,
-                "active_since": None
+                "active_since": None,
+                "auto_trade_enabled": False,
+                "position": None,
+                "entry_price": 0
             },
             "volatility_breakout": {
                 "name": "Volatility Breakout", 
@@ -507,7 +513,10 @@ def initialize_session_state():
                 "capital": 1000,
                 "trades": [],
                 "pnl": 0,
-                "active_since": None
+                "active_since": None,
+                "auto_trade_enabled": False,
+                "position": None,
+                "entry_price": 0
             },
             "value_investor": {
                 "name": "Value Investor",
@@ -516,7 +525,10 @@ def initialize_session_state():
                 "capital": 1000,
                 "trades": [],
                 "pnl": 0,
-                "active_since": None
+                "active_since": None,
+                "auto_trade_enabled": False,
+                "position": None,
+                "entry_price": 0
             }
         }
 
@@ -695,7 +707,7 @@ def get_global_indices_data(tickers):
             # yfinance returns a MultiIndex column header, so access needs to be specific
             if ticker in yf_data.columns.get_level_values(0):
                 stock_data = yf_data[ticker].dropna()
-                if not stock_data.empty:
+                if not stock_data.empty and len(stock_data) > 1:
                     last_price = stock_data['Close'].iloc[-1]
                     prev_close = stock_data['Close'].iloc[-2]
                     change_pct = ((last_price - prev_close) / prev_close) * 100
@@ -1112,7 +1124,6 @@ def interpret_indicators(df):
 def momentum_trader_strategy(symbol, capital, instrument_df):
     """Momentum trading strategy using RSI and moving averages."""
     try:
-        # Get historical data
         token = get_instrument_token(symbol, instrument_df)
         if not token:
             return None, "Instrument not found"
@@ -1121,7 +1132,6 @@ def momentum_trader_strategy(symbol, capital, instrument_df):
         if data.empty or len(data) < 20:
             return None, "Insufficient data"
         
-        # Calculate indicators
         data['rsi_14'] = ta.rsi(data['close'], length=14)
         data['sma_20'] = ta.sma(data['close'], length=20)
         data['ema_12'] = ta.ema(data['close'], length=12)
@@ -1129,11 +1139,9 @@ def momentum_trader_strategy(symbol, capital, instrument_df):
         latest = data.iloc[-1]
         prev = data.iloc[-2]
         
-        # Strategy logic
         signal = "HOLD"
         reason = ""
         
-        # Bullish momentum signal
         if (latest['rsi_14'] > 50 and 
             latest['close'] > latest['sma_20'] and 
             latest['ema_12'] > latest['sma_20'] and
@@ -1141,7 +1149,6 @@ def momentum_trader_strategy(symbol, capital, instrument_df):
             signal = "BUY"
             reason = f"Strong momentum: RSI({latest['rsi_14']:.1f}) > 50, Price above SMA20"
         
-        # Bearish momentum signal  
         elif (latest['rsi_14'] < 45 and 
               latest['close'] < latest['sma_20'] and
               latest['close'] < prev['close']):
@@ -1164,24 +1171,20 @@ def mean_reversion_strategy(symbol, capital, instrument_df):
         if data.empty or len(data) < 20:
             return None, "Insufficient data"
         
-        # Calculate indicators
         bb = ta.bbands(data['close'], length=20, std=2)
         data = pd.concat([data, bb], axis=1)
         data['rsi_14'] = ta.rsi(data['close'], length=14)
         
         latest = data.iloc[-1]
         
-        # Strategy logic
         signal = "HOLD"
         reason = ""
         
-        # Oversold bounce (Buy signal)
         if (latest['close'] <= latest['BBL_20_2.0'] and 
             latest['rsi_14'] < 30):
             signal = "BUY"
             reason = f"Oversold bounce: Price at lower BB, RSI({latest['rsi_14']:.1f}) < 30"
         
-        # Overbought rejection (Sell signal)
         elif (latest['close'] >= latest['BBU_20_2.0'] and 
               latest['rsi_14'] > 70):
             signal = "SELL" 
@@ -1203,25 +1206,21 @@ def volatility_breakout_strategy(symbol, capital, instrument_df):
         if data.empty or len(data) < 20:
             return None, "Insufficient data"
         
-        # Calculate indicators
         data['atr_14'] = ta.atr(data['high'], data['low'], data['close'], length=14)
         data['high_20'] = data['high'].rolling(20).max()
         data['low_20'] = data['low'].rolling(20).min()
         data['volume_sma'] = data['volume'].rolling(20).mean()
         
         latest = data.iloc[-1]
-        prev = data.iloc[-2]
         
         signal = "HOLD"
         reason = ""
         
-        # Breakout above resistance with volume
         if (latest['close'] > latest['high_20'] and 
             latest['volume'] > latest['volume_sma'] * 1.5):
             signal = "BUY"
             reason = f"Breakout: New 20-period high with volume surge"
         
-        # Breakdown below support
         elif (latest['close'] < latest['low_20'] and
               latest['volume'] > latest['volume_sma']):
             signal = "SELL"
@@ -1243,7 +1242,6 @@ def value_investor_strategy(symbol, capital, instrument_df):
         if data.empty or len(data) < 50:
             return None, "Insufficient data"
         
-        # Calculate "value" metrics (simulated)
         data['sma_50'] = ta.sma(data['close'], length=50)
         data['sma_200'] = ta.sma(data['close'], length=200)
         data['price_to_sma'] = data['close'] / data['sma_50']
@@ -1253,15 +1251,13 @@ def value_investor_strategy(symbol, capital, instrument_df):
         signal = "HOLD"
         reason = ""
         
-        # Undervalued signal (price below historical average)
         if (latest['price_to_sma'] < 0.95 and 
-            latest['close'] > latest['sma_200']): # Above long-term trend
+            latest['close'] > latest['sma_200']): 
             signal = "BUY"
             reason = f"Undervalued: Price {latest['price_to_sma']:.3f}x of 50-day average, above 200-day SMA"
         
-        # Overvalued signal
         elif (latest['price_to_sma'] > 1.05 and
-              latest['close'] < latest['sma_200']): # Below long-term trend
+              latest['close'] < latest['sma_200']): 
             signal = "SELL"
             reason = f"Overvalued: Price {latest['price_to_sma']:.3f}x of 50-day average, below 200-day SMA"
         
@@ -1271,12 +1267,11 @@ def value_investor_strategy(symbol, capital, instrument_df):
         return None, f"Error: {str(e)}"
 
 def execute_algo_trade(bot_id, symbol, signal, capital, instrument_df):
-    """Execute trade for algo bot."""
+    """Execute trade for algo bot and update its state."""
     if signal not in ["BUY", "SELL"]:
         return False, "No valid signal"
     
     try:
-        # Calculate quantity based on capital and current price
         quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': 'NSE'}])
         if quote_data.empty:
             return False, "Could not fetch current price"
@@ -1284,33 +1279,90 @@ def execute_algo_trade(bot_id, symbol, signal, capital, instrument_df):
         current_price = quote_data.iloc[0]['Price']
         quantity = max(1, int(capital / current_price))
         
-        # Place order
+        # Place the actual order
         place_order(instrument_df, symbol, quantity, 'MARKET', signal, 'MIS')
         
-        # Record trade
+        bot = st.session_state.algo_bots[bot_id]
+        
+        # Log the trade
         trade = {
             'timestamp': datetime.now(),
             'symbol': symbol,
             'signal': signal,
             'quantity': quantity,
             'price': current_price,
-            'capital_used': quantity * current_price
+            'value': quantity * current_price
         }
         
-        st.session_state.algo_bots[bot_id]['trades'].append(trade)
-        
-        return True, f"Successfully executed {signal} order for {quantity} shares of {symbol}"
+        # Update bot state based on trade type
+        if signal == "BUY":
+            bot["position"] = "LONG"
+            bot["entry_price"] = current_price
+        elif signal == "SELL" and bot["position"] == "LONG": # This is an exit trade
+            profit = (current_price - bot["entry_price"]) * quantity
+            bot["pnl"] += profit
+            trade['pnl'] = profit
+            bot["position"] = None # Reset position after closing
+            bot["entry_price"] = 0
+
+        bot['trades'].append(trade)
+        return True, f"Executed {signal} for {quantity} {symbol} @ {current_price}"
         
     except Exception as e:
         return False, f"Trade execution failed: {str(e)}"
 
+def run_active_auto_traders(instrument_df, bots):
+    """
+    The core engine for auto-trading. Iterates through active bots,
+    checks signals, and executes trades based on state.
+    """
+    if instrument_df.empty:
+        return
+
+    # A single sample symbol for all bots to trade for demonstration
+    sample_symbol = "RELIANCE" 
+
+    for bot_id, bot in bots.items():
+        # Check if the bot is active and has auto-trading enabled
+        if bot["status"] == "active" and bot["auto_trade_enabled"]:
+            
+            # --- 1. Get Signal from Strategy ---
+            signal, reason = (None, None)
+            if bot_id == "momentum_trader":
+                signal, reason = momentum_trader_strategy(sample_symbol, bot["capital"], instrument_df)
+            elif bot_id == "mean_reversion":
+                signal, reason = mean_reversion_strategy(sample_symbol, bot["capital"], instrument_df)
+            elif bot_id == "volatility_breakout":
+                signal, reason = volatility_breakout_strategy(sample_symbol, bot["capital"], instrument_df)
+            elif bot_id == "value_investor":
+                signal, reason = value_investor_strategy(sample_symbol, bot["capital"], instrument_df)
+
+            if not signal:
+                continue
+
+            # --- 2. Execute Logic Based on Current Position ---
+            
+            # CASE A: Bot has no position, looking for a BUY signal
+            if bot["position"] is None and signal == "BUY":
+                success, message = execute_algo_trade(bot_id, sample_symbol, "BUY", bot["capital"], instrument_df)
+                if success:
+                    st.toast(f"{bot['name']} entered a new LONG position in {sample_symbol}.", icon="📈")
+                else:
+                    st.toast(f"{bot['name']} failed to enter position: {message}", icon="❌")
+
+            # CASE B: Bot is in a LONG position, looking for a SELL (exit) signal
+            elif bot["position"] == "LONG" and signal == "SELL":
+                success, message = execute_algo_trade(bot_id, sample_symbol, "SELL", bot["capital"], instrument_df)
+                if success:
+                    st.toast(f"{bot['name']} exited its LONG position in {sample_symbol}.", icon="📉")
+                else:
+                    st.toast(f"{bot['name']} failed to exit position: {message}", icon="❌")
+                    
 # ================ 5. PAGE DEFINITIONS ============
 
 def page_algo_trading_bots():
     """Algo Trading Bots page with 4 pre-built strategies."""
     display_header()
-    
-    # Check for market timing notifications
     check_market_timing_notifications()
     
     st.title("🤖 Algo Trading Bots")
@@ -1320,14 +1372,15 @@ def page_algo_trading_bots():
     if instrument_df.empty:
         st.info("Please connect to a broker to use algo trading bots.")
         return
+        
+    # === CALL THE AUTO-TRADING ENGINE ON EVERY PAGE REFRESH ===
+    run_active_auto_traders(instrument_df, st.session_state.algo_bots)
     
     # Bot selection and configuration
     col1, col2 = st.columns([2, 1])
     
     with col1:
         st.subheader("Available Bots")
-        
-        # Display all bots
         bots = st.session_state.algo_bots
         for bot_id, bot in bots.items():
             bot_class = "bot-active" if bot["status"] == "active" else "bot-inactive"
@@ -1338,24 +1391,21 @@ def page_algo_trading_bots():
                 
             with st.container():
                 st.markdown(f'<div class="trade-card {bot_class}">', unsafe_allow_html=True)
-                
                 col_a, col_b, col_c = st.columns([3, 2, 1])
                 
                 with col_a:
                     st.subheader(bot["name"])
                     st.caption(bot["description"])
-                    
                 with col_b:
                     st.metric("Capital", f"₹{bot['capital']:,.0f}")
                     st.metric("P&L", f"₹{bot['pnl']:,.2f}")
-                    
                 with col_c:
                     status_color = "🟢" if bot["status"] == "active" else "🔴"
                     st.write(f"{status_color} {bot['status'].upper()}")
-                    
                     if bot["status"] == "active":
                         if st.button("🛑 Stop", key=f"stop_{bot_id}"):
                             st.session_state.algo_bots[bot_id]["status"] = "inactive"
+                            st.session_state.algo_bots[bot_id]["auto_trade_enabled"] = False # Disable on stop
                             st.rerun()
                     else:
                         if st.button("▶️ Start", key=f"start_{bot_id}"):
@@ -1367,126 +1417,59 @@ def page_algo_trading_bots():
     
     with col2:
         st.subheader("Quick Controls")
-        
-        # Capital management
         selected_bot = st.selectbox(
-            "Select Bot",
-            options=list(bots.keys()),
-            format_func=lambda x: bots[x]["name"]
+            "Select Bot", options=list(bots.keys()), format_func=lambda x: bots[x]["name"]
         )
-        
         new_capital = st.number_input(
-            "Allocate Capital (₹)",
-            min_value=100,
-            max_value=100000,
-            value=bots[selected_bot]["capital"],
-            step=100
+            "Allocate Capital (₹)", min_value=100, max_value=100000, value=bots[selected_bot]["capital"], step=100
         )
-        
         if st.button("Update Capital", use_container_width=True):
             st.session_state.algo_bots[selected_bot]["capital"] = new_capital
             st.success(f"Capital updated to ₹{new_capital:,.0f}")
             st.rerun()
-        
         st.markdown("---")
-        
-        # Manual trade execution
-        st.subheader("Manual Test")
-        test_symbol = st.text_input("Symbol", "RELIANCE").upper()
-        test_bot = st.selectbox("Test Strategy", list(bots.keys()), 
-                                format_func=lambda x: bots[x]["name"])
-        
-        if st.button("Test Strategy", use_container_width=True):
-            with st.spinner("Analyzing..."):
-                if test_bot == "momentum_trader":
-                    signal, reason = momentum_trader_strategy(test_symbol, bots[test_bot]["capital"], instrument_df)
-                elif test_bot == "mean_reversion":
-                    signal, reason = mean_reversion_strategy(test_symbol, bots[test_bot]["capital"], instrument_df)
-                elif test_bot == "volatility_breakout":
-                    signal, reason = volatility_breakout_strategy(test_symbol, bots[test_bot]["capital"], instrument_df)
-                elif test_bot == "value_investor":
-                    signal, reason = value_investor_strategy(test_symbol, bots[test_bot]["capital"], instrument_df)
-                
-                if signal:
-                    st.info(f"**Signal**: {signal}")
-                    st.write(f"**Reason**: {reason}")
-                    
-                    if signal in ["BUY", "SELL"] and st.button("Execute Trade", type="primary"):
-                        success, message = execute_algo_trade(test_bot, test_symbol, signal, bots[test_bot]["capital"], instrument_df)
-                        if success:
-                            st.success(message)
-                        else:
-                            st.error(message)
-                else:
-                    st.warning(f"No trading signal: {reason}")
-    
+
     st.markdown("---")
     
-    # Active bot monitoring
     st.subheader("📊 Active Bot Performance")
-    
     active_bots = {k: v for k, v in bots.items() if v["status"] == "active"}
     
     if active_bots:
         for bot_id, bot in active_bots.items():
             with st.expander(f"📈 {bot['name']} - Live Monitoring", expanded=True):
-                col1, col2, col3 = st.columns(3)
+                mon_col1, mon_col2, mon_col3 = st.columns(3)
                 
-                with col1:
-                    # Get current signal for a sample stock
-                    sample_symbol = "RELIANCE"
-                    if bot_id == "momentum_trader":
-                        signal, reason = momentum_trader_strategy(sample_symbol, bot["capital"], instrument_df)
-                    elif bot_id == "mean_reversion":
-                        signal, reason = mean_reversion_strategy(sample_symbol, bot["capital"], instrument_df)
-                    elif bot_id == "volatility_breakout":
-                        signal, reason = volatility_breakout_strategy(sample_symbol, bot["capital"], instrument_df)
-                    elif bot_id == "value_investor":
-                        signal, reason = value_investor_strategy(sample_symbol, bot["capital"], instrument_df)
-                    
-                    signal_color = "green" if signal == "BUY" else "red" if signal == "SELL" else "orange"
-                    st.metric("Current Signal", signal, delta=reason)
-                
-                with col2:
+                with mon_col1:
+                    position_status = bot['position'] if bot['position'] else "None"
+                    st.metric("Current Position", position_status)
+
+                with mon_col2:
                     total_trades = len(bot["trades"])
-                    winning_trades = len([t for t in bot["trades"] if t.get('profit', 0) > 0])
-                    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-                    st.metric("Win Rate", f"{win_rate:.1f}%")
+                    st.metric("Total Trades", total_trades)
+
+                with mon_col3:
+                    st.session_state.algo_bots[bot_id]['auto_trade_enabled'] = st.toggle(
+                        'Enable Auto-Trading', 
+                        value=bot['auto_trade_enabled'], 
+                        key=f"auto_{bot_id}"
+                    )
+                    if st.session_state.algo_bots[bot_id]['auto_trade_enabled']:
+                        st.success("Auto-trading is ON")
+                    else:
+                        st.warning("Auto-trading is OFF")
                 
-                with col3:
-                    if bot["active_since"]:
-                        active_time = datetime.now() - bot["active_since"]
-                        st.metric("Active Time", f"{active_time.days}d {active_time.seconds//3600}h")
-                
-                # Recent trades
                 if bot["trades"]:
                     st.write("**Recent Trades**")
                     recent_trades = pd.DataFrame(bot["trades"][-5:])
                     st.dataframe(recent_trades, use_container_width=True, hide_index=True)
                 else:
                     st.info("No trades executed yet.")
-                    
-                # Auto-execution toggle
-                auto_execute = st.checkbox(f"Enable Auto-Trading for {bot['name']}", value=False, key=f"auto_{bot_id}")
-                if auto_execute:
-                    st.warning("⚠️ Auto-trading will execute signals automatically. Use with caution!")
-                    
-                    # Sample execution on test symbol
-                    if signal in ["BUY", "SELL"]:
-                        if st.button(f"Execute {signal} for {sample_symbol}", key=f"execute_{bot_id}"):
-                            success, message = execute_algo_trade(bot_id, sample_symbol, signal, bot["capital"], instrument_df)
-                            if success:
-                                st.success(message)
-                            else:
-                                st.error(message)
     else:
         st.info("No active bots. Start a bot to see live monitoring.")
     
     st.markdown("---")
     
-    # Strategy explanations
     st.subheader("🎯 Strategy Details")
-    
     strategy_tabs = st.tabs([bot["name"] for bot in bots.values()])
     
     for i, (bot_id, bot) in enumerate(bots.items()):
@@ -1540,6 +1523,7 @@ def page_algo_trading_bots():
             st.metric("Minimum Capital", "₹100")
             st.metric("Recommended Capital", "₹1,000 - ₹10,000")
 
+
 def page_dashboard():
     """A completely redesigned 'Trader UI' Dashboard."""
     display_header()
@@ -1548,32 +1532,10 @@ def page_dashboard():
         st.info("Please connect to a broker to view the dashboard.")
         return
     
-    # Check for market timing notifications
     check_market_timing_notifications()
     
-    index_symbols = [
-        {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
-        {'symbol': 'SENSEX', 'exchange': 'BSE'},
-        {'symbol': 'INDIA VIX', 'exchange': 'NSE'},
-    ]
-    index_data = get_watchlist_data(index_symbols)
-    
-    # This section depends on functions 'get_bmp_score_and_label' and 'create_nifty_heatmap'
-    # which are not defined in the provided code. I will comment them out to prevent further errors.
-    # If you have these functions, you can uncomment this section.
-    
-    # st.subheader("Market Pulse & Heatmap")
-    # bmp_col, heatmap_col = st.columns([1, 1], gap="large")
-    # with bmp_col:
-    #     st.subheader("Bharatiya Market Pulse (BMP)")
-    #     # ... (code for BMP display would go here)
-    # with heatmap_col:
-    #     st.subheader("NIFTY 50 Heatmap")
-    #     # st.plotly_chart(create_nifty_heatmap(instrument_df), use_container_width=True)
-
     st.markdown("---")
     
-    # --- Middle Row: Main Content Area ---
     col1, col2 = st.columns([1, 1], gap="large")
     
     with col1:
@@ -1603,7 +1565,6 @@ def page_dashboard():
                         else:
                             st.toast(f"{new_symbol.upper()} is already in this watchlist.", icon="⚠️")
             
-            # Display watchlist
             watchlist_data = get_watchlist_data(active_list)
             if not watchlist_data.empty:
                 for index, row in watchlist_data.iterrows():
@@ -1643,7 +1604,6 @@ def page_dashboard():
             else:
                 st.warning("Could not load NIFTY 50 chart. Market might be closed.")
     
-    # --- Bottom Row: Live Ticker Tape ---
     ticker_symbols = st.session_state.get('watchlists', {}).get(st.session_state.get('active_watchlist'), [])
     
     if ticker_symbols:
@@ -1685,10 +1645,7 @@ def page_dashboard():
             </div>
             """, unsafe_allow_html=True)
 
-# NOTE: The following page functions (page_premarket_pulse, page_advanced_charting, etc.) were not in the
-# original code provided but are referenced in the navigation. You would need to define these functions
-# similar to page_dashboard or page_algo_trading_bots for them to work. For now, they will be placeholder functions.
-
+# Placeholder Page Functions
 def page_premarket_pulse():
     st.title("Premarket Pulse")
     st.info("This page is under construction.")
@@ -1749,10 +1706,10 @@ def page_futures_terminal():
     st.title("Futures Terminal")
     st.info("This page is under construction.")
 
+`
 def page_hft_terminal():
     st.title("HFT Terminal")
     st.info("This page is under construction.")
-
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -1769,7 +1726,6 @@ def two_factor_dialog():
         st.session_state.show_2fa_dialog = False
     
     if st.session_state.show_2fa_dialog:
-        # Create a centered container for better UI
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown("""
@@ -1813,7 +1769,6 @@ def qr_code_dialog():
         st.session_state.show_qr_dialog = True
     
     if st.session_state.show_qr_dialog:
-        # Centered container for QR setup
         col1, col2, col3 = st.columns([1, 3, 1])
         with col2:
             st.markdown("""
@@ -1830,15 +1785,12 @@ def qr_code_dialog():
             user_name = st.session_state.get('profile', {}).get('user_name', 'User')
             uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
             
-            # Generate QR code
             img = qrcode.make(uri)
             buf = io.BytesIO()
             img.save(buf, format="PNG")
             
-            # Display QR code
             st.image(buf.getvalue(), caption="Scan with Google Authenticator or similar app", use_container_width=True)
             
-            # Manual secret entry option
             with st.expander("Manual Setup"):
                 st.code(secret, language="text")
                 st.caption("If you can't scan the QR code, enter this secret manually in your authenticator app.")
@@ -1846,12 +1798,11 @@ def qr_code_dialog():
             if st.button("✅ I've scanned the code. Continue to login.", use_container_width=True, type="primary"):
                 st.session_state.two_factor_setup_complete = True
                 st.session_state.show_qr_dialog = False
-                st.session_state.show_2fa_dialog = True  # Immediately show 2FA entry
+                st.session_state.show_2fa_dialog = True
                 st.rerun()
 
 def show_login_animation():
     """Displays a boot-up animation after login with improved design."""
-    # Center the animation
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("""
@@ -1882,10 +1833,8 @@ def show_login_animation():
 
 def login_page():
     """Displays the login page for broker authentication with improved UI."""
-    # Apply styling first
     apply_custom_styling()
     
-    # Center the login form
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
@@ -1896,7 +1845,6 @@ def login_page():
         </div>
         """, unsafe_allow_html=True)
         
-        # Login card
         with st.container():
             st.markdown("<div style='background: var(--widget-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 2rem; margin-bottom: 2rem;'>", unsafe_allow_html=True)
             
@@ -1959,7 +1907,6 @@ def login_page():
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # Login button with better styling
                     login_url = kite.login_url()
                     st.markdown(f"""
                     <a href="{login_url}" style='
@@ -1986,7 +1933,6 @@ def main_app():
     apply_custom_styling()
     display_overnight_changes_bar()
     
-    # --- 2FA Check ---
     if st.session_state.get('profile'):
         if not st.session_state.get('two_factor_setup_complete'):
             qr_code_dialog()
@@ -2005,7 +1951,6 @@ def main_app():
     st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT", "Algo Bots"], horizontal=True)
     st.sidebar.divider()
     
-    # Dynamic refresh interval based on mode
     if st.session_state.terminal_mode == "HFT":
         refresh_interval = 2
         auto_refresh = True
@@ -2045,7 +1990,6 @@ def main_app():
             "Greeks Calculator": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant,
-            "Fundamental Analytics": page_fundamental_analytics,
         },
         "Futures": {
             "Futures Terminal": page_futures_terminal,
@@ -2053,7 +1997,6 @@ def main_app():
             "Algo Strategy Hub": page_algo_strategy_maker,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant,
-            "Fundamental Analytics": page_fundamental_analytics,
         },
         "HFT": {
             "HFT Terminal": page_hft_terminal,
