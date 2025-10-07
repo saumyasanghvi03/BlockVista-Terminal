@@ -1,4 +1,4 @@
-add above in below: # ================ 0. REQUIRED LIBRARIES ================
+# ================ 0. REQUIRED LIBRARIES ================
 import streamlit as st
 import pandas as pd
 import pandas_ta as ta
