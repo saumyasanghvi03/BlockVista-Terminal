@@ -1705,8 +1705,7 @@ def page_greeks_calculator():
 def page_futures_terminal():
     st.title("Futures Terminal")
     st.info("This page is under construction.")
-
-`
+    
 def page_hft_terminal():
     st.title("HFT Terminal")
     st.info("This page is under construction.")
