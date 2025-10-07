@@ -1,614 +1,730 @@
-# Add this to the existing code in the appropriate sections
+# ================ 0. REQUIRED LIBRARIES ================
+import streamlit as st
+import pandas as pd
+import pandas_ta as ta
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from kiteconnect import KiteConnect, exceptions as kite_exceptions
+from streamlit_autorefresh import st_autorefresh
+from datetime import datetime, timedelta, time
+import pytz
+import feedparser
+from email.utils import mktime_tz
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.arima.model import ARIMA
+import numpy as np
+from scipy.stats import norm
+from scipy.optimize import newton
+from tabulate import tabulate
+import time as a_time
+import re
+import yfinance as yf
+import pyotp
+import qrcode
+from PIL import Image
+import base64
+import io
+import requests
+import hashlib
+import random
 
-# ================ ALGO BOTS SECTION ================
+# ================ 1. STYLING AND CONFIGURATION ===============
+st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
 
-def momentum_trader_bot(instrument_df, symbol, capital=100):
-    """Momentum trading bot that buys on upward momentum and sells on downward momentum."""
-    exchange = 'NSE'
-    token = get_instrument_token(symbol, instrument_df, exchange)
-    if not token:
-        return {"error": f"Could not find instrument for {symbol}"}
-    
-    data = get_historical_data(token, '5minute', period='1d')
-    if data.empty or len(data) < 20:
-        return {"error": "Insufficient data for analysis"}
-    
-    # Calculate indicators
-    data['RSI'] = ta.rsi(data['close'], length=14)
-    data['EMA_20'] = ta.ema(data['close'], length=20)
-    data['EMA_50'] = ta.ema(data['close'], length=50)
-    
-    latest = data.iloc[-1]
-    prev = data.iloc[-2]
-    
-    signals = []
-    
-    # Momentum signals
-    if (latest['EMA_20'] > latest['EMA_50'] and 
-        prev['EMA_20'] <= prev['EMA_50']):
-        signals.append("EMA crossover - BULLISH")
-    
-    if latest['RSI'] < 30:
-        signals.append("RSI oversold - BULLISH")
-    elif latest['RSI'] > 70:
-        signals.append("RSI overbought - BEARISH")
-    
-    # Price momentum
-    price_change_5min = ((latest['close'] - data.iloc[-6]['close']) / data.iloc[-6]['close']) * 100
-    if price_change_5min > 0.5:
-        signals.append(f"Strong upward momentum: +{price_change_5min:.2f}%")
-    
-    # Calculate position size
-    current_price = latest['close']
-    quantity = max(1, int((capital * 0.8) / current_price))  # Use 80% of capital
-    
-    action = "HOLD"
-    if len([s for s in signals if "BULLISH" in s]) >= 2:
-        action = "BUY"
-    elif len([s for s in signals if "BEARISH" in s]) >= 2:
-        action = "SELL"
-    
-    return {
-        "bot_name": "Momentum Trader",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "Medium"
-    }
+def apply_custom_styling():
+    """Applies a comprehensive CSS stylesheet for professional theming."""
+    theme_css = """
+    <style>
+        :root {
+            --dark-bg: #0E1117;
+            --dark-secondary-bg: #161B22;
+            --dark-widget-bg: #21262D;
+            --dark-border: #30363D;
+            --dark-text: #c9d1d9;
+            --dark-text-light: #8b949e;
+            --dark-green: #28a745;
+            --dark-red: #da3633;
 
-def mean_reversion_bot(instrument_df, symbol, capital=100):
-    """Mean reversion bot that trades on price returning to mean levels."""
-    exchange = 'NSE'
-    token = get_instrument_token(symbol, instrument_df, exchange)
-    if not token:
-        return {"error": f"Could not find instrument for {symbol}"}
-    
-    data = get_historical_data(token, '15minute', period='5d')
-    if data.empty or len(data) < 50:
-        return {"error": "Insufficient data for analysis"}
-    
-    # Calculate Bollinger Bands
-    bb = ta.bbands(data['close'], length=20, std=2)
-    data = pd.concat([data, bb], axis=1)
-    
-    latest = data.iloc[-1]
-    
-    signals = []
-    current_price = latest['close']
-    bb_lower = latest.get('BBL_20_2.0', current_price)
-    bb_upper = latest.get('BBU_20_2.0', current_price)
-    bb_middle = latest.get('BBM_20_2.0', current_price)
-    
-    # Mean reversion signals
-    if current_price <= bb_lower * 1.02:  # Within 2% of lower band
-        signals.append("Near lower Bollinger Band - BULLISH")
-    
-    if current_price >= bb_upper * 0.98:  # Within 2% of upper band
-        signals.append("Near upper Bollinger Band - BEARISH")
-    
-    # Distance from mean
-    distance_from_mean = ((current_price - bb_middle) / bb_middle) * 100
-    if abs(distance_from_mean) > 3:
-        signals.append(f"Price {abs(distance_from_mean):.1f}% from mean")
-    
-    # RSI for confirmation
-    data['RSI'] = ta.rsi(data['close'], length=14)
-    rsi = data['RSI'].iloc[-1]
-    if rsi < 35:
-        signals.append("RSI supporting oversold condition")
-    elif rsi > 65:
-        signals.append("RSI supporting overbought condition")
-    
-    # Calculate position size
-    quantity = max(1, int((capital * 0.6) / current_price))  # Use 60% of capital
-    
-    action = "HOLD"
-    if any("BULLISH" in s for s in signals) and rsi < 40:
-        action = "BUY"
-    elif any("BEARISH" in s for s in signals) and rsi > 60:
-        action = "SELL"
-    
-    return {
-        "bot_name": "Mean Reversion",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "Low"
-    }
+            --light-bg: #FFFFFF;
+            --light-secondary-bg: #F0F2F6;
+            --light-widget-bg: #F8F9FA;
+            --light-border: #dee2e6;
+            --light-text: #212529;
+            --light-text-light: #6c757d;
+            --light-green: #198754;
+            --light-red: #dc3545;
+        }
 
-def volatility_breakout_bot(instrument_df, symbol, capital=100):
-    """Volatility breakout bot that trades on breakouts from consolidation."""
-    exchange = 'NSE'
-    token = get_instrument_token(symbol, instrument_df, exchange)
-    if not token:
-        return {"error": f"Could not find instrument for {symbol}"}
-    
-    data = get_historical_data(token, '30minute', period='5d')
-    if data.empty or len(data) < 30:
-        return {"error": "Insufficient data for analysis"}
-    
-    # Calculate ATR and volatility
-    data['ATR'] = ta.atr(data['high'], data['low'], data['close'], length=14)
-    data['Range'] = data['high'] - data['low']
-    avg_range = data['Range'].rolling(window=20).mean()
-    
-    latest = data.iloc[-1]
-    current_price = latest['close']
-    current_atr = latest['ATR']
-    current_range = latest['Range']
-    
-    signals = []
-    
-    # Volatility signals
-    if current_range > avg_range.iloc[-1] * 1.5:
-        signals.append("High volatility - potential breakout")
-    
-    # Price action signals
-    prev_high = data['high'].iloc[-2]
-    prev_low = data['low'].iloc[-2]
-    
-    if current_price > prev_high + current_atr * 0.5:
-        signals.append("Breakout above resistance - BULLISH")
-    
-    if current_price < prev_low - current_atr * 0.5:
-        signals.append("Breakdown below support - BEARISH")
-    
-    # Volume confirmation (if available)
-    if 'volume' in data.columns:
-        avg_volume = data['volume'].rolling(window=20).mean().iloc[-1]
-        if data['volume'].iloc[-1] > avg_volume * 1.2:
-            signals.append("High volume confirmation")
-    
-    # Calculate position size based on ATR
-    atr_percentage = (current_atr / current_price) * 100
-    risk_per_trade = min(20, max(5, atr_percentage * 2))  # Dynamic position sizing
-    quantity = max(1, int((capital * (risk_per_trade / 100)) / current_price))
-    
-    action = "HOLD"
-    if any("BULLISH" in s for s in signals):
-        action = "BUY"
-    elif any("BEARISH" in s for s in signals):
-        action = "SELL"
-    
-    return {
-        "bot_name": "Volatility Breakout",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "High"
-    }
+        body.dark-theme {
+            --primary-bg: var(--dark-bg);
+            --secondary-bg: var(--dark-secondary-bg);
+            --widget-bg: var(--dark-widget-bg);
+            --border-color: var(--dark-border);
+            --text-color: var(--dark-text);
+            --text-light: var(--dark-text-light);
+            --green: var(--dark-green);
+            --red: var(--dark-red);
+        }
 
-def value_investor_bot(instrument_df, symbol, capital=100):
-    """Value investor bot focusing on longer-term value signals."""
-    exchange = 'NSE'
-    token = get_instrument_token(symbol, instrument_df, exchange)
-    if not token:
-        return {"error": f"Could not find instrument for {symbol}"}
-    
-    data = get_historical_data(token, 'day', period='1y')
-    if data.empty or len(data) < 100:
-        return {"error": "Insufficient data for analysis"}
-    
-    # Calculate moving averages and trends
-    data['SMA_50'] = ta.sma(data['close'], length=50)
-    data['SMA_200'] = ta.sma(data['close'], length=200)
-    data['EMA_21'] = ta.ema(data['close'], length=21)
-    
-    latest = data.iloc[-1]
-    current_price = latest['close']
-    
-    signals = []
-    
-    # Trend analysis
-    if latest['SMA_50'] > latest['SMA_200']:
-        signals.append("Bullish trend (50 > 200 SMA)")
-    else:
-        signals.append("Bearish trend (50 < 200 SMA)")
-    
-    # Support and resistance levels
-    support_20 = data['low'].rolling(window=20).min().iloc[-1]
-    resistance_20 = data['high'].rolling(window=20).max().iloc[-1]
-    
-    distance_to_support = ((current_price - support_20) / current_price) * 100
-    distance_to_resistance = ((resistance_20 - current_price) / current_price) * 100
-    
-    if distance_to_support < 5:
-        signals.append("Near strong support - BULLISH")
-    
-    if distance_to_resistance < 5:
-        signals.append("Near strong resistance - BEARISH")
-    
-    # Monthly performance
-    monthly_return = ((current_price - data['close'].iloc[-21]) / data['close'].iloc[-21]) * 100
-    if monthly_return < -10:
-        signals.append("Oversold on monthly basis - BULLISH")
-    elif monthly_return > 15:
-        signals.append("Overbought on monthly basis - BEARISH")
-    
-    # Calculate position size for longer term
-    quantity = max(1, int((capital * 0.5) / current_price))  # Conservative 50%
-    
-    action = "HOLD"
-    bullish_signals = len([s for s in signals if "BULLISH" in s])
-    bearish_signals = len([s for s in signals if "BEARISH" in s])
-    
-    if bullish_signals >= 2 and bearish_signals == 0:
-        action = "BUY"
-    elif bearish_signals >= 2 and bullish_signals == 0:
-        action = "SELL"
-    
-    return {
-        "bot_name": "Value Investor",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "Low"
-    }
+        body.light-theme {
+            --primary-bg: var(--light-bg);
+            --secondary-bg: var(--light-secondary-bg);
+            --widget-bg: var(--light-widget-bg);
+            --border-color: var(--light-border);
+            --text-color: var(--light-text);
+            --text-light: var(--light-text-light);
+            --green: var(--light-green);
+            --red: var(--light-red);
+        }
 
-def scalper_bot(instrument_df, symbol, capital=100):
-    """High-frequency scalping bot for quick, small profits."""
-    exchange = 'NSE'
-    token = get_instrument_token(symbol, instrument_df, exchange)
-    if not token:
-        return {"error": f"Could not find instrument for {symbol}"}
-    
-    data = get_historical_data(token, 'minute', period='1d')
-    if data.empty or len(data) < 100:
-        return {"error": "Insufficient data for analysis"}
-    
-    # Calculate scalping indicators
-    data['RSI_9'] = ta.rsi(data['close'], length=9)
-    data['EMA_8'] = ta.ema(data['close'], length=8)
-    data['EMA_21'] = ta.ema(data['close'], length=21)
-    
-    latest = data.iloc[-1]
-    current_price = latest['close']
-    
-    signals = []
-    
-    # Scalping signals
-    if latest['EMA_8'] > latest['EMA_21']:
-        signals.append("Fast EMA above slow EMA - BULLISH")
-    else:
-        signals.append("Fast EMA below slow EMA - BEARISH")
-    
-    rsi_9 = latest['RSI_9']
-    if rsi_9 < 25:
-        signals.append("Extremely oversold - BULLISH")
-    elif rsi_9 > 75:
-        signals.append("Extremely overbought - BEARISH")
-    
-    # Price momentum for scalping
-    price_change_3min = ((current_price - data['close'].iloc[-3]) / data['close'].iloc[-3]) * 100
-    if abs(price_change_3min) > 0.3:
-        signals.append(f"Strong short-term momentum: {price_change_3min:+.2f}%")
-    
-    # Calculate small position size for scalping
-    quantity = max(1, int((capital * 0.3) / current_price))  # Small position for quick exits
-    
-    action = "HOLD"
-    if (any("BULLISH" in s for s in signals) and 
-        "BEARISH" not in str(signals) and
-        rsi_9 < 70):
-        action = "BUY"
-    elif (any("BEARISH" in s for s in signals) and 
-          "BULLISH" not in str(signals) and
-          rsi_9 > 30):
-        action = "SELL"
-    
-    return {
-        "bot_name": "Scalper Pro",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "Very High"
-    }
+        body {
+            background-color: var(--primary-bg);
+            color: var(--text-color);
+        }
+        
+        .main .block-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+        
+        h1, h2, h3, h4, h5 {
+            color: var(--text-color) !important;
+        }
+        
+        hr {
+            background: var(--border-color);
+        }
 
-def trend_follower_bot(instrument_df, symbol, capital=100):
-    """Trend following bot that rides established trends."""
-    exchange = 'NSE'
-    token = get_instrument_token(symbol, instrument_df, exchange)
-    if not token:
-        return {"error": f"Could not find instrument for {symbol}"}
-    
-    data = get_historical_data(token, 'hour', period='1mo')
-    if data.empty or len(data) < 100:
-        return {"error": "Insufficient data for analysis"}
-    
-    # Calculate trend indicators
-    data['ADX'] = ta.adx(data['high'], data['low'], data['close'], length=14)['ADX_14']
-    data['EMA_20'] = ta.ema(data['close'], length=20)
-    data['EMA_50'] = ta.ema(data['close'], length=50)
-    data['SuperTrend'] = ta.supertrend(data['high'], data['low'], data['close'], length=10, multiplier=3)['SUPERT_10_3.0']
-    
-    latest = data.iloc[-1]
-    current_price = latest['close']
-    
-    signals = []
-    
-    # Trend strength
-    adx = latest['ADX']
-    if adx > 25:
-        signals.append(f"Strong trend (ADX: {adx:.1f})")
-    else:
-        signals.append(f"Weak trend (ADX: {adx:.1f})")
-    
-    # Trend direction
-    if latest['EMA_20'] > latest['EMA_50']:
-        signals.append("Uptrend confirmed - BULLISH")
-    else:
-        signals.append("Downtrend confirmed - BEARISH")
-    
-    # SuperTrend signals
-    if current_price > latest['SuperTrend']:
-        signals.append("Price above SuperTrend - BULLISH")
-    else:
-        signals.append("Price below SuperTrend - BEARISH")
-    
-    # Pullback opportunities
-    if (latest['EMA_20'] > latest['EMA_50'] and 
-        current_price < latest['EMA_20'] and 
-        current_price > latest['EMA_50']):
-        signals.append("Pullback in uptrend - BULLISH")
-    
-    elif (latest['EMA_20'] < latest['EMA_50'] and 
-          current_price > latest['EMA_20'] and 
-          current_price < latest['EMA_50']):
-        signals.append("Pullback in downtrend - BEARISH")
-    
-    # Calculate position size
-    quantity = max(1, int((capital * 0.7) / current_price))  # Use 70% of capital
-    
-    action = "HOLD"
-    bullish_count = len([s for s in signals if "BULLISH" in s])
-    bearish_count = len([s for s in signals if "BEARISH" in s])
-    
-    if bullish_count >= 2 and adx > 20:
-        action = "BUY"
-    elif bearish_count >= 2 and adx > 20:
-        action = "SELL"
-    
-    return {
-        "bot_name": "Trend Follower",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "Medium"
-    }
+        .stButton>button {
+            border-color: var(--border-color);
+            background-color: var(--widget-bg);
+            color: var(--text-color);
+        }
+        .stButton>button:hover {
+            border-color: var(--green);
+            color: var(--green);
+        }
+        .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
+            background-color: var(--widget-bg);
+            border-color: var(--border-color);
+            color: var(--text-color);
+        }
+        .stRadio>div {
+            background-color: var(--widget-bg);
+            border: 1px solid var(--border-color);
+            padding: 8px;
+            border-radius: 8px;
+        }
+        
+        .metric-card {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            padding: 1.5rem;
+            border-radius: 10px;
+            border-left-width: 5px;
+        }
+        
+        .trade-card {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            padding: 1.5rem;
+            border-radius: 10px;
+            border-left-width: 5px;
+        }
 
-# Dictionary of all available bots
-ALGO_BOTS = {
-    "Momentum Trader": momentum_trader_bot,
-    "Mean Reversion": mean_reversion_bot,
-    "Volatility Breakout": volatility_breakout_bot,
-    "Value Investor": value_investor_bot,
-    "Scalper Pro": scalper_bot,
-    "Trend Follower": trend_follower_bot
+        .notification-bar {
+            position: sticky;
+            top: 0;
+            width: 100%;
+            background-color: var(--secondary-bg);
+            color: var(--text-color);
+            padding: 8px 12px;
+            z-index: 999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.9rem;
+            border-bottom: 1px solid var(--border-color);
+            margin-left: -20px;
+            margin-right: -20px;
+            width: calc(100% + 40px);
+        }
+        .notification-bar span {
+            margin: 0 15px;
+            white-space: nowrap;
+        }
+        
+        .market-notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--widget-bg);
+            border: 2px solid;
+            border-radius: 15px;
+            padding: 2rem;
+            z-index: 1000;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            text-align: center;
+            min-width: 300px;
+            max-width: 500px;
+        }
+        .market-notification.open {
+            border-color: var(--green);
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(40, 167, 69, 0.1) 100%);
+        }
+        .market-notification.warning {
+            border-color: #ffc107;
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(255, 193, 7, 0.1) 100%);
+        }
+        .market-notification.closed {
+            border-color: var(--red);
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(220, 53, 69, 0.1) 100%);
+        }
+        .market-notification.info {
+            border-color: #17a2b8;
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(23, 162, 184, 0.1) 100%);
+        }
+        
+        .hft-depth-bid {
+            background: linear-gradient(to left, rgba(0, 128, 0, 0.3), rgba(0, 128, 0, 0.05));
+            padding: 2px 5px;
+        }
+        .hft-depth-ask {
+            background: linear-gradient(to right, rgba(255, 0, 0, 0.3), rgba(255, 0, 0, 0.05));
+            padding: 2px 5px;
+        }
+        .tick-up {
+            color: var(--green);
+            animation: flash-green 0.5s;
+        }
+        .tick-down {
+            color: var(--red);
+            animation: flash-red 0.5s;
+        }
+        @keyframes flash-green {
+            0% { background-color: rgba(40, 167, 69, 0.5); }
+            100% { background-color: transparent; }
+        }
+        @keyframes flash-red {
+            0% { background-color: rgba(218, 54, 51, 0.5); }
+            100% { background-color: transparent; }
+        }
+        
+        .bot-active {
+            border-left-color: #28a745 !important;
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(40, 167, 69, 0.1) 100%);
+        }
+        .bot-inactive {
+            border-left-color: #6c757d !important;
+        }
+        .bot-profit {
+            border-left-color: #28a745 !important;
+        }
+        .bot-loss {
+            border-left-color: #dc3545 !important;
+        }
+    </style>
+    """
+    st.markdown(theme_css, unsafe_allow_html=True)
+    
+    js_theme = f"""
+    <script>
+        document.body.classList.remove('light-theme', 'dark-theme');
+        document.body.classList.add('{st.session_state.theme.lower()}-theme');
+    </script>
+    """
+    st.components.v1.html(js_theme, height=0)
+
+# ================ ENHANCED DATA COLLECTION MODULE ================
+
+ENHANCED_DATA_SOURCES = {
+    "NIFTY 50": {"yfinance_ticker": "^NSEI", "tradingsymbol": "NIFTY 50", "exchange": "NSE"},
+    "BANK NIFTY": {"yfinance_ticker": "^NSEBANK", "tradingsymbol": "BANKNIFTY", "exchange": "NFO"},
+    "NIFTY Financial Services": {"yfinance_ticker": "FINNIFTY.NS", "tradingsymbol": "FINNIFTY", "exchange": "NFO"},
+    "GOLD": {"yfinance_ticker": "GC=F", "tradingsymbol": "GOLDM", "exchange": "MCX"},
+    "USDINR": {"yfinance_ticker": "INR=X", "tradingsymbol": "USDINR", "exchange": "CDS"},
+    "SENSEX": {"yfinance_ticker": "^BSESN", "tradingsymbol": "SENSEX", "exchange": "BSE"},
+    "S&P 500": {"yfinance_ticker": "^GSPC", "tradingsymbol": "^GSPC", "exchange": "yfinance"},
+    "NIFTY MIDCAP 100": {"yfinance_ticker": "^CNXMD", "tradingsymbol": "NIFTYMID100", "exchange": "NSE"}
 }
 
-def execute_bot_trade(instrument_df, bot_result):
-    """Executes a trade based on bot recommendation."""
-    if bot_result.get("error"):
-        st.error(bot_result["error"])
-        return
+def get_enhanced_historical_data(instrument_name, data_type="hourly"):
+    source_info = ENHANCED_DATA_SOURCES.get(instrument_name)
+    if not source_info:
+        st.error(f"No data source configured for {instrument_name}")
+        return pd.DataFrame()
     
-    if bot_result["action"] == "HOLD":
-        st.info(f"🤖 {bot_result['bot_name']} recommends HOLDING {bot_result['symbol']}")
-        return
-    
-    action = bot_result["action"]
-    symbol = bot_result["symbol"]
-    quantity = bot_result["quantity"]
-    current_price = bot_result["current_price"]
-    required_capital = bot_result["capital_required"]
-    
-    st.success(f"""
-    🚀 **{bot_result['bot_name']} Recommendation:**
-    - **Action:** {action} {quantity} shares of {symbol}
-    - **Current Price:** ₹{current_price:.2f}
-    - **Required Capital:** ₹{required_capital:.2f}
-    - **Risk Level:** {bot_result['risk_level']}
-    """)
-    
-    col1, col2 = st.columns(2)
-    
-    if col1.button(f"Execute {action} Order", key=f"execute_{symbol}", use_container_width=True):
-        place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
-    
-    if col2.button("Ignore Recommendation", key=f"ignore_{symbol}", use_container_width=True):
-        st.info("Trade execution cancelled.")
+    yf_ticker = source_info.get("yfinance_ticker")
+    if not yf_ticker:
+        return pd.DataFrame()
 
-def page_algo_bots():
-    """Main algo bots page where users can run different trading bots."""
+    period = "2y" if data_type == "hourly" else "max"
+    interval = "1h" if data_type == "hourly" else "1d"
+    
+    try:
+        data = yf.download(yf_ticker, period=period, interval=interval)
+        if data.empty:
+            return pd.DataFrame()
+
+        data.columns = [col.lower() for col in data.columns]
+        
+        if not data.empty:
+            data.ta.rsi(length=14, append=True)
+            data.ta.sma(length=20, append=True)
+            data.ta.ema(length=12, append=True)
+            data.ta.ema(length=26, append=True)
+            data.ta.macd(append=True)
+            data.ta.bbands(append=True)
+        return data
+    except Exception as e:
+        st.error(f"Error downloading {instrument_name} from yfinance: {e}")
+        return pd.DataFrame()
+
+ML_DATA_SOURCES = ENHANCED_DATA_SOURCES
+
+# ================ 1.5 INITIALIZATION ========================
+def initialize_session_state():
+    """Initializes all necessary session state variables."""
+    if 'broker' not in st.session_state: st.session_state.broker = None
+    if 'kite' not in st.session_state: st.session_state.kite = None
+    if 'profile' not in st.session_state: st.session_state.profile = None
+    if 'login_animation_complete' not in st.session_state: st.session_state.login_animation_complete = False
+    if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+    if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
+    if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
+    if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
+    if 'watchlists' not in st.session_state:
+        st.session_state.watchlists = {
+            "Watchlist 1": [{'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'}],
+            "Watchlist 2": [{'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'INFY', 'exchange': 'NSE'}],
+            "Watchlist 3": [{'symbol': 'SENSEX', 'exchange': 'BSE'}]
+        }
+    if 'active_watchlist' not in st.session_state: st.session_state.active_watchlist = "Watchlist 1"
+    if 'order_history' not in st.session_state: st.session_state.order_history = []
+    
+    if 'algo_bots' not in st.session_state:
+        st.session_state.algo_bots = {
+            "momentum_trader": {
+                "name": "Momentum Trader",
+                "description": "Tracks stocks with strong momentum using RSI and moving averages",
+                "status": "inactive", "capital": 1000, "trades": [], "pnl": 0, "active_since": None,
+                "auto_trade_enabled": False, "position": None, "entry_price": 0
+            },
+            "mean_reversion": {
+                "name": "Mean Reversion",
+                "description": "Capitalizes on price reversions using Bollinger Bands and RSI",
+                "status": "inactive", "capital": 1000, "trades": [], "pnl": 0, "active_since": None,
+                "auto_trade_enabled": False, "position": None, "entry_price": 0
+            },
+            "volatility_breakout": {
+                "name": "Volatility Breakout", 
+                "description": "Identifies breakout opportunities using volatility channels",
+                "status": "inactive", "capital": 1000, "trades": [], "pnl": 0, "active_since": None,
+                "auto_trade_enabled": False, "position": None, "entry_price": 0
+            },
+            "value_investor": {
+                "name": "Value Investor",
+                "description": "Focuses on fundamentally strong stocks with good valuations",
+                "status": "inactive", "capital": 1000, "trades": [], "pnl": 0, "active_since": None,
+                "auto_trade_enabled": False, "position": None, "entry_price": 0
+            }
+        }
+
+# ================ 2. HELPER FUNCTIONS ================
+
+def get_broker_client():
+    if st.session_state.get('broker') == "Zerodha":
+        return st.session_state.get('kite')
+    return None
+
+def get_market_status():
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    holidays_2025 = ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25']
+    market_open_time, market_close_time = time(9, 15), time(15, 30)
+    
+    if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays_2025:
+        return {"status": "CLOSED", "color": "#FF4B4B"}
+    if market_open_time <= now.time() <= market_close_time:
+        return {"status": "OPEN", "color": "#28a745"}
+    return {"status": "CLOSED", "color": "#FF4B4B"}
+
+def display_header():
+    status_info = get_market_status()
+    ist = pytz.timezone('Asia/Kolkata')
+    current_time = datetime.now(ist).strftime("%H:%M:%S IST")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown('<h1 style="margin: 0; line-height: 1.2;">BlockVista Terminal</h1>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"""
+            <div style="text-align: right;">
+                <h5 style="margin: 0;">{current_time}</h5>
+                <h5 style="margin: 0;">Market: <span style='color:{status_info["color"]}; font-weight: bold;'>{status_info["status"]}</span></h5>
+            </div>
+        """, unsafe_allow_html=True)
+    st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+    
+@st.cache_data(ttl=600)
+def get_global_indices_data(tickers):
+    data_list = []
+    ticker_string = " ".join(tickers.values())
+    try:
+        yf_data = yf.download(ticker_string, period="2d", group_by='ticker')
+        if yf_data.empty:
+            return pd.DataFrame()
+        for name, ticker in tickers.items():
+            if ticker in yf_data.columns.get_level_values(0):
+                stock_data = yf_data[ticker].dropna()
+                if not stock_data.empty and len(stock_data) > 1:
+                    last_price = stock_data['Close'].iloc[-1]
+                    prev_close = stock_data['Close'].iloc[-2]
+                    change_pct = ((last_price - prev_close) / prev_close) * 100
+                    data_list.append({'Ticker': name, 'Price': last_price, '% Change': change_pct})
+    except Exception as e:
+        st.error(f"Error fetching global indices data: {e}")
+    return pd.DataFrame(data_list)
+
+def display_overnight_changes_bar():
+    overnight_tickers = {"GIFT NIFTY": "IN=F", "S&P 500 Futures": "ES=F", "NASDAQ Futures": "NQ=F"}
+    data = get_global_indices_data(overnight_tickers)
+    if not data.empty:
+        bar_html = "<div class='notification-bar'>"
+        for _, row in data.iterrows():
+            color = 'var(--green)' if row['% Change'] > 0 else 'var(--red)'
+            bar_html += f"<span>{row['Ticker']}: {row['Price']:,.2f} <span style='color:{color};'>({row['% Change']:+.2f}%)</span></span>"
+        bar_html += "</div>"
+        st.markdown(bar_html, unsafe_allow_html=True)
+
+# ================ 3. CORE DATA & CHARTING FUNCTIONS ================
+
+@st.cache_resource(ttl=3600)
+def get_instrument_df():
+    client = get_broker_client()
+    if not client: return pd.DataFrame()
+    df = pd.DataFrame(client.instruments())
+    if 'expiry' in df.columns:
+        df['expiry'] = pd.to_datetime(df['expiry'])
+    return df
+
+def get_instrument_token(symbol, instrument_df, exchange='NSE'):
+    """Finds the instrument token for a given symbol and exchange."""
+    if instrument_df.empty: return None
+    match = instrument_df[(instrument_df['tradingsymbol'] == symbol.upper()) & (instrument_df['exchange'] == exchange)]
+    return match.iloc[0]['instrument_token'] if not match.empty else None
+
+@st.cache_data(ttl=60)
+def get_historical_data(instrument_token, interval, period='5y'):
+    client = get_broker_client()
+    if not client or not instrument_token: return pd.DataFrame()
+    try:
+        to_date = datetime.now().date()
+        days_map = {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
+        from_date = to_date - timedelta(days=days_map.get(period, 1825))
+        records = client.historical_data(instrument_token, from_date, to_date, interval)
+        df = pd.DataFrame(records)
+        if not df.empty:
+            df.set_index('date', inplace=True)
+            df.index = pd.to_datetime(df.index)
+            df.ta.adx(append=True); df.ta.macd(append=True); df.ta.rsi(append=True)
+        return df
+    except Exception as e:
+        st.error(f"Error fetching historical data: {e}")
+        return pd.DataFrame()
+
+@st.cache_data(ttl=15)
+def get_watchlist_data(symbols_with_exchange):
+    client = get_broker_client()
+    if not client or not symbols_with_exchange: return pd.DataFrame()
+    instrument_names = [f"{item['exchange']}:{item['symbol']}" for item in symbols_with_exchange]
+    try:
+        quotes = client.quote(instrument_names)
+        watchlist = []
+        for item in symbols_with_exchange:
+            q = quotes.get(f"{item['exchange']}:{item['symbol']}")
+            if q:
+                change = q['last_price'] - q['ohlc']['close']
+                pct_change = (change / q['ohlc']['close'] * 100) if q['ohlc']['close'] != 0 else 0
+                watchlist.append({'Ticker': item['symbol'], 'Exchange': item['exchange'], 'Price': q['last_price'], 'Change': change, '% Change': pct_change})
+        return pd.DataFrame(watchlist)
+    except Exception:
+        return pd.DataFrame()
+
+def place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price=None):
+    client = get_broker_client()
+    if not client:
+        st.error("Broker not connected.")
+        return
+    try:
+        match = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
+        if match.empty:
+            st.error(f"Symbol '{symbol}' not found.")
+            return
+        exchange = match.iloc[0]['exchange']
+        
+        order_id = client.place_order(
+            tradingsymbol=symbol.upper(), exchange=exchange, transaction_type=transaction_type,
+            quantity=quantity, order_type=order_type, product=product, variety=client.VARIETY_REGULAR, price=price
+        )
+        st.toast(f"✅ Order placed successfully! ID: {order_id}", icon="🎉")
+        st.session_state.order_history.insert(0, {"id": order_id, "symbol": symbol, "qty": quantity, "type": transaction_type, "status": "Success"})
+    except Exception as e:
+        st.toast(f"❌ Order failed: {e}", icon="🔥")
+
+# ================ 4. ALGO TRADING BOTS ================
+
+def momentum_trader_strategy(symbol, capital, instrument_df):
+    token = get_instrument_token(symbol, instrument_df)
+    if not token: return None, "Instrument not found"
+    data = get_historical_data(token, '5minute', period='1d')
+    if data.empty or len(data) < 20: return None, "Insufficient data"
+    
+    latest = data.iloc[-1]
+    if (latest['RSI_14'] > 50 and latest['close'] > data['close'].rolling(20).mean().iloc[-1]):
+        return "BUY", f"RSI({latest['RSI_14']:.1f}) > 50"
+    elif (latest['RSI_14'] < 45):
+        return "SELL", f"RSI({latest['RSI_14']:.1f}) < 45"
+    return "HOLD", "Neutral"
+
+def mean_reversion_strategy(symbol, capital, instrument_df):
+    token = get_instrument_token(symbol, instrument_df)
+    if not token: return None, "Instrument not found"
+    data = get_historical_data(token, '5minute', period='1d')
+    if data.empty or len(data) < 20: return None, "Insufficient data"
+    
+    bbands = ta.bbands(data['close'], length=20, std=2)
+    if bbands is None: return None, "Could not calculate Bollinger Bands"
+    data = pd.concat([data, bbands], axis=1)
+    latest = data.iloc[-1]
+
+    if latest['close'] <= latest['BBL_20_2.0'] and latest['RSI_14'] < 30:
+        return "BUY", f"Price at lower BB and RSI({latest['RSI_14']:.1f}) < 30"
+    elif latest['close'] >= latest['BBU_20_2.0'] and latest['RSI_14'] > 70:
+        return "SELL", f"Price at upper BB and RSI({latest['RSI_14']:.1f}) > 70"
+    return "HOLD", "Neutral"
+
+def volatility_breakout_strategy(symbol, capital, instrument_df):
+    token = get_instrument_token(symbol, instrument_df)
+    if not token: return None, "Instrument not found"
+    data = get_historical_data(token, '5minute', period='1d')
+    if data.empty or len(data) < 20: return None, "Insufficient data"
+
+    if data['close'].iloc[-1] > data['high'].rolling(20).max().iloc[-2]:
+        return "BUY", "Breakout above 20-period high"
+    elif data['close'].iloc[-1] < data['low'].rolling(20).min().iloc[-2]:
+        return "SELL", "Breakdown below 20-period low"
+    return "HOLD", "Neutral"
+
+def value_investor_strategy(symbol, capital, instrument_df):
+    token = get_instrument_token(symbol, instrument_df)
+    if not token: return None, "Instrument not found"
+    data = get_historical_data(token, 'day', period='1y')
+    if data.empty or len(data) < 200: return None, "Insufficient data"
+
+    sma_50 = data['close'].rolling(50).mean().iloc[-1]
+    sma_200 = data['close'].rolling(200).mean().iloc[-1]
+    latest_price = data['close'].iloc[-1]
+
+    if latest_price < sma_50 and latest_price > sma_200:
+        return "BUY", "Price is below 50-day SMA but above 200-day SMA"
+    elif latest_price > sma_50 * 1.1: # 10% above 50-day SMA as a simple overvalued metric
+        return "SELL", "Price is overextended from 50-day SMA"
+    return "HOLD", "Neutral"
+
+
+def execute_algo_trade(bot_id, symbol, signal, capital, instrument_df):
+    if signal not in ["BUY", "SELL"]: return False, "No valid signal"
+    
+    quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': 'NSE'}])
+    if quote_data.empty: return False, "Could not fetch current price"
+    
+    current_price = quote_data.iloc[0]['Price']
+    quantity = max(1, int(capital / current_price))
+    
+    place_order(instrument_df, symbol, quantity, 'MARKET', signal, 'MIS')
+    
+    bot = st.session_state.algo_bots[bot_id]
+    trade = {'timestamp': datetime.now(), 'symbol': symbol, 'signal': signal, 'quantity': quantity, 'price': current_price}
+    
+    if signal == "BUY":
+        bot["position"] = "LONG"
+        bot["entry_price"] = current_price
+    elif signal == "SELL" and bot.get("position") == "LONG":
+        profit = (current_price - bot.get("entry_price", 0)) * quantity
+        bot["pnl"] = bot.get("pnl", 0) + profit
+        trade['pnl'] = profit
+        bot["position"] = None
+        bot["entry_price"] = 0
+
+    bot['trades'].append(trade)
+    return True, f"Executed {signal} for {quantity} {symbol}"
+
+def run_active_auto_traders(instrument_df, bots):
+    if instrument_df.empty: return
+    sample_symbol = "RELIANCE"
+
+    for bot_id, bot in bots.items():
+        if bot.get("status") == "active" and bot.get("auto_trade_enabled", False):
+            strategy_func = {
+                "momentum_trader": momentum_trader_strategy,
+                "mean_reversion": mean_reversion_strategy,
+                "volatility_breakout": volatility_breakout_strategy,
+                "value_investor": value_investor_strategy
+            }.get(bot_id)
+            
+            if strategy_func:
+                signal, reason = strategy_func(sample_symbol, bot["capital"], instrument_df)
+                if not signal: continue
+
+                if bot.get("position") is None and signal == "BUY":
+                    success, msg = execute_algo_trade(bot_id, sample_symbol, "BUY", bot["capital"], instrument_df)
+                    if success: st.toast(f"{bot['name']} entered LONG on {sample_symbol}", icon="📈")
+                elif bot.get("position") == "LONG" and signal == "SELL":
+                    success, msg = execute_algo_trade(bot_id, sample_symbol, "SELL", bot["capital"], instrument_df)
+                    if success: st.toast(f"{bot['name']} exited LONG on {sample_symbol}", icon="📉")
+
+# ================ 5. PAGE DEFINITIONS ============
+
+def page_algo_trading_bots():
     display_header()
     st.title("🤖 Algo Trading Bots")
-    st.info("Run automated trading bots with minimum capital of ₹100. Each bot uses different strategies and risk profiles.", icon="🤖")
     
     instrument_df = get_instrument_df()
     if instrument_df.empty:
-        st.info("Please connect to a broker to use algo bots.")
+        st.info("Please connect to a broker to use algo trading bots.")
+        return
+        
+    run_active_auto_traders(instrument_df, st.session_state.algo_bots)
+    
+    bots = st.session_state.algo_bots
+    for bot_id, bot in bots.items():
+        bot_class = "bot-active" if bot.get("status") == "active" else "bot-inactive"
+        if bot.get("pnl", 0) > 0: bot_class = "bot-profit"
+        elif bot.get("pnl", 0) < 0: bot_class = "bot-loss"
+            
+        with st.container():
+            st.markdown(f'<div class="trade-card {bot_class}">', unsafe_allow_html=True)
+            c1, c2, c3 = st.columns([3, 2, 2])
+            with c1:
+                st.subheader(bot["name"])
+                st.caption(bot["description"])
+            with c2:
+                st.metric("Capital", f"₹{bot['capital']:,.0f}")
+                st.metric("P&L", f"₹{bot.get('pnl', 0):,.2f}")
+            with c3:
+                # Use a key to ensure the toggle state is managed correctly
+                auto_trade_key = f"auto_{bot_id}"
+                is_auto_trading = st.toggle('Enable Auto-Trading', value=st.session_state.algo_bots[bot_id].get('auto_trade_enabled', False), key=auto_trade_key)
+                st.session_state.algo_bots[bot_id]['auto_trade_enabled'] = is_auto_trading
+
+                if is_auto_trading:
+                    st.success("Auto ON")
+                else:
+                    st.warning("Auto OFF")
+
+                if bot.get("status") == "active":
+                    if st.button("🛑 Stop", key=f"stop_{bot_id}"):
+                        st.session_state.algo_bots[bot_id]["status"] = "inactive"
+                        st.session_state.algo_bots[bot_id]["auto_trade_enabled"] = False
+                        st.rerun()
+                else:
+                    if st.button("▶️ Start", key=f"start_{bot_id}"):
+                        st.session_state.algo_bots[bot_id]["status"] = "active"
+                        st.rerun()
+
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+
+def page_dashboard():
+    display_header()
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to view the dashboard.")
         return
     
-    # Bot selection and configuration
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        selected_bot = st.selectbox(
-            "Select Trading Bot",
-            list(ALGO_BOTS.keys()),
-            help="Choose a trading bot based on your risk appetite and trading style"
-        )
-        
-        # Bot descriptions
-        bot_descriptions = {
-            "Momentum Trader": "Trades on strong price momentum and trend continuations. Medium risk.",
-            "Mean Reversion": "Buys low and sells high based on statistical mean reversion. Low risk.",
-            "Volatility Breakout": "Captures breakouts from low volatility periods. High risk.",
-            "Value Investor": "Focuses on longer-term value and fundamental trends. Low risk.",
-            "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk.",
-            "Trend Follower": "Rides established trends with multiple confirmations. Medium risk."
-        }
-        
-        st.markdown(f"**Description:** {bot_descriptions[selected_bot]}")
-    
-    with col2:
-        trading_capital = st.number_input(
-            "Trading Capital (₹)",
-            min_value=100,
-            max_value=100000,
-            value=1000,
-            step=100,
-            help="Minimum ₹100 required"
-        )
-    
-    st.markdown("---")
-    
-    # Symbol selection and bot execution
-    col3, col4 = st.columns([1, 1])
-    
-    with col3:
-        st.subheader("Stock Selection")
-        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'BSE'])]['tradingsymbol'].unique()
-        selected_symbol = st.selectbox(
-            "Select Stock",
-            sorted(all_symbols),
-            index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0
-        )
-        
-        # Show current price
-        quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': 'NSE'}])
-        if not quote_data.empty:
-            current_price = quote_data.iloc[0]['Price']
-            st.metric("Current Price", f"₹{current_price:.2f}")
-    
-    with col4:
-        st.subheader("Bot Execution")
-        st.write(f"**Selected Bot:** {selected_bot}")
-        st.write(f"**Available Capital:** ₹{trading_capital:,}")
-        
-        if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary"):
-            with st.spinner(f"Running {selected_bot} analysis..."):
-                bot_function = ALGO_BOTS[selected_bot]
-                bot_result = bot_function(instrument_df, selected_symbol, trading_capital)
-                
-                if bot_result and not bot_result.get("error"):
-                    st.session_state.last_bot_result = bot_result
-                    st.rerun()
-    
-    # Display bot results
-    if 'last_bot_result' in st.session_state and st.session_state.last_bot_result:
-        bot_result = st.session_state.last_bot_result
-        
-        if bot_result.get("error"):
-            st.error(bot_result["error"])
-        else:
-            st.markdown("---")
-            st.subheader("🤖 Bot Analysis Results")
-            
-            # Create metrics cards
-            col5, col6, col7, col8 = st.columns(4)
-            
-            with col5:
-                action_color = "green" if bot_result["action"] == "BUY" else "red" if bot_result["action"] == "SELL" else "orange"
-                st.markdown(f'<div class="metric-card" style="border-color: {action_color};">'
-                           f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
-                           f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
-            
-            with col6:
-                st.metric("Quantity", bot_result["quantity"])
-            
-            with col7:
-                st.metric("Capital Required", f"₹{bot_result['capital_required']:.2f}")
-            
-            with col8:
-                risk_color = {"Low": "green", "Medium": "orange", "High": "red", "Very High": "darkred"}
-                st.markdown(f'<div class="metric-card" style="border-color: {risk_color.get(bot_result["risk_level"], "gray")};">'
-                           f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
-                           f'<p>Risk Level</p></div>', unsafe_allow_html=True)
-            
-            # Display signals
-            st.subheader("📊 Analysis Signals")
-            for signal in bot_result["signals"]:
-                if "BULLISH" in signal:
-                    st.success(f"✅ {signal}")
-                elif "BEARISH" in signal:
-                    st.error(f"❌ {signal}")
-                else:
-                    st.info(f"📈 {signal}")
-            
-            # Execute trade
-            execute_bot_trade(instrument_df, bot_result)
-    
-    # Bot performance history
-    st.markdown("---")
-    st.subheader("📈 Bot Performance Tips")
-    
-    tips_col1, tips_col2 = st.columns(2)
-    
-    with tips_col1:
-        st.markdown("""
-        **Best Practices:**
-        - Start with minimum capital (₹100)
-        - Use 'Value Investor' for beginners
-        - 'Scalper Pro' requires constant monitoring
-        - Always check signals before executing
-        - Combine multiple bot recommendations
-        """)
-    
-    with tips_col2:
-        st.markdown("""
-        **Risk Management:**
-        - Never risk more than 2% per trade
-        - Use stop losses with every trade
-        - Diversify across different bots
-        - Monitor performance regularly
-        - Adjust capital based on experience
-        """)
-    
-    # Quick bot comparison
-    with st.expander("🤖 Bot Comparison Guide"):
-        comparison_data = {
-            "Bot": list(ALGO_BOTS.keys()),
-            "Risk Level": ["Medium", "Low", "High", "Low", "Very High", "Medium"],
-            "Holding Period": ["Hours", "Days", "Minutes", "Weeks", "Minutes", "Days"],
-            "Capital Recommended": ["₹1,000+", "₹500+", "₹2,000+", "₹2,000+", "₹5,000+", "₹1,500+"],
-            "Best For": ["Trend riding", "Safe returns", "Quick profits", "Long term", "Experienced", "Trend following"]
-        }
-        
-        comparison_df = pd.DataFrame(comparison_data)
-        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+    st.subheader("Watchlist")
+    active_list = st.session_state.watchlists["Watchlist 1"]
+    watchlist_data = get_watchlist_data(active_list)
+    if not watchlist_data.empty:
+        for _, row in watchlist_data.iterrows():
+            c1, c2, c3, c4, c5 = st.columns([3,2,1,1,1])
+            color = 'var(--green)' if row['Change'] > 0 else 'var(--red)'
+            c1.markdown(f"**{row['Ticker']}**")
+            c2.markdown(f"<span style='color:{color};'>{row['Price']:,.2f} ({row['% Change']:.2f}%)</span>", unsafe_allow_html=True)
+            qty = c3.number_input("Qty", 1, key=f"qty_{row['Ticker']}", label_visibility="collapsed")
+            if c4.button("B", key=f"b_{row['Ticker']}"): place_order(instrument_df, row['Ticker'], qty, 'MARKET', 'BUY', 'MIS')
+            if c5.button("S", key=f"s_{row['Ticker']}"): place_order(instrument_df, row['Ticker'], qty, 'MARKET', 'SELL', 'MIS')
 
-# Add the new page to the navigation
-# In the main_app function, add "Algo Bots" to the pages dictionary:
+def page_not_implemented():
+    st.title("Under Construction")
+    st.info("This feature is not yet available.")
 
-# In the 'Cash' section, add:
-# "Algo Trading Bots": page_algo_bots,
+# ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
-# So it becomes:
-pages = {
-    "Cash": {
-        "Dashboard": page_dashboard,
-        "Algo Trading Bots": page_algo_bots,  # ADD THIS LINE
-        "Premarket Pulse": page_premarket_pulse,
-        # ... rest of the pages
-    },
-    # ... other sections
-}
+def login_page():
+    apply_custom_styling()
+    st.title("BlockVista Terminal Login")
+    
+    broker = st.selectbox("Select Broker", ["Zerodha"])
+    api_key = st.secrets.get("ZERODHA_API_KEY")
+    api_secret = st.secrets.get("ZERODHA_API_SECRET")
+
+    if not api_key or not api_secret:
+        st.error("Zerodha API credentials are not set in Streamlit secrets.")
+        st.stop()
+        
+    kite = KiteConnect(api_key=api_key)
+    request_token = st.query_params.get("request_token")
+
+    if request_token:
+        try:
+            data = kite.generate_session(request_token, api_secret=api_secret)
+            st.session_state.access_token = data["access_token"]
+            kite.set_access_token(st.session_state.access_token)
+            st.session_state.kite = kite
+            st.session_state.profile = kite.profile()
+            st.session_state.broker = "Zerodha"
+            st.query_params.clear()
+            st.rerun()
+        except Exception as e:
+            st.error(f"Authentication failed: {e}")
+    else:
+        st.link_button("Login with Zerodha", kite.login_url())
+
+def main_app():
+    apply_custom_styling()
+    display_overnight_changes_bar()
+    
+    st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
+    st.sidebar.divider()
+    
+    st.sidebar.header("Terminal Controls")
+    st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
+    mode = st.sidebar.radio("Mode", ["Cash", "Algo Bots"], horizontal=True)
+    st.sidebar.divider()
+
+    if st.sidebar.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
+        
+    pages = {
+        "Cash": page_dashboard,
+        "Algo Bots": page_algo_trading_bots,
+    }
+    
+    st_autorefresh(interval=15 * 1000, key="data_refresher")
+    
+    pages.get(mode, page_not_implemented)()
+
+# --- Application Entry Point ---
+if __name__ == "__main__":
+    initialize_session_state()
+    
+    if 'profile' in st.session_state and st.session_state.profile:
+        main_app()
+    else:
+        login_page()
+
