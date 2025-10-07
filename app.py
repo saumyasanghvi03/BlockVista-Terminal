@@ -410,6 +410,12 @@ def get_instrument_df():
         df['expiry'] = pd.to_datetime(df['expiry'])
     return df
 
+def get_instrument_token(symbol, instrument_df, exchange='NSE'):
+    """Finds the instrument token for a given symbol and exchange."""
+    if instrument_df.empty: return None
+    match = instrument_df[(instrument_df['tradingsymbol'] == symbol.upper()) & (instrument_df['exchange'] == exchange)]
+    return match.iloc[0]['instrument_token'] if not match.empty else None
+
 @st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period='5y'):
     client = get_broker_client()
@@ -490,6 +496,7 @@ def mean_reversion_strategy(symbol, capital, instrument_df):
     if data.empty or len(data) < 20: return None, "Insufficient data"
     
     bbands = ta.bbands(data['close'], length=20, std=2)
+    if bbands is None: return None, "Could not calculate Bollinger Bands"
     data = pd.concat([data, bbands], axis=1)
     latest = data.iloc[-1]
 
@@ -608,11 +615,14 @@ def page_algo_trading_bots():
                 st.metric("Capital", f"₹{bot['capital']:,.0f}")
                 st.metric("P&L", f"₹{bot.get('pnl', 0):,.2f}")
             with c3:
-                if st.toggle('Enable Auto-Trading', value=bot.get('auto_trade_enabled', False), key=f"auto_{bot_id}"):
-                    st.session_state.algo_bots[bot_id]['auto_trade_enabled'] = True
+                # Use a key to ensure the toggle state is managed correctly
+                auto_trade_key = f"auto_{bot_id}"
+                is_auto_trading = st.toggle('Enable Auto-Trading', value=st.session_state.algo_bots[bot_id].get('auto_trade_enabled', False), key=auto_trade_key)
+                st.session_state.algo_bots[bot_id]['auto_trade_enabled'] = is_auto_trading
+
+                if is_auto_trading:
                     st.success("Auto ON")
                 else:
-                    st.session_state.algo_bots[bot_id]['auto_trade_enabled'] = False
                     st.warning("Auto OFF")
 
                 if bot.get("status") == "active":
@@ -717,3 +727,4 @@ if __name__ == "__main__":
         main_app()
     else:
         login_page()
+
