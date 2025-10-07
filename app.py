@@ -3642,9 +3642,9 @@ def show_login_animation():
         for text, progress in steps.items():
             status_text.markdown(f"<div style='text-align: center; padding: 1rem;'>{text}</div>", unsafe_allow_html=True)
             progress_bar.progress(progress)
-            a_time.sleep(0.8)
+            time.sleep(0.8)
         
-        a_time.sleep(0.5)
+        time.sleep(0.5)
         st.session_state['login_animation_complete'] = True
         st.rerun()
 
@@ -3710,7 +3710,7 @@ def login_page():
                         st.session_state.broker = "Zerodha"
                         st.query_params.clear()
                         st.success("✅ Authentication successful!")
-                        a_time.sleep(1)
+                        time.sleep(1)
                         st.rerun()
                 except Exception as e:
                     st.error(f"❌ Authentication failed: {e}")
