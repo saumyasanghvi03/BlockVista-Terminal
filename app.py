@@ -17,7 +17,7 @@ import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
 from tabulate import tabulate
-import time as a_time # Renaming to avoid conflict with datetime.time
+import time as a_time
 import re
 import yfinance as yf
 import pyotp
@@ -56,7 +56,6 @@ def apply_custom_styling():
             --light-red: #dc3545;
         }
 
-        /* Set Theme based on body class */
         body.dark-theme {
             --primary-bg: var(--dark-bg);
             --secondary-bg: var(--dark-secondary-bg);
@@ -84,7 +83,6 @@ def apply_custom_styling():
             color: var(--text-color);
         }
         
-        /* Main App container */
         .main .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
@@ -98,7 +96,6 @@ def apply_custom_styling():
             background: var(--border-color);
         }
 
-        /* --- Components --- */
         .stButton>button {
             border-color: var(--border-color);
             background-color: var(--widget-bg);
@@ -120,7 +117,6 @@ def apply_custom_styling():
             border-radius: 8px;
         }
         
-        /* Metric Cards */
         .metric-card {
             background-color: var(--secondary-bg);
             border: 1px solid var(--border-color);
@@ -129,7 +125,6 @@ def apply_custom_styling():
             border-left-width: 5px;
         }
         
-        /* AI Trade Idea Card */
         .trade-card {
             background-color: var(--secondary-bg);
             border: 1px solid var(--border-color);
@@ -138,7 +133,6 @@ def apply_custom_styling():
             border-left-width: 5px;
         }
 
-        /* Notification Bar */
         .notification-bar {
             position: sticky;
             top: 0;
@@ -161,7 +155,38 @@ def apply_custom_styling():
             white-space: nowrap;
         }
         
-        /* HFT Terminal specific styles */
+        .market-notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--widget-bg);
+            border: 2px solid;
+            border-radius: 15px;
+            padding: 2rem;
+            z-index: 1000;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            text-align: center;
+            min-width: 300px;
+            max-width: 500px;
+        }
+        .market-notification.open {
+            border-color: var(--green);
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(40, 167, 69, 0.1) 100%);
+        }
+        .market-notification.warning {
+            border-color: #ffc107;
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(255, 193, 7, 0.1) 100%);
+        }
+        .market-notification.closed {
+            border-color: var(--red);
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(220, 53, 69, 0.1) 100%);
+        }
+        .market-notification.info {
+            border-color: #17a2b8;
+            background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(23, 162, 184, 0.1) 100%);
+        }
+        
         .hft-depth-bid {
             background: linear-gradient(to left, rgba(0, 128, 0, 0.3), rgba(0, 128, 0, 0.05));
             padding: 2px 5px;
@@ -190,7 +215,6 @@ def apply_custom_styling():
     """
     st.markdown(theme_css, unsafe_allow_html=True)
     
-    # Use JavaScript to apply theme class to body
     js_theme = f"""
     <script>
         document.body.classList.remove('light-theme', 'dark-theme');
@@ -199,48 +223,269 @@ def apply_custom_styling():
     """
     st.components.v1.html(js_theme, height=0)
 
-# Centralized data source configuration for ML models
-ML_DATA_SOURCES = {
+# ================ ENHANCED DATA COLLECTION MODULE ================
+
+# Enhanced data sources with multiple fallbacks
+ENHANCED_DATA_SOURCES = {
     "NIFTY 50": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY50.csv",
-        "tradingsymbol": "NIFTY 50",
-        "exchange": "NSE"
+        "yfinance_ticker": "^NSEI",
+        "tradingsymbol": "NIFTY 50", 
+        "exchange": "NSE",
+        "fallback": "yfinance"
     },
     "BANK NIFTY": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANKNIFTY.csv",
+        "yfinance_ticker": "^NSEBANK", 
         "tradingsymbol": "BANKNIFTY",
-        "exchange": "NFO"
+        "exchange": "NFO",
+        "fallback": "yfinance"
     },
     "NIFTY Financial Services": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
+        "yfinance_ticker": "FINNIFTY.NS",
         "tradingsymbol": "FINNIFTY",
-        "exchange": "NFO"
+        "exchange": "NFO",
+        "fallback": "yfinance"
     },
     "GOLD": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/GOLD.csv",
+        "yfinance_ticker": "GC=F",
         "tradingsymbol": "GOLDM",
-        "exchange": "MCX"
+        "exchange": "MCX", 
+        "fallback": "yfinance"
     },
     "USDINR": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/USDINR.csv",
+        "yfinance_ticker": "INR=X",
         "tradingsymbol": "USDINR",
-        "exchange": "CDS"
+        "exchange": "CDS",
+        "fallback": "yfinance"
     },
     "SENSEX": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
+        "yfinance_ticker": "^BSESN",
         "tradingsymbol": "SENSEX",
-        "exchange": "BSE"
+        "exchange": "BSE",
+        "fallback": "yfinance"
     },
     "S&P 500": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
+        "yfinance_ticker": "^GSPC",
         "tradingsymbol": "^GSPC",
-        "exchange": "yfinance"
+        "exchange": "yfinance",
+        "fallback": "yfinance"
+    },
+    "NIFTY MIDCAP 100": {
+        "yfinance_ticker": "^CNXMD",
+        "tradingsymbol": "NIFTYMID100",
+        "exchange": "NSE", 
+        "fallback": "yfinance"
     }
 }
+
+def download_hourly_data_yfinance(ticker, period="2y"):
+    """Download hourly data using yfinance with error handling."""
+    try:
+        data = yf.download(ticker, period=period, interval="1h")
+        if data.empty:
+            return pd.DataFrame()
+        
+        # Reset index and rename columns
+        data = data.reset_index()
+        data.columns = [col.lower() for col in data.columns]
+        
+        # Ensure standard column names
+        column_mapping = {
+            'date': 'datetime',
+            'open': 'open', 
+            'high': 'high',
+            'low': 'low', 
+            'close': 'close',
+            'volume': 'volume'
+        }
+        
+        data = data.rename(columns=column_mapping)
+        data['datetime'] = pd.to_datetime(data['datetime'])
+        data.set_index('datetime', inplace=True)
+        
+        return data
+        
+    except Exception as e:
+        st.error(f"Error downloading {ticker} from yfinance: {e}")
+        return pd.DataFrame()
+
+def download_from_github(url):
+    """Download CSV data from GitHub with error handling."""
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = pd.read_csv(io.StringIO(response.text))
+        
+        # Standardize column names
+        data.columns = [col.lower() for col in data.columns]
+        
+        # Handle different date column names
+        date_columns = ['date', 'datetime', 'time', 'timestamp']
+        date_col = next((col for col in date_columns if col in data.columns), None)
+        
+        if date_col:
+            data[date_col] = pd.to_datetime(data[date_col], errors='coerce')
+            data.set_index(date_col, inplace=True)
+        
+        # Convert numeric columns
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+        for col in numeric_cols:
+            if col in data.columns:
+                data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', ''), errors='coerce')
+        
+        return data
+        
+    except Exception as e:
+        st.error(f"Error downloading from GitHub {url}: {e}")
+        return pd.DataFrame()
+
+def get_enhanced_historical_data(instrument_name, data_type="hourly"):
+    """
+    Enhanced historical data fetcher with multiple fallback sources.
+    
+    Parameters:
+    - instrument_name: Name of the instrument from ENHANCED_DATA_SOURCES
+    - data_type: "hourly" or "daily"
+    """
+    source_info = ENHANCED_DATA_SOURCES.get(instrument_name)
+    if not source_info:
+        st.error(f"No data source configured for {instrument_name}")
+        return pd.DataFrame()
+    
+    data = pd.DataFrame()
+    
+    # Try GitHub first if available
+    if "github_url" in source_info:
+        data = download_from_github(source_info["github_url"])
+    
+    # If GitHub fails or we need hourly data, try yfinance
+    if data.empty or data_type == "hourly":
+        yf_ticker = source_info.get("yfinance_ticker")
+        if yf_ticker:
+            period = "2y" if data_type == "hourly" else "max"
+            interval = "1h" if data_type == "hourly" else "1d"
+            
+            try:
+                yf_data = yf.download(yf_ticker, period=period, interval=interval)
+                if not yf_data.empty:
+                    yf_data = yf_data.reset_index()
+                    yf_data.columns = [col.lower() for col in yf_data.columns]
+                    
+                    # Handle different date column names in yfinance
+                    if 'date' in yf_data.columns:
+                        yf_data.rename(columns={'date': 'datetime'}, inplace=True)
+                    elif 'index' in yf_data.columns:
+                        yf_data.rename(columns={'index': 'datetime'}, inplace=True)
+                    
+                    yf_data['datetime'] = pd.to_datetime(yf_data['datetime'])
+                    yf_data.set_index('datetime', inplace=True)
+                    
+                    # If we have existing data, merge them
+                    if not data.empty:
+                        # Keep yfinance data for periods not in GitHub data
+                        combined_data = pd.concat([data, yf_data])
+                        combined_data = combined_data[~combined_data.index.duplicated(keep='last')]
+                        data = combined_data.sort_index()
+                    else:
+                        data = yf_data
+            except Exception as e:
+                st.error(f"Error downloading {instrument_name} from yfinance: {e}")
+    
+    # Add technical indicators if we have data
+    if not data.empty:
+        try:
+            # Basic technical indicators
+            if all(col in data.columns for col in ['open', 'high', 'low', 'close']):
+                # RSI
+                data['rsi_14'] = ta.rsi(data['close'], length=14)
+                
+                # Moving averages
+                data['sma_20'] = ta.sma(data['close'], length=20)
+                data['ema_12'] = ta.ema(data['close'], length=12)
+                data['ema_26'] = ta.ema(data['close'], length=26)
+                
+                # MACD
+                macd = ta.macd(data['close'])
+                if macd is not None:
+                    data = pd.concat([data, macd], axis=1)
+                
+                # Bollinger Bands
+                bb = ta.bbands(data['close'])
+                if bb is not None:
+                    data = pd.concat([data, bb], axis=1)
+                    
+        except Exception as e:
+            st.warning(f"Could not add technical indicators for {instrument_name}: {e}")
+    
+    return data
+
+def update_historical_data_files():
+    """Function to update all historical data files with latest data."""
+    st.subheader("Update Historical Data Files")
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    instruments = list(ENHANCED_DATA_SOURCES.keys())
+    results = []
+    
+    for i, instrument in enumerate(instruments):
+        status_text.text(f"Downloading {instrument}...")
+        
+        try:
+            data = get_enhanced_historical_data(instrument, "daily")
+            if not data.empty:
+                # Save to session state or file
+                if f'historical_{instrument}' not in st.session_state:
+                    st.session_state[f'historical_{instrument}'] = data
+                
+                results.append({
+                    'Instrument': instrument,
+                    'Status': '✅ Success',
+                    'Data Points': len(data),
+                    'Date Range': f"{data.index.min().strftime('%Y-%m-%d')} to {data.index.max().strftime('%Y-%m-%d')}"
+                })
+            else:
+                results.append({
+                    'Instrument': instrument,
+                    'Status': '❌ Failed',
+                    'Data Points': 0,
+                    'Date Range': 'N/A'
+                })
+                
+        except Exception as e:
+            results.append({
+                'Instrument': instrument,
+                'Status': f'❌ Error: {str(e)[:50]}...',
+                'Data Points': 0,
+                'Date Range': 'N/A'
+            })
+        
+        progress_bar.progress((i + 1) / len(instruments))
+    
+    # Display results
+    results_df = pd.DataFrame(results)
+    st.dataframe(results_df, use_container_width=True)
+    
+    # Download option
+    if st.button("Export All Data as ZIP"):
+        # Implementation for ZIP export
+        st.info("Export feature would save all data files as CSV in a ZIP archive")
+    
+    return results_df
+
+# Replace the existing ML_DATA_SOURCES with enhanced version
+ML_DATA_SOURCES = ENHANCED_DATA_SOURCES
+
 # ================ 1.5 INITIALIZATION ========================
 def initialize_session_state():
     """Initializes all necessary session state variables."""
-    # Broker and Login
     if 'broker' not in st.session_state: st.session_state.broker = None
     if 'kite' not in st.session_state: st.session_state.kite = None
     if 'profile' not in st.session_state: st.session_state.profile = None
@@ -248,12 +493,7 @@ def initialize_session_state():
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
     if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
-
-
-    # UI/Theme
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
-
-    # Watchlists
     if 'watchlists' not in st.session_state:
         st.session_state.watchlists = {
             "Watchlist 1": [{'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'}],
@@ -261,26 +501,24 @@ def initialize_session_state():
             "Watchlist 3": [{'symbol': 'SENSEX', 'exchange': 'BSE'}]
         }
     if 'active_watchlist' not in st.session_state: st.session_state.active_watchlist = "Watchlist 1"
-
-    # Orders
     if 'order_history' not in st.session_state: st.session_state.order_history = []
     if 'basket' not in st.session_state: st.session_state.basket = []
     if 'last_order_details' not in st.session_state: st.session_state.last_order_details = {}
-
-    # F&O Analytics
     if 'underlying_pcr' not in st.session_state: st.session_state.underlying_pcr = "NIFTY"
     if 'strategy_legs' not in st.session_state: st.session_state.strategy_legs = []
     if 'calculated_greeks' not in st.session_state: st.session_state.calculated_greeks = None
-    
-    # AI/ML Features
     if 'messages' not in st.session_state: st.session_state.messages = []
     if 'ml_forecast_df' not in st.session_state: st.session_state.ml_forecast_df = None
     if 'ml_instrument_name' not in st.session_state: st.session_state.ml_instrument_name = None
     if 'backtest_results' not in st.session_state: st.session_state.backtest_results = None
-
-    # HFT Mode
+    if 'fundamental_companies' not in st.session_state: st.session_state.fundamental_companies = []
+    
+    # HFT Terminal specific state variables
     if 'hft_last_price' not in st.session_state: st.session_state.hft_last_price = 0
     if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
+    if 'market_notifications_shown' not in st.session_state: st.session_state.market_notifications_shown = {}
+    if 'show_2fa_dialog' not in st.session_state: st.session_state.show_2fa_dialog = False
+    if 'show_qr_dialog' not in st.session_state: st.session_state.show_qr_dialog = False
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -290,31 +528,43 @@ def get_broker_client():
         return st.session_state.get('kite')
     return None
 
-@st.dialog("Quick Trade")
 def quick_trade_dialog(symbol=None, exchange=None):
     """A quick trade dialog for placing market or limit orders."""
-    instrument_df = get_instrument_df()
-    st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
+    if 'show_quick_trade' not in st.session_state:
+        st.session_state.show_quick_trade = False
     
-    if symbol is None:
-        symbol = st.text_input("Symbol").upper()
+    if symbol or st.button("Quick Trade", key="quick_trade_btn"):
+        st.session_state.show_quick_trade = True
     
-    transaction_type = st.radio("Transaction", ["BUY", "SELL"], horizontal=True, key="diag_trans_type")
-    product = st.radio("Product", ["MIS", "CNC"], horizontal=True, key="diag_prod_type")
-    order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="diag_order_type")
-    quantity = st.number_input("Quantity", min_value=1, step=1, key="diag_qty")
-    price = st.number_input("Price", min_value=0.01, key="diag_price") if order_type == "LIMIT" else 0
+    if st.session_state.show_quick_trade:
+        st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
+        
+        if symbol is None:
+            symbol = st.text_input("Symbol").upper()
+        
+        transaction_type = st.radio("Transaction", ["BUY", "SELL"], horizontal=True, key="diag_trans_type")
+        product = st.radio("Product", ["MIS", "CNC"], horizontal=True, key="diag_prod_type")
+        order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="diag_order_type")
+        quantity = st.number_input("Quantity", min_value=1, step=1, key="diag_qty")
+        price = st.number_input("Price", min_value=0.01, key="diag_price") if order_type == "LIMIT" else 0
 
-    if st.button("Submit Order", use_container_width=True):
-        if symbol and quantity > 0:
-            place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price if price > 0 else None)
+        col1, col2 = st.columns(2)
+        if col1.button("Submit Order", use_container_width=True):
+            if symbol and quantity > 0:
+                instrument_df = get_instrument_df()
+                place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price if price > 0 else None)
+                st.session_state.show_quick_trade = False
+                st.rerun()
+            else:
+                st.warning("Please fill in all fields.")
+        
+        if col2.button("Cancel", use_container_width=True):
+            st.session_state.show_quick_trade = False
             st.rerun()
-        else:
-            st.warning("Please fill in all fields.")
 
 @st.cache_data(ttl=3600)
 def get_market_holidays(year):
-    """NSE holidays (update yearly). A more robust solution would use an API or a library."""
+    """NSE holidays (update yearly)."""
     holidays_by_year = {
         2024: ['2024-01-22', '2024-01-26', '2024-03-08', '2024-03-25', '2024-03-29', '2024-04-11', '2024-04-17', '2024-05-01', '2024-05-20', '2024-06-17', '2024-07-17', '2024-08-15', '2024-10-02', '2024-11-01', '2024-11-15', '2024-12-25'],
         2025: ['2025-01-26', '2025-03-06', '2025-03-21', '2025-04-14', '2025-04-18', '2025-05-01', '2025-08-15', '2025-10-02', '2025-10-21', '2025-11-05', '2025-12-25'],
@@ -334,6 +584,59 @@ def get_market_status():
     if market_open_time <= now.time() <= market_close_time:
         return {"status": "OPEN", "color": "#28a745"}
     return {"status": "CLOSED", "color": "#FF4B4B"}
+
+def check_market_timing_notifications():
+    """Checks for market timing events and shows notifications."""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    current_time = now.time()
+    today_str = now.strftime('%Y-%m-%d')
+    
+    # Initialize notification tracking for today
+    if 'market_notifications_shown' not in st.session_state:
+        st.session_state.market_notifications_shown = {}
+    if today_str not in st.session_state.market_notifications_shown:
+        st.session_state.market_notifications_shown[today_str] = {}
+    
+    notifications_shown_today = st.session_state.market_notifications_shown[today_str]
+    
+    # Market timing events
+    market_events = [
+        {"time": time(9, 15), "type": "open", "title": "Market Open", "message": "Indian Stock Market is now open for trading", "class": "open", "duration": 10},
+        {"time": time(9, 45), "type": "ipo_preopen", "title": "IPO Pre-Opening Window", "message": "IPO pre-opening session has started. Orders can be placed but will be executed after 10:00 AM", "class": "info", "duration": 10},
+        {"time": time(10, 0), "type": "ipo_open", "title": "IPO Trading Starts", "message": "IPO orders are now being executed in the market", "class": "info", "duration": 10},
+        {"time": time(15, 15), "type": "closing_warning", "title": "Market Closing Soon", "message": "Market will close in 15 minutes. Place your final orders", "class": "warning", "duration": 10},
+        {"time": time(15, 30), "type": "closed", "title": "Market Closed", "message": "Indian Stock Market is now closed for the day", "class": "closed", "duration": 10}
+    ]
+    
+    # Check if we should show any notifications
+    for event in market_events:
+        event_key = f"{today_str}_{event['type']}"
+        
+        # Check if it's time for this event and we haven't shown it yet
+        if (current_time >= event["time"] and 
+            current_time <= (datetime.combine(now.date(), event["time"]) + timedelta(seconds=event["duration"])).time() and
+            event_key not in notifications_shown_today):
+            
+            # Show the notification
+            show_market_notification(event["title"], event["message"], event["class"], event["duration"])
+            
+            # Mark as shown
+            notifications_shown_today[event_key] = True
+            break
+
+def show_market_notification(title, message, notification_class, duration=10):
+    """Displays a market timing notification."""
+    notification_html = f"""
+    <div class="market-notification {notification_class}">
+        <h3>{title}</h3>
+        <p>{message}</p>
+        <small>This notification will auto-close in {duration} seconds</small>
+    </div>
+    """
+    st.markdown(notification_html, unsafe_allow_html=True)
+    st.session_state.market_notification_time = datetime.now()
+    st.session_state.market_notification_duration = duration
 
 def display_header():
     """Displays the main header with market status, a live clock, and trade buttons."""
@@ -380,7 +683,6 @@ def display_overnight_changes_bar():
                     bar_html += f"<span>{name}: {price:,.2f} <span style='color:{color};'>({change:+.2f}%)</span></span>"
         bar_html += "</div>"
         st.markdown(bar_html, unsafe_allow_html=True)
-
 
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 
@@ -467,7 +769,7 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
             df.set_index('date', inplace=True)
             df.index = pd.to_datetime(df.index)
             
-            # Add technical indicators silently
+            # Add technical indicators
             try:
                 df.ta.adx(append=True); df.ta.apo(append=True); df.ta.aroon(append=True); df.ta.atr(append=True); df.ta.bbands(append=True); df.ta.cci(append=True); df.ta.chop(append=True); df.ta.cksp(append=True); df.ta.cmf(append=True); df.ta.coppock(append=True); df.ta.ema(length=50, append=True); df.ta.ema(length=200, append=True); df.ta.fisher(append=True); df.ta.kst(append=True); df.ta.macd(append=True); df.ta.mfi(append=True); df.ta.mom(append=True); df.ta.obv(append=True); df.ta.rsi(append=True); df.ta.stoch(append=True); df.ta.supertrend(append=True); df.ta.willr(append=True)
             except Exception:
@@ -517,12 +819,15 @@ def get_market_depth(instrument_token):
     if not client or not instrument_token:
         return None
     try:
-        depth = client.depth(instrument_token)
-        return depth.get(str(instrument_token))  # Zerodha returns a dict with token as string key
+        # Use quote method to get market depth data instead of depth
+        quote_data = client.quote([str(instrument_token)])
+        instrument_key = str(instrument_token)
+        if instrument_key in quote_data:
+            return quote_data[instrument_key].get('depth')
+        return None
     except Exception as e:
         st.toast(f"Error fetching market depth: {e}", icon="⚠️")
         return None
-
 
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df, expiry_date=None):
@@ -644,7 +949,7 @@ def fetch_and_analyze_news(query=None):
     for source, url in news_sources.items():
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:10]: # Limit to 10 articles per source
+            for entry in feed.entries[:10]:
                 published_date_tuple = entry.published_parsed if hasattr(entry, 'published_parsed') else entry.updated_parsed
                 published_date = datetime.fromtimestamp(mktime_tz(published_date_tuple)) if published_date_tuple else datetime.now()
                 if query is None or query.lower() in entry.title.lower() or (hasattr(entry, 'summary') and query.lower() in entry.summary.lower()):
@@ -673,14 +978,14 @@ def train_seasonal_arima_model(_data, forecast_steps=30):
 
         model = ARIMA(seasonally_adjusted, order=(5, 1, 0)).fit()
         
-        # Backtesting: Create predictions for historical data
+        # Backtesting
         fitted_values = model.fittedvalues + decomposed.seasonal
         backtest_df = pd.DataFrame({'Actual': df['close'], 'Predicted': fitted_values}).dropna()
         
-        # Forecasting: Predict future values
+        # Forecasting
         forecast_result = model.get_forecast(steps=forecast_steps)
         forecast_adjusted = forecast_result.predicted_mean
-        conf_int = forecast_result.conf_int(alpha=0.05) # 95% confidence interval
+        conf_int = forecast_result.conf_int(alpha=0.05)
 
         last_season_cycle = decomposed.seasonal.iloc[-7:]
         future_seasonal_values = np.tile(last_season_cycle.values, forecast_steps // 7 + 1)[:forecast_steps]
@@ -702,60 +1007,10 @@ def train_seasonal_arima_model(_data, forecast_steps=30):
         st.error(f"Seasonal ARIMA model training failed: {e}")
         return None, None, None
 
-
 @st.cache_data
 def load_and_combine_data(instrument_name):
-    """Loads and combines historical data from a static CSV with live data from the broker."""
-    source_info = ML_DATA_SOURCES.get(instrument_name)
-    if not source_info:
-        st.error(f"No data source configured for {instrument_name}")
-        return pd.DataFrame()
-    try:
-        response = requests.get(source_info['github_url'])
-        response.raise_for_status()
-        hist_df = pd.read_csv(io.StringIO(response.text))
-        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed', dayfirst=True).dt.tz_localize(None)
-        hist_df.set_index('Date', inplace=True)
-        hist_df.columns = [col.lower() for col in hist_df.columns]
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            if col in hist_df.columns:
-                hist_df[col] = pd.to_numeric(hist_df[col].astype(str).str.replace(',', ''), errors='coerce')
-        hist_df.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
-    except Exception as e:
-        st.error(f"Failed to load historical data: {e}")
-        return pd.DataFrame()
-        
-    live_df = pd.DataFrame()
-    if get_broker_client() and source_info.get('tradingsymbol') and source_info.get('exchange') != 'yfinance':
-        instrument_df = get_instrument_df()
-        token = get_instrument_token(source_info['tradingsymbol'], instrument_df, source_info['exchange'])
-        if token:
-            from_date = hist_df.index.max().date() if not hist_df.empty else datetime.now().date() - timedelta(days=365)
-            live_df = get_historical_data(token, 'day', from_date=from_date)
-            if not live_df.empty: 
-                live_df.index = live_df.index.tz_convert(None) # Make timezone-naive
-                live_df.columns = [col.lower() for col in live_df.columns]
-    elif source_info.get('exchange') == 'yfinance':
-        try:
-            live_df = yf.download(source_info['tradingsymbol'], period="max")
-            if not live_df.empty: 
-                live_df.index = live_df.index.tz_localize(None) # Make timezone-naive
-                live_df.columns = [col.lower() for col in live_df.columns]
-        except Exception as e:
-            st.error(f"Failed to load yfinance data: {e}")
-            live_df = pd.DataFrame()
-            
-    if not live_df.empty:
-        hist_df.index = hist_df.index.tz_localize(None) if hist_df.index.tz is not None else hist_df.index
-        live_df.index = live_df.index.tz_localize(None) if live_df.index.tz is not None else live_df.index
-        
-        combined_df = pd.concat([hist_df, live_df])
-        combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
-        combined_df.sort_index(inplace=True)
-        return combined_df
-    else:
-        hist_df.sort_index(inplace=True)
-        return hist_df
+    """Enhanced version using the new data fetcher."""
+    return get_enhanced_historical_data(instrument_name, "daily")
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
     """Calculates Black-Scholes option price and Greeks."""
@@ -784,7 +1039,6 @@ def interpret_indicators(df):
     latest.index = latest.index.str.lower()
     interpretation = {}
     
-    # More robust column finding
     rsi_col = next((col for col in latest.index if 'rsi' in col), None)
     stoch_k_col = next((col for col in latest.index if 'stok' in col), None)
     macd_col = next((col for col in latest.index if 'macd' in col and 'macds' not in col and 'macdh' not in col), None)
@@ -822,7 +1076,6 @@ def execute_basket_order(basket_items, instrument_df):
     if st.session_state.broker == "Zerodha":
         orders_to_place = []
         for item in basket_items:
-            # Find exchange for each symbol
             instrument = instrument_df[instrument_df['tradingsymbol'] == item['symbol']]
             if instrument.empty:
                 st.toast(f"❌ Could not find symbol {item['symbol']} in instrument list. Skipping.", icon="🔥")
@@ -848,7 +1101,6 @@ def execute_basket_order(basket_items, instrument_df):
         try:
             client.place_order(variety=client.VARIETY_REGULAR, orders=orders_to_place)
             st.toast("✅ Basket order placed successfully!", icon="🎉")
-            # Clear basket after execution
             st.session_state.basket = []
             st.rerun()
         except Exception as e:
@@ -857,7 +1109,6 @@ def execute_basket_order(basket_items, instrument_df):
 @st.cache_data(ttl=3600)
 def get_sector_data():
     """Loads stock-to-sector mapping from a local CSV file."""
-    # This function expects a local file named 'sensex_sectors.csv'
     try:
         return pd.read_csv("sensex_sectors.csv")
     except FileNotFoundError:
@@ -871,11 +1122,9 @@ def style_option_chain(df, ltp):
 
     def highlight_itm(row):
         styles = [''] * len(row)
-        # Call ITM
         if row['STRIKE'] < ltp:
             styles[df.columns.get_loc('CALL LTP')] = 'background-color: #2E4053'
             styles[df.columns.get_loc('CALL OI')] = 'background-color: #2E4053'
-        # Put ITM
         if row['STRIKE'] > ltp:
             styles[df.columns.get_loc('PUT LTP')] = 'background-color: #2E4053'
             styles[df.columns.get_loc('PUT OI')] = 'background-color: #2E4053'
@@ -883,16 +1132,26 @@ def style_option_chain(df, ltp):
 
     return df.style.apply(highlight_itm, axis=1)
 
-@st.dialog("Most Active Options")
 def show_most_active_dialog(underlying, instrument_df):
     """Dialog to display the most active options by volume."""
-    st.subheader(f"Most Active {underlying} Options (By Volume)")
-    with st.spinner("Fetching data..."):
-        active_df = get_most_active_options(underlying, instrument_df)
-        if not active_df.empty:
-            st.dataframe(active_df, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Could not retrieve data for most active options.")
+    if 'show_most_active' not in st.session_state:
+        st.session_state.show_most_active = False
+    
+    if st.button("Most Active Options", key="most_active_btn"):
+        st.session_state.show_most_active = True
+    
+    if st.session_state.show_most_active:
+        st.subheader(f"Most Active {underlying} Options (By Volume)")
+        with st.spinner("Fetching data..."):
+            active_df = get_most_active_options(underlying, instrument_df)
+            if not active_df.empty:
+                st.dataframe(active_df, use_container_width=True, hide_index=True)
+            else:
+                st.warning("Could not retrieve data for most active options.")
+        
+        if st.button("Close", key="close_most_active"):
+            st.session_state.show_most_active = False
+            st.rerun()
 
 def get_most_active_options(underlying, instrument_df):
     """Fetches the most active options by volume for a given underlying."""
@@ -926,7 +1185,7 @@ def get_most_active_options(underlying, instrument_df):
                 'LTP': last_price,
                 'Change %': pct_change,
                 'Volume': data.get('volume', 0),
-                'OI': data.get('open_interest', 0) # Corrected key
+                'OI': data.get('oi', 0)
             })
         
         df = pd.DataFrame(active_options)
@@ -971,7 +1230,6 @@ def get_global_indices_data(tickers):
         st.error(f"Failed to fetch data from yfinance: {e}")
         return pd.DataFrame()
 
-
 # ================ 5. PAGE DEFINITIONS ============
 
 # --- Bharatiya Market Pulse (BMP) Functions ---
@@ -979,14 +1237,13 @@ def get_bmp_score_and_label(nifty_change, sensex_change, vix_value, lookback_df)
     """Calculates BMP score and returns the score and a Bharat-flavored label."""
     if lookback_df.empty or len(lookback_df) < 30:
         return 50, "Calculating...", "#cccccc"
-    # Normalize NIFTY and SENSEX
+    
     nifty_min, nifty_max = lookback_df['nifty_change'].min(), lookback_df['nifty_change'].max()
     sensex_min, sensex_max = lookback_df['sensex_change'].min(), lookback_df['sensex_change'].max()
 
     nifty_norm = ((nifty_change - nifty_min) / (nifty_max - nifty_min)) * 100 if (nifty_max - nifty_min) > 0 else 50
     sensex_norm = ((sensex_change - sensex_min) / (sensex_max - sensex_min)) * 100 if (sensex_max - sensex_min) > 0 else 50
     
-    # Inversely normalize VIX
     vix_min, vix_max = lookback_df['vix_value'].min(), lookback_df['vix_value'].max()
     vix_norm = 100 - (((vix_value - vix_min) / (vix_max - vix_min)) * 100) if (vix_max - vix_min) > 0 else 50
 
@@ -1048,7 +1305,7 @@ def create_nifty_heatmap(instrument_df):
         return go.Figure()
         
     full_data = pd.merge(live_data, constituents_df, left_on='Ticker', right_on='Symbol', how='left')
-    full_data['size'] = full_data['Price'].astype(float) * 1000 # Using price as a proxy for size
+    full_data['size'] = full_data['Price'].astype(float) * 1000
     
     fig = go.Figure(go.Treemap(
         labels=full_data['Ticker'],
@@ -1086,7 +1343,10 @@ def page_dashboard():
     if instrument_df.empty:
         st.info("Please connect to a broker to view the dashboard.")
         return
-    # Fetch NIFTY, SENSEX, and VIX data for BMP calculation
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     index_symbols = [
         {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
         {'symbol': 'SENSEX', 'exchange': 'BSE'},
@@ -1103,7 +1363,6 @@ def page_dashboard():
             sensex_row = index_data[index_data['Ticker'] == 'SENSEX'].iloc[0]
             vix_row = index_data[index_data['Ticker'] == 'INDIA VIX'].iloc[0]
             
-            # Fetch historical data for normalization
             nifty_hist = get_historical_data(get_instrument_token('NIFTY 50', instrument_df, 'NSE'), 'day', period='1y')
             sensex_hist = get_historical_data(get_instrument_token('SENSEX', instrument_df, 'BSE'), 'day', period='1y')
             vix_hist = get_historical_data(get_instrument_token('INDIA VIX', instrument_df, 'NSE'), 'day', period='1y')
@@ -1252,6 +1511,10 @@ def page_advanced_charting():
     """A page for advanced charting with custom intervals and indicators."""
     display_header()
     st.title("Advanced Multi-Chart Terminal")
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     instrument_df = get_instrument_df()
     if instrument_df.empty:
         st.info("Please connect to a broker to use the charting tools.")
@@ -1320,6 +1583,10 @@ def render_chart_controls(i, instrument_df):
 def page_premarket_pulse():
     """Global market overview and premarket indicators with a trader-focused UI."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Premarket & Global Cues")
     st.markdown("---")
 
@@ -1390,6 +1657,10 @@ def page_premarket_pulse():
 def page_fo_analytics():
     """F&O Analytics page with comprehensive options analysis."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("F&O Analytics Hub")
     
     instrument_df = get_instrument_df()
@@ -1417,7 +1688,6 @@ def page_fo_analytics():
                 if st.button("Most Active Options", use_container_width=True):
                     show_most_active_dialog(underlying, instrument_df)
 
-            # Display options chain with ITM/OTM styling
             st.dataframe(
                 style_option_chain(chain_df, underlying_ltp).format({
                     'CALL LTP': '₹{:.2f}', 'PUT LTP': '₹{:.2f}',
@@ -1460,7 +1730,7 @@ def page_fo_analytics():
 
         if not chain_df.empty and expiry and underlying_ltp > 0:
             T = (expiry - datetime.now().date()).days / 365.0
-            r = 0.07  # Assume a risk-free rate of 7%
+            r = 0.07
 
             with st.spinner("Calculating Implied Volatility..."):
                 chain_df['IV_CE'] = chain_df.apply(
@@ -1493,6 +1763,10 @@ def page_fo_analytics():
 def page_forecasting_ml():
     """A page for advanced ML forecasting with an improved UI and corrected formulas."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Advanced ML Forecasting")
     st.info("Train a Seasonal ARIMA model to forecast future prices. This is for educational purposes and not financial advice.", icon="🧠")
     
@@ -1562,10 +1836,13 @@ def page_forecasting_ml():
         else:
             st.info("Select an instrument and run the forecast to see results.")
 
-
 def page_portfolio_and_risk():
     """A page for portfolio and risk management, including live P&L and holdings."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Portfolio & Risk")
 
     client = get_broker_client()
@@ -1658,6 +1935,10 @@ def page_portfolio_and_risk():
 def page_ai_assistant():
     """An AI-powered assistant for portfolio management and market queries."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Portfolio-Aware Assistant")
     instrument_df = get_instrument_df()
 
@@ -1782,6 +2063,10 @@ def page_ai_assistant():
 def page_basket_orders():
     """A page for creating, managing, and executing basket orders."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Basket Orders")
 
     instrument_df = get_instrument_df()
@@ -1896,6 +2181,10 @@ def supertrend_strategy(df, period=7, multiplier=3):
 def page_algo_strategy_maker():
     """Algo Strategy Maker page with pre-built, backtestable, and executable strategies."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Algo Strategy Hub")
     instrument_df = get_instrument_df()
     if instrument_df.empty:
@@ -2039,7 +2328,7 @@ def run_scanner(instrument_df, scanner_type, holdings_df=None):
                 avg_vol_20d = df['volume'].rolling(window=20).mean().iloc[-1]
                 last_vol = df['volume'].iloc[-1]
 
-                if last_close >= high_52wk * 0.98: # Within 2% of 52-week high
+                if last_close >= high_52wk * 0.98:
                     signal = "Near 52-Week High"
                     if last_vol > avg_vol_20d * 1.5:
                         signal += " (Volume Surge)"
@@ -2050,49 +2339,359 @@ def run_scanner(instrument_df, scanner_type, holdings_df=None):
             
     return pd.DataFrame(results)
 
+def run_momentum_scanner(instrument_df, holdings_df=None):
+    """Momentum scanner with RSI and MACD analysis."""
+    client = get_broker_client()
+    if not client or instrument_df.empty: 
+        return pd.DataFrame()
+
+    # Get symbols to scan
+    scan_list = []
+    if holdings_df is not None and not holdings_df.empty:
+        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]  # Limit to 20 stocks
+    else:
+        scan_list = [
+            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
+            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 
+            'MARUTI', 'ASIANPAINT', 'HCLTECH', 'TATAMOTORS', 'SUNPHARMA'
+        ]
+    
+    results = []
+    
+    for symbol in scan_list:
+        try:
+            # Get live quote
+            exchange = 'NSE'
+            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
+            if quote_data.empty:
+                continue
+                
+            current_price = quote_data.iloc[0]['Price']
+            change_pct = quote_data.iloc[0]['% Change']
+            
+            # Get historical data
+            token = get_instrument_token(symbol, instrument_df, exchange)
+            if not token:
+                continue
+                
+            hist_data = get_historical_data(token, 'day', period='3mo')
+            if hist_data.empty or len(hist_data) < 30:
+                continue
+            
+            # Calculate RSI
+            try:
+                hist_data['RSI_14'] = ta.rsi(hist_data['close'], length=14)
+                latest = hist_data.iloc[-1]
+                rsi = latest.get('RSI_14', 50)
+                
+                # Momentum signals
+                if rsi > 70 and change_pct > 0:
+                    results.append({
+                        'Symbol': symbol,
+                        'LTP': f"₹{current_price:.2f}",
+                        'Change %': f"{change_pct:.2f}%",
+                        'RSI': f"{rsi:.1f}",
+                        'Signal': "Overbought",
+                        'Strength': "High"
+                    })
+                elif rsi < 30 and change_pct < 0:
+                    results.append({
+                        'Symbol': symbol,
+                        'LTP': f"₹{current_price:.2f}",
+                        'Change %': f"{change_pct:.2f}%",
+                        'RSI': f"{rsi:.1f}",
+                        'Signal': "Oversold", 
+                        'Strength': "High"
+                    })
+                    
+            except Exception:
+                continue
+                
+        except Exception:
+            continue
+            
+    return pd.DataFrame(results)
+
+def run_trend_scanner(instrument_df, holdings_df=None):
+    """Trend scanner with EMA analysis."""
+    client = get_broker_client()
+    if not client or instrument_df.empty: 
+        return pd.DataFrame()
+
+    scan_list = []
+    if holdings_df is not None and not holdings_df.empty:
+        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]
+    else:
+        scan_list = [
+            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
+            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK'
+        ]
+    
+    results = []
+    
+    for symbol in scan_list:
+        try:
+            # Get live data
+            exchange = 'NSE'
+            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
+            if quote_data.empty:
+                continue
+                
+            current_price = quote_data.iloc[0]['Price']
+            change_pct = quote_data.iloc[0]['% Change']
+            
+            # Get historical data
+            token = get_instrument_token(symbol, instrument_df, exchange)
+            if not token:
+                continue
+                
+            hist_data = get_historical_data(token, 'day', period='3mo')
+            if hist_data.empty or len(hist_data) < 50:
+                continue
+            
+            # Calculate EMAs
+            try:
+                hist_data['EMA_20'] = ta.ema(hist_data['close'], length=20)
+                hist_data['EMA_50'] = ta.ema(hist_data['close'], length=50)
+                
+                latest = hist_data.iloc[-1]
+                ema_20 = latest.get('EMA_20', current_price)
+                ema_50 = latest.get('EMA_50', current_price)
+                
+                # Trend signals
+                if current_price > ema_20 > ema_50 and change_pct > 0:
+                    results.append({
+                        'Symbol': symbol,
+                        'LTP': f"₹{current_price:.2f}",
+                        'Change %': f"{change_pct:.2f}%",
+                        'Trend': "Uptrend",
+                        '20 EMA': f"₹{ema_20:.1f}",
+                        '50 EMA': f"₹{ema_50:.1f}"
+                    })
+                elif current_price < ema_20 < ema_50 and change_pct < 0:
+                    results.append({
+                        'Symbol': symbol,
+                        'LTP': f"₹{current_price:.2f}",
+                        'Change %': f"{change_pct:.2f}%",
+                        'Trend': "Downtrend",
+                        '20 EMA': f"₹{ema_20:.1f}",
+                        '50 EMA': f"₹{ema_50:.1f}"
+                    })
+                    
+            except Exception:
+                continue
+                
+        except Exception:
+            continue
+            
+    return pd.DataFrame(results)
+
+def run_breakout_scanner(instrument_df, holdings_df=None):
+    """Breakout scanner for key level breaks."""
+    client = get_broker_client()
+    if not client or instrument_df.empty: 
+        return pd.DataFrame()
+
+    scan_list = []
+    if holdings_df is not None and not holdings_df.empty:
+        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]
+    else:
+        scan_list = [
+            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
+            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK'
+        ]
+    
+    results = []
+    
+    for symbol in scan_list:
+        try:
+            # Get live data
+            exchange = 'NSE'
+            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
+            if quote_data.empty:
+                continue
+                
+            current_price = quote_data.iloc[0]['Price']
+            change_pct = quote_data.iloc[0]['% Change']
+            
+            # Get historical data
+            token = get_instrument_token(symbol, instrument_df, exchange)
+            if not token:
+                continue
+                
+            hist_data = get_historical_data(token, 'day', period='6mo')
+            if hist_data.empty or len(hist_data) < 100:
+                continue
+            
+            # Calculate breakout levels
+            high_20d = hist_data['high'].tail(20).max()
+            low_20d = hist_data['low'].tail(20).min()
+            
+            # Breakout signals
+            if current_price >= high_20d and change_pct > 0:
+                results.append({
+                    'Symbol': symbol,
+                    'LTP': f"₹{current_price:.2f}",
+                    'Change %': f"{change_pct:.2f}%",
+                    'Breakout': "20-Day High",
+                    'Resistance': f"₹{high_20d:.1f}"
+                })
+            elif current_price <= low_20d and change_pct < 0:
+                results.append({
+                    'Symbol': symbol,
+                    'LTP': f"₹{current_price:.2f}",
+                    'Change %': f"{change_pct:.2f}%",
+                    'Breakout': "20-Day Low", 
+                    'Support': f"₹{low_20d:.1f}"
+                })
+                
+        except Exception:
+            continue
+            
+    return pd.DataFrame(results)
+
 def page_momentum_and_trend_finder():
-    """Momentum and Trend Finder page with live data, connected to user holdings."""
+    """Clean and functional Market Scanners page."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Market Scanners")
     
     instrument_df = get_instrument_df()
     if instrument_df.empty:
-        st.info("Please connect to a broker to use this feature.")
+        st.info("Please connect to a broker to use market scanners.")
         return
         
     _, holdings_df, _, _ = get_portfolio()
     
-    st.subheader("Live Market Scanners")
-    st.caption("Scanners run on your current holdings. If you have no holdings, a predefined list of NIFTY 50 stocks is used.")
+    # Simple scanner selection
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        scanner_type = st.radio(
+            "Select Scanner Type",
+            ["Momentum (RSI)", "Trend (EMA)", "Breakout"],
+            horizontal=True
+        )
     
-    tab1, tab2, tab3 = st.tabs(["Momentum Stocks", "Trending Stocks", "Breakout Stocks"])
+    with col2:
+        if st.button("🔄 Scan Now", use_container_width=True, type="primary"):
+            st.rerun()
     
-    with tab1:
-        st.subheader("High Momentum Stocks (RSI)")
-        with st.spinner("Scanning for momentum..."):
-            momentum_data = run_scanner(instrument_df, "Momentum", holdings_df)
-            if not momentum_data.empty:
-                st.dataframe(momentum_data, use_container_width=True, hide_index=True)
-            else:
-                st.info("No stocks with strong momentum signals (RSI > 70 or < 30) found in the scanned list.")
+    st.markdown("---")
     
-    with tab2:
-        st.subheader("Trending Stocks (ADX & EMA)")
-        with st.spinner("Scanning for trends..."):
-            trending_data = run_scanner(instrument_df, "Trend", holdings_df)
-            if not trending_data.empty:
-                st.dataframe(trending_data, use_container_width=True, hide_index=True)
-            else:
-                st.info("No stocks with strong trend signals (ADX > 25) found in the scanned list.")
+    # Run selected scanner
+    with st.spinner(f"Running {scanner_type} scanner..."):
+        if scanner_type == "Momentum (RSI)":
+            data = run_momentum_scanner(instrument_df, holdings_df)
+            title = "Momentum Stocks (RSI Based)"
+            description = "Stocks with RSI above 70 (overbought) or below 30 (oversold)"
+            
+        elif scanner_type == "Trend (EMA)":
+            data = run_trend_scanner(instrument_df, holdings_df) 
+            title = "Trending Stocks (EMA Based)"
+            description = "Stocks in strong uptrend/downtrend based on EMA alignment"
+            
+        else:  # Breakout
+            data = run_breakout_scanner(instrument_df, holdings_df)
+            title = "Breakout Stocks"
+            description = "Stocks breaking 20-day high/low resistance/support levels"
     
-    with tab3:
-        st.subheader("Breakout Candidates (52-Week High)")
-        with st.spinner("Scanning for breakouts..."):
-            breakout_data = run_scanner(instrument_df, "Breakout", holdings_df)
-            if not breakout_data.empty:
-                st.dataframe(breakout_data, use_container_width=True, hide_index=True)
-            else:
-                st.info("No stocks nearing their 52-week high found in the scanned list.")
+    # Display results
+    st.subheader(title)
+    st.caption(description)
+    
+    if not data.empty:
+        # Color coding based on scanner type
+        if scanner_type == "Momentum (RSI)":
+            def color_momentum(val):
+                if 'Overbought' in str(val):
+                    return 'color: #ff4444; font-weight: bold;'
+                elif 'Oversold' in str(val):
+                    return 'color: #00aa00; font-weight: bold;'
+                return ''
+            styled_data = data.style.map(color_momentum, subset=['Signal'])
+            
+        elif scanner_type == "Trend (EMA)":
+            def color_trend(val):
+                if 'Uptrend' in str(val):
+                    return 'color: #00aa00; font-weight: bold;'
+                elif 'Downtrend' in str(val):
+                    return 'color: #ff4444; font-weight: bold;'
+                return ''
+            styled_data = data.style.map(color_trend, subset=['Trend'])
+            
+        else:  # Breakout
+            def color_breakout(val):
+                if 'High' in str(val):
+                    return 'color: #00aa00; font-weight: bold;'
+                elif 'Low' in str(val):
+                    return 'color: #ff4444; font-weight: bold;'
+                return ''
+            styled_data = data.style.map(color_breakout, subset=['Breakout'])
+        
+        st.dataframe(styled_data, use_container_width=True, hide_index=True)
+        
+        # Simple statistics
+        if scanner_type == "Momentum (RSI)":
+            bullish = len(data[data['Signal'] == 'Overbought'])
+            bearish = len(data[data['Signal'] == 'Oversold'])
+            st.metric("Signals Found", len(data), delta=f"{bullish} Bullish, {bearish} Bearish")
+            
+        elif scanner_type == "Trend (EMA)":
+            uptrend = len(data[data['Trend'] == 'Uptrend'])
+            downtrend = len(data[data['Trend'] == 'Downtrend'])
+            st.metric("Signals Found", len(data), delta=f"{uptrend} Up, {downtrend} Down")
+            
+        else:  # Breakout
+            breakouts = len(data[data['Breakout'].str.contains('High')])
+            breakdowns = len(data[data['Breakout'].str.contains('Low')])
+            st.metric("Signals Found", len(data), delta=f"{breakouts} Breakouts, {breakdowns} Breakdowns")
+        
+        # Quick actions
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("📋 Export to CSV", use_container_width=True):
+                csv = data.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"{scanner_type.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+        
+        with col2:
+            if st.button("👀 Add to Watchlist", use_container_width=True):
+                added = 0
+                for symbol in data['Symbol'].head(5):  # Add top 5
+                    if symbol not in [item['symbol'] for item in st.session_state.watchlists[st.session_state.active_watchlist]]:
+                        st.session_state.watchlists[st.session_state.active_watchlist].append({
+                            'symbol': symbol, 
+                            'exchange': 'NSE'
+                        })
+                        added += 1
+                if added > 0:
+                    st.success(f"Added {added} stocks to watchlist")
+                else:
+                    st.info("No new stocks to add")
+                    
+    else:
+        # Clear, helpful empty state
+        st.info(f"""
+        **No {scanner_type.lower()} signals found.**
+        
+        This could mean:
+        - Markets are in consolidation
+        - No extreme conditions detected
+        - Try a different scanner type
+        - Check if market is open
+        """)
+
+# Replace the existing page_momentum_and_trend_finder function with this clean version
 
 def calculate_strategy_pnl(legs, underlying_ltp):
     """Calculates the P&L for a given options strategy."""
@@ -2110,14 +2709,14 @@ def calculate_strategy_pnl(legs, underlying_ltp):
             if leg['position'] == 'Buy':
                 pnl = np.maximum(0, price_range - leg['strike']) - leg['premium']
                 total_premium -= leg['premium'] * leg['quantity']
-            else: # Sell
+            else:
                 pnl = leg['premium'] - np.maximum(0, price_range - leg['strike'])
                 total_premium += leg['premium'] * leg['quantity']
-        else: # Put
+        else:
             if leg['position'] == 'Buy':
                 pnl = np.maximum(0, leg['strike'] - price_range) - leg['premium']
                 total_premium -= leg['premium'] * leg['quantity']
-            else: # Sell
+            else:
                 pnl = leg['premium'] - np.maximum(0, leg['strike'] - price_range)
                 total_premium += leg['premium'] * leg['quantity']
         
@@ -2138,6 +2737,10 @@ def calculate_strategy_pnl(legs, underlying_ltp):
 def page_option_strategy_builder():
     """Option Strategy Builder page with live data and P&L calculation."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Options Strategy Builder")
     
     instrument_df = get_instrument_df()
@@ -2253,6 +2856,10 @@ def get_futures_contracts(instrument_df, underlying, exchange):
 def page_futures_terminal():
     """Futures Terminal page with live data."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Futures Terminal")
     
     instrument_df = get_instrument_df()
@@ -2331,7 +2938,7 @@ def generate_ai_trade_idea(instrument_df, active_list):
         token = get_instrument_token(item['symbol'], instrument_df, exchange=item['exchange'])
         if token:
             data = get_historical_data(token, 'day', period='6mo')
-            if not data.empty:
+            if not data.empty and len(data) > 20:  # Ensure we have enough data
                 interpretation = interpret_indicators(data)
                 signals = [v for k, v in interpretation.items() if "Bullish" in v or "Bearish" in v]
                 if signals:
@@ -2340,13 +2947,20 @@ def generate_ai_trade_idea(instrument_df, active_list):
     if not discovery_results:
         return None
 
+    # Find the ticker with the most signals
     best_ticker = max(discovery_results, key=lambda k: len(discovery_results[k]['signals']))
     
     ticker_data = discovery_results[best_ticker]['data']
     ltp = ticker_data['close'].iloc[-1]
+    
+    # Handle case where ATR might not be available
     atr_col = next((c for c in ticker_data.columns if 'atr' in c), None) 
-    if not atr_col or pd.isna(ticker_data[atr_col].iloc[-1]): return None 
-    atr = ticker_data[atr_col].iloc[-1]
+    if not atr_col or pd.isna(ticker_data[atr_col].iloc[-1]):
+        # Use a default ATR value based on recent volatility if ATR is not available
+        recent_volatility = ticker_data['close'].pct_change().std() * 100  # Percentage volatility
+        atr = ltp * (recent_volatility / 100) if not pd.isna(recent_volatility) else ltp * 0.02  # Default to 2%
+    else:
+        atr = ticker_data[atr_col].iloc[-1]
     
     is_bullish = any("Bullish" in s for s in discovery_results[best_ticker]['signals'])
 
@@ -2358,7 +2972,7 @@ def generate_ai_trade_idea(instrument_df, active_list):
         target = ltp + (2 * atr)
         stop_loss = ltp - (1.5 * atr)
         title = f"High-Conviction Long Setup: {best_ticker}"
-    else: # Bearish
+    else:
         narrative += f"A break below recent support could lead to further downside."
         entry = ltp
         target = ltp - (2 * atr)
@@ -2376,6 +2990,10 @@ def generate_ai_trade_idea(instrument_df, active_list):
 def page_ai_discovery():
     """AI-driven discovery engine with real data analysis."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("AI Discovery Engine")
     st.info("This engine discovers technical patterns and suggests high-conviction trade setups based on your active watchlist. The suggestions are for informational purposes only.", icon="🧠")
     
@@ -2395,7 +3013,7 @@ def page_ai_discovery():
             token = get_instrument_token(item['symbol'], instrument_df, exchange=item['exchange'])
             if token:
                 data = get_historical_data(token, 'day', period='6mo')
-                if not data.empty:
+                if not data.empty and len(data) > 20:  # Ensure we have enough data
                     interpretation = interpret_indicators(data)
                     signals = [f"{k}: {v}" for k, v in interpretation.items() if "Bullish" in v or "Bearish" in v]
                     if signals:
@@ -2431,6 +3049,10 @@ def page_ai_discovery():
 def page_greeks_calculator():
     """Calculates Greeks for any option contract."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("F&O Greeks Calculator")
     st.info("Calculate the theoretical value and greeks (Delta, Gamma, Vega, Theta, Rho) for any option contract.")
     
@@ -2491,6 +3113,10 @@ def page_greeks_calculator():
 def page_economic_calendar():
     """Economic Calendar page for Indian market events."""
     display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
     st.title("Economic Calendar")
     st.info("Upcoming economic events for the Indian market, updated until October 2025.")
 
@@ -2537,12 +3163,16 @@ def page_economic_calendar():
 
     st.dataframe(calendar_df, use_container_width=True, hide_index=True)
 
-# ============ 5.5 HFT TERMINAL PAGE ============
+# ============ 5.5 HFT TERMINAL PAGE - REPAIRED ============
 def page_hft_terminal():
-    """A dedicated terminal for High-Frequency Trading with Level 2 data."""
+    """A dedicated terminal for High-Frequency Trading with Level 2 data - REPAIRED VERSION."""
     display_header()
-    st.title("HFT Terminal (High-Frequency Trading)")
-    st.info("This interface provides a simulated high-speed view of market depth and one-click trading. For liquid, F&O instruments only.", icon="⚡️")
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
+    st.title("⚡ HFT Terminal")
+    st.info("High-frequency trading interface with real-time market depth and one-click execution. Optimized for liquid F&O instruments.", icon="⚡")
 
     instrument_df = get_instrument_df()
     if instrument_df.empty:
@@ -2550,39 +3180,74 @@ def page_hft_terminal():
         return
 
     # --- Instrument Selection and Key Stats ---
-    top_cols = st.columns([2, 1, 1, 1])
-    with top_cols[0]:
-        symbol = st.text_input("Instrument Symbol", "NIFTY24OCTFUT", key="hft_symbol").upper()
+    st.subheader("Instrument Selection")
+    col1, col2, col3 = st.columns([2, 1, 1])
     
+    with col1:
+        symbol = st.text_input(
+            "Instrument Symbol", 
+            "NIFTY24OCTFUT", 
+            key="hft_symbol",
+            placeholder="e.g., NIFTY24OCTFUT, BANKNIFTY24OCT23500CE",
+            help="Enter the exact trading symbol for the instrument"
+        ).upper()
+    
+    # Validate instrument
     instrument_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
     if instrument_info.empty:
-        st.error(f"Instrument '{symbol}' not found. Please enter a valid symbol.")
+        st.error(f"❌ Instrument '{symbol}' not found. Please enter a valid symbol.")
+        
+        # Show popular suggestions
+        st.info("💡 Popular instruments:")
+        suggestions = st.columns(4)
+        popular_instruments = [
+            ("NIFTY24OCTFUT", "Nifty Futures"),
+            ("BANKNIFTY24OCTFUT", "Bank Nifty Futures"), 
+            ("RELIANCE", "Reliance Equity"),
+            ("SBIN", "SBI Equity")
+        ]
+        
+        for i, (sugg_symbol, sugg_name) in enumerate(popular_instruments):
+            if suggestions[i].button(f"{sugg_symbol}", use_container_width=True):
+                st.session_state.hft_symbol = sugg_symbol
+                st.rerun()
         return
     
     exchange = instrument_info.iloc[0]['exchange']
     instrument_token = instrument_info.iloc[0]['instrument_token']
+    lot_size = instrument_info.iloc[0].get('lot_size', 1)
 
     # --- Fetch Live Data ---
     quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
     depth_data = get_market_depth(instrument_token)
 
     # --- Display Key Stats ---
+    st.subheader("Live Market Data")
+    
     if not quote_data.empty:
         ltp = quote_data.iloc[0]['Price']
         change = quote_data.iloc[0]['Change']
+        pct_change = quote_data.iloc[0]['% Change']
         
-        tick_direction = "tick-up" if ltp > st.session_state.hft_last_price else "tick-down" if ltp < st.session_state.hft_last_price else ""
+        # Determine tick direction for animation
+        tick_direction = ""
+        if ltp > st.session_state.hft_last_price:
+            tick_direction = "tick-up"
+        elif ltp < st.session_state.hft_last_price:
+            tick_direction = "tick-down"
         
-        with top_cols[1]:
-            st.markdown(f"##### LTP: <span class='{tick_direction}' style='font-size: 1.2em;'>₹{ltp:,.2f}</span>", unsafe_allow_html=True)
-
-        with top_cols[2]:
+        # Display metrics in a card layout
+        metric_cols = st.columns(4)
+        with metric_cols[0]:
+            st.markdown(f"<div class='metric-card {tick_direction}'>LTP<br><h3>₹{ltp:,.2f}</h3></div>", unsafe_allow_html=True)
+        with metric_cols[1]:
             color = 'var(--green)' if change > 0 else 'var(--red)'
-            st.markdown(f"##### Change: <span style='color:{color}; font-size: 1.2em;'>{change:,.2f}</span>", unsafe_allow_html=True)
-        
-        with top_cols[3]:
+            st.markdown(f"<div class='metric-card'>Change<br><h3 style='color:{color};'>{change:+.2f}</h3></div>", unsafe_allow_html=True)
+        with metric_cols[2]:
+            st.markdown(f"<div class='metric-card'>Change %<br><h3 style='color:{color};'>{pct_change:+.2f}%</h3></div>", unsafe_allow_html=True)
+        with metric_cols[3]:
             latency = random.uniform(20, 80)
-            st.metric("Latency (ms)", f"{latency:.2f}")
+            st.markdown(f"<div class='metric-card'>Latency<br><h3>{latency:.1f}ms</h3></div>", unsafe_allow_html=True)
 
         # Update tick log
         if ltp != st.session_state.hft_last_price and st.session_state.hft_last_price != 0:
@@ -2603,48 +3268,653 @@ def page_hft_terminal():
     main_cols = st.columns([1, 1, 1], gap="large")
 
     with main_cols[0]:
-        st.subheader("Market Depth")
+        st.subheader("📊 Market Depth")
         if depth_data and depth_data.get('buy') and depth_data.get('sell'):
-            # Combine, sort, and display
-            bids = pd.DataFrame(depth_data['buy']).sort_values('price', ascending=False).head(5)
-            asks = pd.DataFrame(depth_data['sell']).sort_values('price', ascending=True).head(5)
+            bids = pd.DataFrame(depth_data['buy']).sort_values('price', ascending=False).head(8)
+            asks = pd.DataFrame(depth_data['sell']).sort_values('price', ascending=True).head(8)
             
-            st.write("**Bids (Buyers)**")
-            for _, row in bids.iterrows():
-                st.markdown(f"<div class='hft-depth-bid'>{row['quantity']} @ **{row['price']:.2f}** ({row['orders']})</div>", unsafe_allow_html=True)
+            # Display bids and asks in a more organized way
+            depth_cols = st.columns(2)
             
-            st.write("**Asks (Sellers)**")
-            for _, row in asks.iterrows():
-                st.markdown(f"<div class='hft-depth-ask'>({row['orders']}) **{row['price']:.2f}** @ {row['quantity']}</div>", unsafe_allow_html=True)
+            with depth_cols[0]:
+                st.markdown("**🟢 Bids (Buyers)**")
+                for _, row in bids.iterrows():
+                    st.markdown(
+                        f"<div class='hft-depth-bid' style='margin: 2px 0; padding: 4px 8px; border-radius: 4px;'>"
+                        f"<strong>{row['price']:.2f}</strong><br>"
+                        f"<small>Qty: {row['quantity']} | Orders: {row['orders']}</small>"
+                        f"</div>", 
+                        unsafe_allow_html=True
+                    )
+            
+            with depth_cols[1]:
+                st.markdown("**🔴 Asks (Sellers)**")
+                for _, row in asks.iterrows():
+                    st.markdown(
+                        f"<div class='hft-depth-ask' style='margin: 2px 0; padding: 4px 8px; border-radius: 4px;'>"
+                        f"<strong>{row['price']:.2f}</strong><br>"
+                        f"<small>Qty: {row['quantity']} | Orders: {row['orders']}</small>"
+                        f"</div>", 
+                        unsafe_allow_html=True
+                    )
         else:
-            st.info("Waiting for market depth data...")
+            st.info("⏳ Waiting for market depth data...")
+            st.caption("Market depth data may not be available for all instruments or during market closed hours.")
 
     with main_cols[1]:
-        st.subheader("One-Click Execution")
-        quantity = st.number_input("Order Quantity", min_value=1, value=instrument_info.iloc[0]['lot_size'], step=instrument_info.iloc[0]['lot_size'], key="hft_qty")
+        st.subheader("⚡ Quick Execution")
         
-        btn_cols = st.columns(2)
-        if btn_cols[0].button("MARKET BUY", use_container_width=True, type="primary"):
+        # Quantity input with lot size info
+        quantity = st.number_input(
+            "Order Quantity", 
+            min_value=lot_size, 
+            value=lot_size, 
+            step=lot_size, 
+            key="hft_qty",
+            help=f"Lot size: {lot_size} (minimum quantity)"
+        )
+        
+        # Market orders
+        st.markdown("**Market Orders**")
+        mkt_cols = st.columns(2)
+        if mkt_cols[0].button("🟢 MARKET BUY", use_container_width=True, type="primary"):
             place_order(instrument_df, symbol, quantity, 'MARKET', 'BUY', 'MIS')
-        if btn_cols[1].button("MARKET SELL", use_container_width=True):
+        if mkt_cols[1].button("🔴 MARKET SELL", use_container_width=True, type="secondary"):
             place_order(instrument_df, symbol, quantity, 'MARKET', 'SELL', 'MIS')
         
         st.markdown("---")
-        st.subheader("Manual Order")
-        price = st.number_input("Limit Price", min_value=0.01, step=0.05, key="hft_limit_price")
-        limit_btn_cols = st.columns(2)
-        if limit_btn_cols[0].button("LIMIT BUY", use_container_width=True):
+        
+        # Limit orders
+        st.markdown("**Limit Orders**")
+        price = st.number_input(
+            "Limit Price", 
+            min_value=0.01, 
+            value=st.session_state.hft_last_price if st.session_state.hft_last_price > 0 else 0.01,
+            step=0.05, 
+            key="hft_limit_price",
+            format="%.2f"
+        )
+        
+        limit_cols = st.columns(2)
+        if limit_cols[0].button("🟢 LIMIT BUY", use_container_width=True):
             place_order(instrument_df, symbol, quantity, 'LIMIT', 'BUY', 'MIS', price=price)
-        if limit_btn_cols[1].button("LIMIT SELL", use_container_width=True):
+        if limit_cols[1].button("🔴 LIMIT SELL", use_container_width=True):
             place_order(instrument_df, symbol, quantity, 'LIMIT', 'SELL', 'MIS', price=price)
+            
+        # Order info
+        st.markdown("---")
+        st.markdown(f"""
+        <div style='background: var(--secondary-bg); padding: 1rem; border-radius: 6px;'>
+            <small>💡 <strong>Order Info:</strong></small><br>
+            <small>Symbol: <code>{symbol}</code></small><br>
+            <small>Exchange: <code>{exchange}</code></small><br>
+            <small>Quantity: <code>{quantity}</code></small><br>
+            <small>Product: <code>MIS</code> (Intraday)</small>
+        </div>
+        """, unsafe_allow_html=True)
 
     with main_cols[2]:
-        st.subheader("Tick Log")
+        st.subheader("📈 Tick Log")
+        
+        # Tick log with better styling
         log_container = st.container(height=400)
-        for entry in st.session_state.hft_tick_log:
-            color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
-            log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
+        
+        if st.session_state.hft_tick_log:
+            for entry in st.session_state.hft_tick_log:
+                color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
+                icon = "📈" if entry['change'] > 0 else "📉" if entry['change'] < 0 else "➡️"
+                
+                log_container.markdown(
+                    f"<div style='padding: 4px 8px; margin: 2px 0; border-radius: 4px; background: var(--widget-bg);'>"
+                    f"<small>{entry['time']}</small> {icon} "
+                    f"<strong>{entry['price']:.2f}</strong> "
+                    f"<span style='color:{color}; font-weight: bold;'>({entry['change']:+.2f})</span>"
+                    f"</div>", 
+                    unsafe_allow_html=True
+                )
+        else:
+            log_container.info("No ticks recorded yet. Ticks will appear when price changes.")
+            
+        # Tick log controls
+        if st.session_state.hft_tick_log:
+            if st.button("🗑️ Clear Tick Log", use_container_width=True):
+                st.session_state.hft_tick_log = []
+                st.rerun()
 
+    # --- Additional HFT Features ---
+    st.markdown("---")
+    st.subheader("🛠️ HFT Tools")
+    
+    tool_cols = st.columns(3)
+    
+    with tool_cols[0]:
+        if st.button("📊 Refresh Data", use_container_width=True):
+            st.rerun()
+    
+    with tool_cols[1]:
+        if st.button("💾 Export Ticks", use_container_width=True):
+            if st.session_state.hft_tick_log:
+                df = pd.DataFrame(st.session_state.hft_tick_log)
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"hft_ticks_{symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            else:
+                st.warning("No tick data to export")
+    
+    with tool_cols[2]:
+        if st.button("🔄 Reset Terminal", use_container_width=True):
+            st.session_state.hft_last_price = 0
+            st.session_state.hft_tick_log = []
+            st.rerun()
+
+# ============ NEW FUNDAMENTAL ANALYTICS PAGE ============
+
+@st.cache_data(ttl=3600)
+def get_fundamental_data(symbol):
+    """Fetches fundamental data for a given stock symbol using yfinance."""
+    try:
+        # Add .NS suffix for NSE stocks
+        if not symbol.endswith('.NS'):
+            symbol += '.NS'
+        
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        
+        # Extract key fundamental data
+        fundamental_data = {
+            'Company Name': info.get('longName', 'N/A'),
+            'Sector': info.get('sector', 'N/A'),
+            'Industry': info.get('industry', 'N/A'),
+            'Market Cap': info.get('marketCap', 0),
+            'P/E Ratio': info.get('trailingPE', 0),
+            'P/B Ratio': info.get('priceToBook', 0),
+            'Dividend Yield': info.get('dividendYield', 0),
+            'ROE': info.get('returnOnEquity', 0),
+            'ROA': info.get('returnOnAssets', 0),
+            'Debt to Equity': info.get('debtToEquity', 0),
+            'Current Ratio': info.get('currentRatio', 0),
+            'Profit Margins': info.get('profitMargins', 0),
+            'Operating Margins': info.get('operatingMargins', 0),
+            'Revenue Growth': info.get('revenueGrowth', 0),
+            'Earnings Growth': info.get('earningsGrowth', 0),
+            '52 Week High': info.get('fiftyTwoWeekHigh', 0),
+            '52 Week Low': info.get('fiftyTwoWeekLow', 0)
+        }
+        
+        return fundamental_data
+    except Exception as e:
+        st.error(f"Error fetching fundamental data for {symbol}: {e}")
+        return None
+
+@st.cache_data(ttl=3600)
+def get_balance_sheet(symbol):
+    """Fetches balance sheet data for a given stock symbol."""
+    try:
+        if not symbol.endswith('.NS'):
+            symbol += '.NS'
+        
+        ticker = yf.Ticker(symbol)
+        balance_sheet = ticker.balance_sheet
+        
+        if balance_sheet.empty:
+            return None
+            
+        # Convert to DataFrame and transpose for better readability
+        bs_df = balance_sheet.T
+        bs_df = bs_df[['Total Assets', 'Total Liabilities Net Minority Interest', 
+                      'Total Equity Gross Minority Interest', 'Current Assets', 
+                      'Current Liabilities', 'Cash And Cash Equivalents', 
+                      'Net Debt', 'Invested Capital']].tail(4)  # Last 4 quarters
+        
+        return bs_df
+    except Exception as e:
+        st.error(f"Error fetching balance sheet for {symbol}: {e}")
+        return None
+
+@st.cache_data(ttl=3600)
+def get_income_statement(symbol):
+    """Fetches income statement (P&L) data for a given stock symbol."""
+    try:
+        if not symbol.endswith('.NS'):
+            symbol += '.NS'
+        
+        ticker = yf.Ticker(symbol)
+        income_stmt = ticker.income_stmt
+        
+        if income_stmt.empty:
+            return None
+            
+        # Convert to DataFrame and transpose for better readability
+        is_df = income_stmt.T
+        is_df = is_df[['Total Revenue', 'Gross Profit', 'Operating Income', 
+                      'Net Income', 'EBITDA', 'Basic EPS']].tail(4)  # Last 4 quarters
+        
+        return is_df
+    except Exception as e:
+        st.error(f"Error fetching income statement for {symbol}: {e}")
+        return None
+
+@st.cache_data(ttl=3600)
+def get_cash_flow(symbol):
+    """Fetches cash flow statement data for a given stock symbol."""
+    try:
+        if not symbol.endswith('.NS'):
+            symbol += '.NS'
+        
+        ticker = yf.Ticker(symbol)
+        cash_flow = ticker.cash_flow
+        
+        if cash_flow.empty:
+            return None
+            
+        # Convert to DataFrame and transpose for better readability
+        cf_df = cash_flow.T
+        cf_df = cf_df[['Operating Cash Flow', 'Investing Cash Flow', 
+                      'Financing Cash Flow', 'Free Cash Flow']].tail(4)  # Last 4 quarters
+        
+        return cf_df
+    except Exception as e:
+        st.error(f"Error fetching cash flow for {symbol}: {e}")
+        return None
+
+def format_large_number(num):
+    """Formats large numbers into readable format (Cr, L, K)."""
+    if pd.isna(num) or num == 0:
+        return "0"
+    
+    if abs(num) >= 10000000:  # Crores
+        return f"₹{num/10000000:.2f}Cr"
+    elif abs(num) >= 100000:  # Lakhs
+        return f"₹{num/100000:.2f}L"
+    elif abs(num) >= 1000:  # Thousands
+        return f"₹{num/1000:.2f}K"
+    else:
+        return f"₹{num:.2f}"
+
+def create_fundamental_comparison_chart(companies_data):
+    """Creates comparison charts for multiple companies."""
+    if not companies_data:
+        return
+    
+    # Prepare data for comparison
+    metrics = ['P/E Ratio', 'P/B Ratio', 'ROE', 'Debt to Equity', 'Profit Margins']
+    company_names = [data['Company Name'] for data in companies_data.values()]
+    
+    # Create subplots
+    fig = make_subplots(
+        rows=2, cols=3,
+        subplot_titles=metrics,
+        specs=[[{"type": "bar"}, {"type": "bar"}, {"type": "bar"}],
+               [{"type": "bar"}, {"type": "bar"}, {"type": "bar"}]]
+    )
+    
+    for i, metric in enumerate(metrics):
+        row = i // 3 + 1
+        col = i % 3 + 1
+        
+        values = [data.get(metric, 0) for data in companies_data.values()]
+        
+        fig.add_trace(
+            go.Bar(name=metric, x=company_names, y=values),
+            row=row, col=col
+        )
+    
+    fig.update_layout(
+        height=600,
+        title_text="Fundamental Metrics Comparison",
+        showlegend=False,
+        template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def page_fundamental_analytics():
+    """Fundamental Analytics page with company comparison and financial statements."""
+    display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
+    st.title("📊 Fundamental Analytics")
+    st.info("Comprehensive fundamental analysis with company comparison, balance sheets, P&L statements, and cash flow analysis.", icon="📈")
+    
+    # Popular Indian stocks for quick selection
+    popular_stocks = {
+        "RELIANCE": "Reliance Industries",
+        "TCS": "Tata Consultancy Services", 
+        "HDFCBANK": "HDFC Bank",
+        "INFY": "Infosys",
+        "ICICIBANK": "ICICI Bank",
+        "HINDUNILVR": "Hindustan Unilever",
+        "ITC": "ITC Limited",
+        "SBIN": "State Bank of India",
+        "BAJFINANCE": "Bajaj Finance",
+        "KOTAKBANK": "Kotak Mahindra Bank"
+    }
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("Add Company for Analysis")
+        
+        # Quick selection buttons
+        st.write("**Popular Stocks:**")
+        quick_cols = st.columns(5)
+        for i, (symbol, name) in enumerate(popular_stocks.items()):
+            if quick_cols[i % 5].button(symbol, use_container_width=True):
+                if symbol not in [c['symbol'] for c in st.session_state.fundamental_companies]:
+                    st.session_state.fundamental_companies.append({
+                        'symbol': symbol,
+                        'name': name
+                    })
+                st.rerun()
+        
+        # Manual input
+        symbol_input = st.text_input("Or enter stock symbol:", placeholder="e.g., RELIANCE")
+        if st.button("Add Company") and symbol_input:
+            symbol = symbol_input.upper()
+            if symbol not in [c['symbol'] for c in st.session_state.fundamental_companies]:
+                st.session_state.fundamental_companies.append({
+                    'symbol': symbol,
+                    'name': symbol  # Will be updated with actual name when data is fetched
+                })
+            st.rerun()
+    
+    with col2:
+        st.subheader("Selected Companies")
+        if st.session_state.fundamental_companies:
+            for i, company in enumerate(st.session_state.fundamental_companies):
+                col1, col2 = st.columns([3, 1])
+                col1.write(f"**{company['symbol']}**")
+                if col2.button("❌", key=f"del_{i}"):
+                    st.session_state.fundamental_companies.pop(i)
+                    st.rerun()
+            
+            if st.button("Clear All", use_container_width=True):
+                st.session_state.fundamental_companies = []
+                st.rerun()
+        else:
+            st.info("No companies added. Select from popular stocks or enter a symbol.")
+    
+    st.markdown("---")
+    
+    # Fetch and display fundamental data for selected companies
+    if st.session_state.fundamental_companies:
+        st.subheader("📈 Fundamental Comparison")
+        
+        with st.spinner("Fetching fundamental data..."):
+            companies_data = {}
+            for company in st.session_state.fundamental_companies:
+                data = get_fundamental_data(company['symbol'])
+                if data:
+                    companies_data[company['symbol']] = data
+                    # Update company name with actual name from data
+                    company['name'] = data.get('Company Name', company['symbol'])
+            
+            if companies_data:
+                # Display key metrics in a table
+                st.write("**Key Financial Metrics**")
+                
+                # Prepare comparison table
+                comparison_data = []
+                metrics_to_display = [
+                    'Market Cap', 'P/E Ratio', 'P/B Ratio', 'Dividend Yield', 
+                    'ROE', 'Debt to Equity', 'Profit Margins', 'Revenue Growth'
+                ]
+                
+                for symbol, data in companies_data.items():
+                    row = {'Company': data['Company Name']}
+                    for metric in metrics_to_display:
+                        value = data.get(metric, 0)
+                        if metric == 'Market Cap':
+                            row[metric] = format_large_number(value)
+                        elif metric in ['Dividend Yield', 'Profit Margins', 'Revenue Growth']:
+                            row[metric] = f"{value*100:.2f}%" if value else "N/A"
+                        else:
+                            row[metric] = f"{value:.2f}" if value else "N/A"
+                    comparison_data.append(row)
+                
+                comparison_df = pd.DataFrame(comparison_data)
+                st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                
+                # Create comparison charts
+                create_fundamental_comparison_chart(companies_data)
+                
+                st.markdown("---")
+                
+                # Detailed financial statements for selected company
+                st.subheader("📋 Detailed Financial Statements")
+                
+                selected_company = st.selectbox(
+                    "Select company for detailed analysis:",
+                    options=[c['symbol'] for c in st.session_state.fundamental_companies],
+                    format_func=lambda x: next((c['name'] for c in st.session_state.fundamental_companies if c['symbol'] == x), x)
+                )
+                
+                if selected_company:
+                    tab1, tab2, tab3 = st.tabs(["Balance Sheet", "Income Statement", "Cash Flow"])
+                    
+                    with tab1:
+                        st.write("**Balance Sheet**")
+                        balance_sheet = get_balance_sheet(selected_company)
+                        if balance_sheet is not None:
+                            # Format large numbers
+                            formatted_bs = balance_sheet.copy()
+                            for col in formatted_bs.columns:
+                                formatted_bs[col] = formatted_bs[col].apply(format_large_number)
+                            
+                            st.dataframe(formatted_bs, use_container_width=True)
+                        else:
+                            st.info("Balance sheet data not available.")
+                    
+                    with tab2:
+                        st.write("**Income Statement (P&L)**")
+                        income_stmt = get_income_statement(selected_company)
+                        if income_stmt is not None:
+                            # Format large numbers
+                            formatted_is = income_stmt.copy()
+                            for col in formatted_is.columns:
+                                formatted_is[col] = formatted_is[col].apply(format_large_number)
+                            
+                            st.dataframe(formatted_is, use_container_width=True)
+                        else:
+                            st.info("Income statement data not available.")
+                    
+                    with tab3:
+                        st.write("**Cash Flow Statement**")
+                        cash_flow = get_cash_flow(selected_company)
+                        if cash_flow is not None:
+                            # Format large numbers
+                            formatted_cf = cash_flow.copy()
+                            for col in formatted_cf.columns:
+                                formatted_cf[col] = formatted_cf[col].apply(format_large_number)
+                            
+                            st.dataframe(formatted_cf, use_container_width=True)
+                        else:
+                            st.info("Cash flow statement data not available.")
+            else:
+                st.error("Could not fetch fundamental data for the selected companies.")
+    else:
+        st.info("""
+        ## 🚀 Get Started with Fundamental Analysis
+        
+        **Add companies to compare their fundamental metrics:**
+        
+        1. **Click on popular stocks** above for quick selection
+        2. **Or enter stock symbols** manually (e.g., RELIANCE, TCS, HDFCBANK)
+        3. **View comparisons** of P/E ratios, ROE, debt levels, and more
+        4. **Analyze detailed financial statements** including:
+           - Balance Sheets
+           - Profit & Loss Statements  
+           - Cash Flow Statements
+        
+        **Popular metrics to compare:**
+        - **P/E Ratio**: Valuation multiple
+        - **ROE**: Return on Equity
+        - **Debt/Equity**: Financial leverage
+        - **Profit Margins**: Operating efficiency
+        - **Revenue Growth**: Business expansion
+        """)
+
+# ============ NEW DATA MANAGER PAGE ============
+
+def page_data_manager():
+    """Page for managing historical data files."""
+    display_header()
+    
+    st.title("Historical Data Manager")
+    st.info("Download and update historical hourly/daily data for all instruments")
+    
+    tab1, tab2, tab3 = st.tabs(["Download Data", "View Data", "Export Data"])
+    
+    with tab1:
+        st.subheader("Download Historical Data")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            selected_instrument = st.selectbox(
+                "Select Instrument",
+                options=list(ENHANCED_DATA_SOURCES.keys()),
+                key="data_instrument"
+            )
+            
+            data_type = st.radio(
+                "Data Frequency",
+                ["Hourly", "Daily"],
+                horizontal=True
+            )
+            
+            period = st.selectbox(
+                "Period",
+                ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"],
+                index=3
+            )
+        
+        with col2:
+            st.metric("Selected Instrument", selected_instrument)
+            source_info = ENHANCED_DATA_SOURCES[selected_instrument]
+            st.metric("Primary Source", source_info.get('fallback', 'yfinance'))
+            st.metric("yfinance Ticker", source_info.get('yfinance_ticker', 'N/A'))
+        
+        if st.button("Download Data", type="primary", use_container_width=True):
+            with st.spinner(f"Downloading {data_type} data for {selected_instrument}..."):
+                data = get_enhanced_historical_data(
+                    selected_instrument, 
+                    data_type.lower()
+                )
+                
+                if not data.empty:
+                    st.session_state[f'current_data_{selected_instrument}'] = data
+                    st.success(f"Successfully downloaded {len(data)} data points!")
+                    
+                    # Show preview
+                    st.subheader("Data Preview")
+                    st.dataframe(data.tail(10), use_container_width=True)
+                    
+                    # Basic stats
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Total Records", len(data))
+                    col2.metric("Date Range", f"{data.index.min().strftime('%d %b %Y')}")
+                    col3.metric("To", f"{data.index.max().strftime('%d %b %Y')}")
+                    col4.metric("Columns", len(data.columns))
+                else:
+                    st.error("Failed to download data. Please check the instrument configuration.")
+    
+    with tab2:
+        st.subheader("View Historical Data")
+        
+        instrument_to_view = st.selectbox(
+            "Select Instrument to View",
+            options=list(ENHANCED_DATA_SOURCES.keys()),
+            key="view_instrument"
+        )
+        
+        if st.button("Load Data", key="load_view_data"):
+            if f'current_data_{instrument_to_view}' in st.session_state:
+                data = st.session_state[f'current_data_{instrument_to_view}']
+                
+                # Display chart
+                st.subheader(f"Price Chart - {instrument_to_view}")
+                fig = create_chart(data, instrument_to_view, 'Candlestick')
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Display data table
+                st.subheader("Raw Data")
+                st.dataframe(data, use_container_width=True)
+            else:
+                st.warning("No data loaded for this instrument. Please download data first.")
+    
+    with tab3:
+        st.subheader("Export Data")
+        
+        st.info("Export historical data for backup or analysis in external tools")
+        
+        export_instrument = st.selectbox(
+            "Select Instrument to Export",
+            options=list(ENHANCED_DATA_SOURCES.keys()),
+            key="export_instrument"
+        )
+        
+        if f'current_data_{export_instrument}' in st.session_state:
+            data = st.session_state[f'current_data_{export_instrument}']
+            
+            # Export options
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                export_format = st.radio(
+                    "Export Format",
+                    ["CSV", "Excel", "JSON"],
+                    horizontal=True
+                )
+            
+            with col2:
+                include_indicators = st.checkbox("Include Technical Indicators", value=True)
+            
+            # Filter data if needed
+            if not include_indicators:
+                basic_cols = ['open', 'high', 'low', 'close', 'volume']
+                available_cols = [col for col in basic_cols if col in data.columns]
+                data = data[available_cols]
+            
+            # Convert to different formats
+            if export_format == "CSV":
+                csv_data = data.to_csv()
+                st.download_button(
+                    label="Download CSV",
+                    data=csv_data,
+                    file_name=f"{export_instrument.replace(' ', '_')}_historical_data.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            elif export_format == "Excel":
+                excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+                    data.to_excel(writer, sheet_name='Historical Data')
+                st.download_button(
+                    label="Download Excel",
+                    data=excel_buffer.getvalue(),
+                    file_name=f"{export_instrument.replace(' ', '_')}_historical_data.xlsx",
+                    mime="application/vnd.ms-excel",
+                    use_container_width=True
+                )
+            else:  # JSON
+                json_data = data.reset_index().to_json(orient='records', date_format='iso')
+                st.download_button(
+                    label="Download JSON",
+                    data=json_data,
+                    file_name=f"{export_instrument.replace(' ', '_')}_historical_data.json",
+                    mime="application/json",
+                    use_container_width=True
+                )
+        else:
+            st.warning("No data available for export. Please download data first.")
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
@@ -2655,345 +3925,230 @@ def get_user_secret(user_profile):
     secret = base64.b32encode(user_hash).decode('utf-8').replace('=', '')[:16]
     return secret
 
-
-@st.dialog("Two-Factor Authentication")
 def two_factor_dialog():
-    """Dialog for 2FA login."""
-    st.subheader("Enter your 2FA code")
-    st.caption("Please enter the 6-digit code from your authenticator app to continue.")
+    """Dialog for 2FA login with improved UI."""
+    if 'show_2fa_dialog' not in st.session_state:
+        st.session_state.show_2fa_dialog = False
     
-    auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
-    
-    if st.button("Authenticate", use_container_width=True):
-        if auth_code:
-            try:
-                totp = pyotp.TOTP(st.session_state.pyotp_secret)
-                if totp.verify(auth_code):
-                    st.session_state.authenticated = True
-                    st.rerun()
-                else:
-                    st.error("Invalid code. Please try again.")
-            except Exception as e:
-                st.error(f"An error occurred during authentication: {e}")
-        else:
-            st.warning("Please enter a code.")
-
-@st.dialog("Generate QR Code for 2FA")
-def qr_code_dialog():
-    """Dialog to generate a QR code for 2FA setup."""
-    st.subheader("Set up Two-Factor Authentication")
-    st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
-
-    if st.session_state.pyotp_secret is None:
-        st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
-    
-    secret = st.session_state.pyotp_secret
-    user_name = st.session_state.get('profile', {}).get('user_name', 'User')
-    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
-    
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    
-    st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
-    st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
-    
-    if st.button("I have scanned the code. Continue.", use_container_width=True):
-        st.session_state.two_factor_setup_complete = True
-        st.rerun()
-
-def show_login_animation():
-    """Displays a boot-up animation after login."""
-    st.title("BlockVista Terminal")
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    steps = {
-        "Authenticating user...": 25,
-        "Establishing secure connection...": 50,
-        "Fetching live market data feeds...": 75,
-        "Initializing terminal... COMPLETE": 100
-    }
-    
-    for text, progress in steps.items():
-        status_text.text(f"STATUS: {text}")
-        progress_bar.progress(progress)
-        a_time.sleep(0.7)
-    
-    a_time.sleep(0.5)
-    st.session_state['login_animation_complete'] = True
-    st.rerun()
-
-def login_page():
-    """Displays an enhanced login page for broker authentication with trader-focused UI."""
-    # Apply custom styling for login page
-    st.markdown("""
-    <style>
-    .login-container {
-        max-width: 500px;
-        margin: 0 auto;
-        padding: 2rem;
-        background: var(--secondary-bg);
-        border-radius: 15px;
-        border: 1px solid var(--border-color);
-        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-    }
-    .login-header {
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .login-logo {
-        font-size: 3.5rem;
-        margin-bottom: 1rem;
-    }
-    .broker-card {
-        background: var(--widget-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 10px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        transition: all 0.3s ease;
-        cursor: pointer;
-    }
-    .broker-card:hover {
-        border-color: var(--green);
-        transform: translateY(-2px);
-        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-    }
-    .broker-card.active {
-        border-color: var(--green);
-        background: linear-gradient(135deg, var(--widget-bg) 0%, rgba(40,167,69,0.1) 100%);
-    }
-    .feature-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 1rem;
-        margin: 2rem 0;
-    }
-    .feature-item {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 0.9rem;
-        color: var(--text-light);
-    }
-    .login-btn {
-        width: 100%;
-        padding: 12px;
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.3s ease;
-    }
-    .market-status {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        margin-left: 10px;
-    }
-    .status-open {
-        background: #28a745;
-        color: white;
-    }
-    .status-closed {
-        background: #ff4b4b;
-        color: white;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Main login container
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    
-    # Header section
-    st.markdown("""
-    <div class="login-header">
-        <div class="login-logo">📈</div>
-        <h1 style="margin-bottom: 0.5rem; color: var(--text-color);">BlockVista Terminal</h1>
-        <p style="color: var(--text-light); margin-bottom: 0.5rem;">Professional Trading Platform</p>
-        <div style="display: flex; align-items: center; justify-content: center; gap: 1rem;">
-            <span style="color: var(--text-light);">Market Status:</span>
-            <span class="market-status status-open">LIVE</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Broker selection
-    st.markdown("### Select Your Broker")
-    
-    # Broker cards
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        broker_active = "active" if st.session_state.get('broker') == "Zerodha" else ""
-        st.markdown(f"""
-        <div class="broker-card {broker_active}" onclick="this.querySelector('input').click()">
-            <div style="font-size: 2rem; margin-bottom: 0.5rem;">🏦</div>
-            <h4 style="margin: 0; color: var(--text-color);">Zerodha Kite</h4>
-            <p style="color: var(--text-light); margin: 0.5rem 0 0 0; font-size: 0.9rem;">
-                Fastest API • Zero brokerage
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("""
-        <div class="broker-card" style="opacity: 0.6; cursor: not-allowed;">
-            <div style="font-size: 2rem; margin-bottom: 0.5rem;">📊</div>
-            <h4 style="margin: 0; color: var(--text-color);">Angel One</h4>
-            <p style="color: var(--text-light); margin: 0.5rem 0 0 0; font-size: 0.9rem;">
-                Coming Soon
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Feature highlights
-    st.markdown("""
-    <div class="feature-grid">
-        <div class="feature-item">
-            <span style="color: var(--green);">✓</span> Real-time Market Data
-        </div>
-        <div class="feature-item">
-            <span style="color: var(--green);">✓</span> Advanced Charting
-        </div>
-        <div class="feature-item">
-            <span style="color: var(--green);">✓</span> Options Analytics
-        </div>
-        <div class="feature-item">
-            <span style="color: var(--green);">✓</span> AI-Powered Insights
-        </div>
-        <div class="feature-item">
-            <span style="color: var(--green);">✓</span> Basket Orders
-        </div>
-        <div class="feature-item">
-            <span style="color: var(--green);">✓</span> Portfolio Tracking
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Login section
-    st.markdown("### Secure Login")
-    
-    broker = "Zerodha"  # Only Zerodha supported for now
-    
-    if broker == "Zerodha":
-        api_key = st.secrets.get("ZERODHA_API_KEY")
-        api_secret = st.secrets.get("ZERODHA_API_SECRET")
-        
-        if not api_key or not api_secret:
-            st.error("""
-            🔐 **API Credentials Required**  
-            Please set `ZERODHA_API_KEY` and `ZERODHA_API_SECRET` in your Streamlit secrets.
-            """)
-            st.info("""
-            **Need help setting up?**  
-            1. Go to [Kite Connect Console](https://developers.kite.trade/)  
-            2. Create an app and get your API credentials  
-            3. Add them to your Streamlit secrets under `.streamlit/secrets.toml`
-            """)
-            st.markdown('</div>', unsafe_allow_html=True)
-            st.stop()
-            
-        kite = KiteConnect(api_key=api_key)
-        request_token = st.query_params.get("request_token")
-        
-        if request_token:
-            try:
-                with st.spinner("🔄 Authenticating with Zerodha..."):
-                    data = kite.generate_session(request_token, api_secret=api_secret)
-                    st.session_state.access_token = data["access_token"]
-                    kite.set_access_token(st.session_state.access_token)
-                    st.session_state.kite = kite
-                    st.session_state.profile = kite.profile()
-                    st.session_state.broker = "Zerodha"
-                    st.query_params.clear()
-                    
-                st.success("✅ Authentication successful!")
-                st.session_state.login_animation_complete = False
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"❌ Authentication failed: {str(e)}")
-                st.info("Please try logging in again.")
-                st.query_params.clear()
-        else:
-            # Enhanced login button
-            login_url = kite.login_url()
-            st.markdown(f"""
-            <a href="{login_url}" target="_self">
-                <button class="login-btn" style='
-                    background: linear-gradient(135deg, #28a745, #20c997);
-                    color: white;
-                    border: none;
-                    cursor: pointer;
-                '>
-                    🚀 Login with Zerodha Kite
-                </button>
-            </a>
-            """, unsafe_allow_html=True)
-            
-            # Security notice
+    if st.session_state.show_2fa_dialog:
+        # Create a centered container for better UI
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
             st.markdown("""
-            <div style='
-                background: var(--widget-bg);
-                border-left: 4px solid var(--green);
-                padding: 1rem;
-                margin-top: 1rem;
-                border-radius: 4px;
-            '>
-                <small style="color: var(--text-light);">
-                🔒 <strong>Secure Connection:</strong> Your credentials are never stored. 
-                We use Zerodha's official OAuth for secure authentication.
-                </small>
+            <div style='text-align: center; padding: 2rem; border-radius: 10px; background: var(--widget-bg); border: 1px solid var(--border-color);'>
+                <h3>🔐 Two-Factor Authentication</h3>
+                <p>Enter the 6-digit code from your authenticator app</p>
             </div>
             """, unsafe_allow_html=True)
+            
+            auth_code = st.text_input(
+                "2FA Code", 
+                max_chars=6, 
+                key="2fa_code",
+                placeholder="000000",
+                label_visibility="collapsed"
+            )
+            
+            btn_col1, btn_col2 = st.columns(2)
+            if btn_col1.button("✅ Authenticate", use_container_width=True, type="primary"):
+                if auth_code and len(auth_code) == 6:
+                    try:
+                        totp = pyotp.TOTP(st.session_state.pyotp_secret)
+                        if totp.verify(auth_code):
+                            st.session_state.authenticated = True
+                            st.session_state.show_2fa_dialog = False
+                            st.rerun()
+                        else:
+                            st.error("❌ Invalid code. Please try again.")
+                    except Exception as e:
+                        st.error(f"Authentication error: {e}")
+                else:
+                    st.warning("⚠️ Please enter a valid 6-digit code.")
+            
+            if btn_col2.button("❌ Cancel", use_container_width=True):
+                st.session_state.show_2fa_dialog = False
+                st.rerun()
+
+def qr_code_dialog():
+    """Dialog to generate a QR code for 2FA setup with improved UI."""
+    if 'show_qr_dialog' not in st.session_state:
+        st.session_state.show_qr_dialog = True
     
-    # Footer with quick stats
-    st.markdown("---")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
+    if st.session_state.show_qr_dialog:
+        # Centered container for QR setup
+        col1, col2, col3 = st.columns([1, 3, 1])
+        with col2:
+            st.markdown("""
+            <div style='text-align: center; padding: 2rem; border-radius: 10px; background: var(--widget-bg); border: 1px solid var(--border-color);'>
+                <h3>🔒 Set Up Two-Factor Authentication</h3>
+                <p>Scan this QR code with your authenticator app for enhanced security</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if st.session_state.pyotp_secret is None:
+                st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
+            
+            secret = st.session_state.pyotp_secret
+            user_name = st.session_state.get('profile', {}).get('user_name', 'User')
+            uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
+            
+            # Generate QR code
+            img = qrcode.make(uri)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            
+            # Display QR code
+            st.image(buf.getvalue(), caption="Scan with Google Authenticator or similar app", use_container_width=True)
+            
+            # Manual secret entry option
+            with st.expander("Manual Setup"):
+                st.code(secret, language="text")
+                st.caption("If you can't scan the QR code, enter this secret manually in your authenticator app.")
+            
+            if st.button("✅ I've scanned the code. Continue to login.", use_container_width=True, type="primary"):
+                st.session_state.two_factor_setup_complete = True
+                st.session_state.show_qr_dialog = False
+                st.session_state.show_2fa_dialog = True  # Immediately show 2FA entry
+                st.rerun()
+
+def show_login_animation():
+    """Displays a boot-up animation after login with improved design."""
+    # Center the animation
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
         st.markdown("""
-        <div style="text-align: center;">
-            <div style="font-size: 1.2rem; font-weight: bold; color: var(--text-color);">50ms</div>
-            <div style="font-size: 0.8rem; color: var(--text-light);">Avg Latency</div>
+        <div style='text-align: center; padding: 3rem;'>
+            <h1 style='color: var(--text-color); margin-bottom: 2rem;'>🚀 BlockVista Terminal</h1>
         </div>
         """, unsafe_allow_html=True)
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        steps = {
+            "🔐 Authenticating user credentials...": 20,
+            "🌐 Establishing secure connection...": 40, 
+            "📡 Fetching live market data feeds...": 65,
+            "⚡ Initializing trading terminal...": 85,
+            "✅ Terminal ready! Loading interface...": 100
+        }
+        
+        for text, progress in steps.items():
+            status_text.markdown(f"<div style='text-align: center; padding: 1rem;'>{text}</div>", unsafe_allow_html=True)
+            progress_bar.progress(progress)
+            a_time.sleep(0.8)
+        
+        a_time.sleep(0.5)
+        st.session_state['login_animation_complete'] = True
+        st.rerun()
+
+def login_page():
+    """Displays the login page for broker authentication with improved UI."""
+    # Apply styling first
+    apply_custom_styling()
+    
+    # Center the login form
+    col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
         st.markdown("""
-        <div style="text-align: center;">
-            <div style="font-size: 1.2rem; font-weight: bold; color: var(--text-color);">99.9%</div>
-            <div style="font-size: 0.8rem; color: var(--text-light);">Uptime</div>
+        <div style='text-align: center; margin-bottom: 3rem;'>
+            <h1>BlockVista Terminal</h1>
+            <p style='color: var(--text-light);'>Professional Trading Platform</p>
         </div>
         """, unsafe_allow_html=True)
-    
-    with col3:
+        
+        # Login card
         st.markdown("""
-        <div style="text-align: center;">
-            <div style="font-size: 1.2rem; font-weight: bold; color: var(--text-color);">24/7</div>
-            <div style="font-size: 0.8rem; color: var(--text-light);">Support</div>
+        <div style='
+            background: var(--widget-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        '>
         </div>
         """, unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Add JavaScript for broker card selection
-    st.markdown("""
-    <script>
-    // Add click handlers for broker cards
-    document.querySelectorAll('.broker-card').forEach(card => {
-        card.addEventListener('click', function() {
-            if (!this.style.opacity || this.style.opacity !== '0.6') {
-                document.querySelectorAll('.broker-card').forEach(c => c.classList.remove('active'));
-                this.classList.add('active');
-            }
-        });
-    });
-    </script>
-    """, unsafe_allow_html=True)
+        
+        st.subheader("🔐 Broker Login")
+        
+        broker = st.selectbox("Select Your Broker", ["Zerodha"], key="broker_select")
+        
+        if broker == "Zerodha":
+            api_key = st.secrets.get("ZERODHA_API_KEY")
+            api_secret = st.secrets.get("ZERODHA_API_SECRET")
+            
+            if not api_key or not api_secret:
+                st.error("""
+                ❌ Kite API credentials not found. 
+                
+                Please set these secrets in your Streamlit app:
+                - `ZERODHA_API_KEY`
+                - `ZERODHA_API_SECRET`
+                
+                [Learn how to set secrets](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management)
+                """)
+                st.stop()
+                
+            kite = KiteConnect(api_key=api_key)
+            request_token = st.query_params.get("request_token")
+            
+            if request_token:
+                try:
+                    with st.spinner("🔄 Authenticating with Zerodha..."):
+                        data = kite.generate_session(request_token, api_secret=api_secret)
+                        st.session_state.access_token = data["access_token"]
+                        kite.set_access_token(st.session_state.access_token)
+                        st.session_state.kite = kite
+                        st.session_state.profile = kite.profile()
+                        st.session_state.broker = "Zerodha"
+                        st.query_params.clear()
+                        st.success("✅ Authentication successful!")
+                        a_time.sleep(1)
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Authentication failed: {e}")
+                    st.query_params.clear()
+                    if st.button("🔄 Try Again"):
+                        st.rerun()
+            else:
+                st.markdown("""
+                <div style='
+                    background: var(--secondary-bg);
+                    border-radius: 8px;
+                    padding: 1.5rem;
+                    margin: 1rem 0;
+                '>
+                    <h4>📋 Login Instructions:</h4>
+                    <ol>
+                        <li>Click the login button below</li>
+                        <li>You'll be redirected to Zerodha</li>
+                        <li>Login with your Kite credentials</li>
+                        <li>You'll be redirected back automatically</li>
+                    </ol>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Login button with better styling
+                login_url = kite.login_url()
+                st.markdown(f"""
+                <a href="{login_url}" style='
+                    display: inline-block;
+                    width: 100%;
+                    padding: 0.75rem 1.5rem;
+                    background: #387ed1;
+                    color: white;
+                    text-align: center;
+                    text-decoration: none;
+                    border-radius: 6px;
+                    font-weight: bold;
+                    border: none;
+                    cursor: pointer;
+                    margin: 1rem 0;
+                '>🔗 Login with Zerodha Kite</a>
+                """, unsafe_allow_html=True)
+                
+                st.caption("🔒 Your credentials are handled securely by Zerodha. We never store your password.")
 
 def main_app():
     """The main application interface after successful login."""
@@ -3015,16 +4170,19 @@ def main_app():
     
     st.sidebar.header("Terminal Controls")
     st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    
-    # Keep HFT mode as "coming soon" - remove from available modes
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options"], horizontal=True)
-    
+    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
     st.sidebar.divider()
     
     # Dynamic refresh interval based on mode
-    st.sidebar.header("Live Data")
-    auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-    refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
+    if st.session_state.terminal_mode == "HFT":
+        refresh_interval = 2
+        auto_refresh = True
+        st.sidebar.header("HFT Mode Active")
+        st.sidebar.caption(f"Refresh Interval: {refresh_interval}s")
+    else:
+        st.sidebar.header("Live Data")
+        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
+        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
     
     st.sidebar.divider()
     
@@ -3032,6 +4190,7 @@ def main_app():
     pages = {
         "Cash": {
             "Dashboard": page_dashboard,
+            "Data Manager": page_data_manager,  # NEW PAGE ADDED
             "Premarket Pulse": page_premarket_pulse,
             "Advanced Charting": page_advanced_charting,
             "Market Scanners": page_momentum_and_trend_finder,
@@ -3042,6 +4201,7 @@ def main_app():
             "AI Discovery": page_ai_discovery,
             "AI Assistant": page_ai_assistant,
             "Economic Calendar": page_economic_calendar,
+            "Fundamental Analytics": page_fundamental_analytics,  # NEW PAGE ADDED
         },
         "Options": {
             "F&O Analytics": page_fo_analytics,
@@ -3049,6 +4209,7 @@ def main_app():
             "Greeks Calculator": page_greeks_calculator,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant,
+            "Fundamental Analytics": page_fundamental_analytics,  # NEW PAGE ADDED
         },
         "Futures": {
             "Futures Terminal": page_futures_terminal,
@@ -3056,12 +4217,13 @@ def main_app():
             "Algo Strategy Hub": page_algo_strategy_maker,
             "Portfolio & Risk": page_portfolio_and_risk,
             "AI Assistant": page_ai_assistant,
+            "Fundamental Analytics": page_fundamental_analytics,  # NEW PAGE ADDED
+        },
+        "HFT": {
+            "HFT Terminal": page_hft_terminal,
+            "Portfolio & Risk": page_portfolio_and_risk,
         }
     }
-    
-    # Add a note about HFT coming soon
-    st.sidebar.info("🚀 HFT Mode - Coming Soon!")
-    
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
     
     st.sidebar.divider()
@@ -3070,7 +4232,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub"]
+    no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub", "Fundamental Analytics", "Data Manager"]
     if auto_refresh and selection not in no_refresh_pages:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
