@@ -261,6 +261,7 @@ def initialize_session_state():
     if 'hft_last_price' not in st.session_state: st.session_state.hft_last_price = 0
     if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
     if 'last_bot_result' not in st.session_state: st.session_state.last_bot_result = None
+    if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = "Cash"
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -350,14 +351,9 @@ def display_overnight_changes_bar():
     
     if not data.empty:
         bar_html = "<div class='notification-bar'>"
-        for name, ticker in overnight_tickers.items():
-            row = data[data['Ticker'] == name]
-            if not row.empty:
-                price = row.iloc[0]['Price']
-                change = row.iloc[0]['% Change']
-                if not np.isnan(price):
-                    color = 'var(--green)' if change > 0 else 'var(--red)'
-                    bar_html += f"<span>{name}: {price:,.2f} <span style='color:{color};'>({change:+.2f}%)</span></span>"
+        for _, row in data.iterrows():
+            color = 'var(--green)' if row['% Change'] > 0 else 'var(--red)'
+            bar_html += f"<span>{row['Ticker']}: {row['Price']:,.2f} <span style='color:{color};'>({row['% Change']:+.2f}%)</span></span>"
         bar_html += "</div>"
         st.markdown(bar_html, unsafe_allow_html=True)
 
