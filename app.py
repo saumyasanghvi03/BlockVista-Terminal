@@ -17,7 +17,7 @@ import numpy as np
 from scipy.stats import norm
 from scipy.optimize import newton
 from tabulate import tabulate
-import time as a_time
+import time
 import re
 import yfinance as yf
 import pyotp
@@ -223,265 +223,44 @@ def apply_custom_styling():
     """
     st.components.v1.html(js_theme, height=0)
 
-# ================ ENHANCED DATA COLLECTION MODULE ================
-
-# Enhanced data sources with multiple fallbacks
-ENHANCED_DATA_SOURCES = {
+# Centralized data source configuration
+ML_DATA_SOURCES = {
     "NIFTY 50": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY50.csv",
-        "yfinance_ticker": "^NSEI",
-        "tradingsymbol": "NIFTY 50", 
-        "exchange": "NSE",
-        "fallback": "yfinance"
+        "tradingsymbol": "NIFTY 50",
+        "exchange": "NSE"
     },
     "BANK NIFTY": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANKNIFTY.csv",
-        "yfinance_ticker": "^NSEBANK", 
         "tradingsymbol": "BANKNIFTY",
-        "exchange": "NFO",
-        "fallback": "yfinance"
+        "exchange": "NFO"
     },
     "NIFTY Financial Services": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
-        "yfinance_ticker": "FINNIFTY.NS",
         "tradingsymbol": "FINNIFTY",
-        "exchange": "NFO",
-        "fallback": "yfinance"
+        "exchange": "NFO"
     },
     "GOLD": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/GOLD.csv",
-        "yfinance_ticker": "GC=F",
         "tradingsymbol": "GOLDM",
-        "exchange": "MCX", 
-        "fallback": "yfinance"
+        "exchange": "MCX"
     },
     "USDINR": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/USDINR.csv",
-        "yfinance_ticker": "INR=X",
         "tradingsymbol": "USDINR",
-        "exchange": "CDS",
-        "fallback": "yfinance"
+        "exchange": "CDS"
     },
     "SENSEX": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
-        "yfinance_ticker": "^BSESN",
         "tradingsymbol": "SENSEX",
-        "exchange": "BSE",
-        "fallback": "yfinance"
+        "exchange": "BSE"
     },
     "S&P 500": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
-        "yfinance_ticker": "^GSPC",
         "tradingsymbol": "^GSPC",
-        "exchange": "yfinance",
-        "fallback": "yfinance"
-    },
-    "NIFTY MIDCAP 100": {
-        "yfinance_ticker": "^CNXMD",
-        "tradingsymbol": "NIFTYMID100",
-        "exchange": "NSE", 
-        "fallback": "yfinance"
+        "exchange": "yfinance"
     }
 }
-
-def download_hourly_data_yfinance(ticker, period="2y"):
-    """Download hourly data using yfinance with error handling."""
-    try:
-        data = yf.download(ticker, period=period, interval="1h")
-        if data.empty:
-            return pd.DataFrame()
-        
-        # Reset index and rename columns
-        data = data.reset_index()
-        data.columns = [col.lower() for col in data.columns]
-        
-        # Ensure standard column names
-        column_mapping = {
-            'date': 'datetime',
-            'open': 'open', 
-            'high': 'high',
-            'low': 'low', 
-            'close': 'close',
-            'volume': 'volume'
-        }
-        
-        data = data.rename(columns=column_mapping)
-        data['datetime'] = pd.to_datetime(data['datetime'])
-        data.set_index('datetime', inplace=True)
-        
-        return data
-        
-    except Exception as e:
-        st.error(f"Error downloading {ticker} from yfinance: {e}")
-        return pd.DataFrame()
-
-def download_from_github(url):
-    """Download CSV data from GitHub with error handling."""
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = pd.read_csv(io.StringIO(response.text))
-        
-        # Standardize column names
-        data.columns = [col.lower() for col in data.columns]
-        
-        # Handle different date column names
-        date_columns = ['date', 'datetime', 'time', 'timestamp']
-        date_col = next((col for col in date_columns if col in data.columns), None)
-        
-        if date_col:
-            data[date_col] = pd.to_datetime(data[date_col], errors='coerce')
-            data.set_index(date_col, inplace=True)
-        
-        # Convert numeric columns
-        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-        for col in numeric_cols:
-            if col in data.columns:
-                data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', ''), errors='coerce')
-        
-        return data
-        
-    except Exception as e:
-        st.error(f"Error downloading from GitHub {url}: {e}")
-        return pd.DataFrame()
-
-def get_enhanced_historical_data(instrument_name, data_type="hourly"):
-    """
-    Enhanced historical data fetcher with multiple fallback sources.
-    
-    Parameters:
-    - instrument_name: Name of the instrument from ENHANCED_DATA_SOURCES
-    - data_type: "hourly" or "daily"
-    """
-    source_info = ENHANCED_DATA_SOURCES.get(instrument_name)
-    if not source_info:
-        st.error(f"No data source configured for {instrument_name}")
-        return pd.DataFrame()
-    
-    data = pd.DataFrame()
-    
-    # Try GitHub first if available
-    if "github_url" in source_info:
-        data = download_from_github(source_info["github_url"])
-    
-    # If GitHub fails or we need hourly data, try yfinance
-    if data.empty or data_type == "hourly":
-        yf_ticker = source_info.get("yfinance_ticker")
-        if yf_ticker:
-            period = "2y" if data_type == "hourly" else "max"
-            interval = "1h" if data_type == "hourly" else "1d"
-            
-            try:
-                yf_data = yf.download(yf_ticker, period=period, interval=interval)
-                if not yf_data.empty:
-                    yf_data = yf_data.reset_index()
-                    yf_data.columns = [col.lower() for col in yf_data.columns]
-                    
-                    # Handle different date column names in yfinance
-                    if 'date' in yf_data.columns:
-                        yf_data.rename(columns={'date': 'datetime'}, inplace=True)
-                    elif 'index' in yf_data.columns:
-                        yf_data.rename(columns={'index': 'datetime'}, inplace=True)
-                    
-                    yf_data['datetime'] = pd.to_datetime(yf_data['datetime'])
-                    yf_data.set_index('datetime', inplace=True)
-                    
-                    # If we have existing data, merge them
-                    if not data.empty:
-                        # Keep yfinance data for periods not in GitHub data
-                        combined_data = pd.concat([data, yf_data])
-                        combined_data = combined_data[~combined_data.index.duplicated(keep='last')]
-                        data = combined_data.sort_index()
-                    else:
-                        data = yf_data
-            except Exception as e:
-                st.error(f"Error downloading {instrument_name} from yfinance: {e}")
-    
-    # Add technical indicators if we have data
-    if not data.empty:
-        try:
-            # Basic technical indicators
-            if all(col in data.columns for col in ['open', 'high', 'low', 'close']):
-                # RSI
-                data['rsi_14'] = ta.rsi(data['close'], length=14)
-                
-                # Moving averages
-                data['sma_20'] = ta.sma(data['close'], length=20)
-                data['ema_12'] = ta.ema(data['close'], length=12)
-                data['ema_26'] = ta.ema(data['close'], length=26)
-                
-                # MACD
-                macd = ta.macd(data['close'])
-                if macd is not None:
-                    data = pd.concat([data, macd], axis=1)
-                
-                # Bollinger Bands
-                bb = ta.bbands(data['close'])
-                if bb is not None:
-                    data = pd.concat([data, bb], axis=1)
-                    
-        except Exception as e:
-            st.warning(f"Could not add technical indicators for {instrument_name}: {e}")
-    
-    return data
-
-def update_historical_data_files():
-    """Function to update all historical data files with latest data."""
-    st.subheader("Update Historical Data Files")
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    instruments = list(ENHANCED_DATA_SOURCES.keys())
-    results = []
-    
-    for i, instrument in enumerate(instruments):
-        status_text.text(f"Downloading {instrument}...")
-        
-        try:
-            data = get_enhanced_historical_data(instrument, "daily")
-            if not data.empty:
-                # Save to session state or file
-                if f'historical_{instrument}' not in st.session_state:
-                    st.session_state[f'historical_{instrument}'] = data
-                
-                results.append({
-                    'Instrument': instrument,
-                    'Status': '✅ Success',
-                    'Data Points': len(data),
-                    'Date Range': f"{data.index.min().strftime('%Y-%m-%d')} to {data.index.max().strftime('%Y-%m-%d')}"
-                })
-            else:
-                results.append({
-                    'Instrument': instrument,
-                    'Status': '❌ Failed',
-                    'Data Points': 0,
-                    'Date Range': 'N/A'
-                })
-                
-        except Exception as e:
-            results.append({
-                'Instrument': instrument,
-                'Status': f'❌ Error: {str(e)[:50]}...',
-                'Data Points': 0,
-                'Date Range': 'N/A'
-            })
-        
-        progress_bar.progress((i + 1) / len(instruments))
-    
-    # Display results
-    results_df = pd.DataFrame(results)
-    st.dataframe(results_df, use_container_width=True)
-    
-    # Download option
-    if st.button("Export All Data as ZIP"):
-        # Implementation for ZIP export
-        st.info("Export feature would save all data files as CSV in a ZIP archive")
-    
-    return results_df
-
-# Replace the existing ML_DATA_SOURCES with enhanced version
-ML_DATA_SOURCES = ENHANCED_DATA_SOURCES
 
 # ================ 1.5 INITIALIZATION ========================
 def initialize_session_state():
@@ -772,8 +551,8 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
             # Add technical indicators
             try:
                 df.ta.adx(append=True); df.ta.apo(append=True); df.ta.aroon(append=True); df.ta.atr(append=True); df.ta.bbands(append=True); df.ta.cci(append=True); df.ta.chop(append=True); df.ta.cksp(append=True); df.ta.cmf(append=True); df.ta.coppock(append=True); df.ta.ema(length=50, append=True); df.ta.ema(length=200, append=True); df.ta.fisher(append=True); df.ta.kst(append=True); df.ta.macd(append=True); df.ta.mfi(append=True); df.ta.mom(append=True); df.ta.obv(append=True); df.ta.rsi(append=True); df.ta.stoch(append=True); df.ta.supertrend(append=True); df.ta.willr(append=True)
-            except Exception:
-                pass 
+            except Exception as e:
+                st.toast(f"Could not calculate some indicators: {e}", icon="⚠️")
             return df
         except kite_exceptions.KiteException as e:
             st.error(f"Kite API Error (Historical): {e}")
@@ -821,7 +600,7 @@ def get_market_depth(instrument_token):
     try:
         # Use quote method to get market depth data instead of depth
         quote_data = client.quote([str(instrument_token)])
-        instrument_key = str(instrument_token)
+        instrument_key = f"{instrument_token}"
         if instrument_key in quote_data:
             return quote_data[instrument_key].get('depth')
         return None
@@ -1009,8 +788,57 @@ def train_seasonal_arima_model(_data, forecast_steps=30):
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
-    """Enhanced version using the new data fetcher."""
-    return get_enhanced_historical_data(instrument_name, "daily")
+    """Loads and combines historical data from a static CSV with live data from the broker."""
+    source_info = ML_DATA_SOURCES.get(instrument_name)
+    if not source_info:
+        st.error(f"No data source configured for {instrument_name}")
+        return pd.DataFrame()
+    try:
+        response = requests.get(source_info['github_url'])
+        response.raise_for_status()
+        hist_df = pd.read_csv(io.StringIO(response.text))
+        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed', dayfirst=True).dt.tz_localize(None)
+        hist_df.set_index('Date', inplace=True)
+        hist_df.columns = [col.lower() for col in hist_df.columns]
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col in hist_df.columns:
+                hist_df[col] = pd.to_numeric(hist_df[col].astype(str).str.replace(',', ''), errors='coerce')
+        hist_df.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
+    except Exception as e:
+        st.error(f"Failed to load historical data: {e}")
+        return pd.DataFrame()
+        
+    live_df = pd.DataFrame()
+    if get_broker_client() and source_info.get('tradingsymbol') and source_info.get('exchange') != 'yfinance':
+        instrument_df = get_instrument_df()
+        token = get_instrument_token(source_info['tradingsymbol'], instrument_df, source_info['exchange'])
+        if token:
+            from_date = hist_df.index.max().date() if not hist_df.empty else datetime.now().date() - timedelta(days=365)
+            live_df = get_historical_data(token, 'day', from_date=from_date)
+            if not live_df.empty: 
+                live_df.index = live_df.index.tz_convert(None)
+                live_df.columns = [col.lower() for col in live_df.columns]
+    elif source_info.get('exchange') == 'yfinance':
+        try:
+            live_df = yf.download(source_info['tradingsymbol'], period="max")
+            if not live_df.empty: 
+                live_df.index = live_df.index.tz_localize(None)
+                live_df.columns = [col.lower() for col in live_df.columns]
+        except Exception as e:
+            st.error(f"Failed to load yfinance data: {e}")
+            live_df = pd.DataFrame()
+            
+    if not live_df.empty:
+        hist_df.index = hist_df.index.tz_localize(None) if hist_df.index.tz is not None else hist_df.index
+        live_df.index = live_df.index.tz_localize(None) if live_df.index.tz is not None else live_df.index
+        
+        combined_df = pd.concat([hist_df, live_df])
+        combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
+        combined_df.sort_index(inplace=True)
+        return combined_df
+    else:
+        hist_df.sort_index(inplace=True)
+        return hist_df
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
     """Calculates Black-Scholes option price and Greeks."""
@@ -1108,12 +936,15 @@ def execute_basket_order(basket_items, instrument_df):
 
 @st.cache_data(ttl=3600)
 def get_sector_data():
-    """Loads stock-to-sector mapping from a local CSV file."""
+    """Loads stock-to-sector mapping from a remote CSV file on GitHub."""
+    url = "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/sensex_sectors.csv"
     try:
-        return pd.read_csv("sensex_sectors.csv")
-    except FileNotFoundError:
-        st.warning("'sensex_sectors.csv' not found. Sector allocation will be unavailable.")
-        return None
+        response = requests.get(url)
+        response.raise_for_status()
+        return pd.read_csv(io.StringIO(response.text))
+    except Exception as e:
+        st.warning(f"Could not load sector data. Sector allocation will be unavailable. Error: {e}")
+        return pd.DataFrame()
 
 def style_option_chain(df, ltp):
     """Applies conditional styling to highlight ITM/OTM in the options chain."""
@@ -1269,28 +1100,31 @@ def get_nifty50_constituents(instrument_df):
     if instrument_df.empty:
         return pd.DataFrame()
     
+    # Updated and complete NIFTY 50 list
     nifty50_symbols = [
-        'RELIANCE', 'HDFCBANK', 'ICICIBANK', 'INFY', 'TCS', 'HINDUNILVR', 'ITC', 
-        'LT', 'KOTAKBANK', 'SBIN', 'BAJFINANCE', 'BHARTIARTL', 'ASIANPAINT', 
-        'AXISBANK', 'WIPRO', 'TITAN', 'ULTRACEMCO', 'M&M', 'NESTLEIND',
-        'ADANIENT', 'TATASTEEL', 'INDUSINDBK', 'TECHM', 'NTPC', 'MARUTI', 
-        'BAJAJ-AUTO', 'POWERGRID', 'HCLTECH', 'ADANIPORTS', 'BPCL', 'COALINDIA', 
-        'EICHERMOT', 'GRASIM', 'JSWSTEEL', 'SHREECEM', 'HEROMOTOCO', 'HINDALCO',
-        'DRREDDY', 'CIPLA', 'APOLLOHOSP', 'SBILIFE',
-        'TATAMOTORS', 'BRITANNIA', 'DIVISLAB', 'BAJAJFINSV', 'SUNPHARMA', 'HDFCLIFE'
+        'ADANIENT', 'ADANIPORTS', 'APOLLOHOSP', 'ASIANPAINT', 'AXISBANK', 
+        'BAJAJ-AUTO', 'BAJFINANCE', 'BAJAJFINSV', 'BPCL', 'BHARTIARTL', 
+        'BRITANNIA', 'CIPLA', 'COALINDIA', 'DIVISLAB', 'DRREDDY', 
+        'EICHERMOT', 'GRASIM', 'HCLTECH', 'HDFCBANK', 'HDFCLIFE', 
+        'HEROMOTOCO', 'HINDALCO', 'HINDUNILVR', 'ICICIBANK', 'ITC', 
+        'INDUSINDBK', 'INFY', 'JSWSTEEL', 'KOTAKBANK', 'LTIM', 'LT', 
+        'M&M', 'MARUTI', 'NTPC', 'NESTLEIND', 'ONGC', 'POWERGRID', 
+        'RELIANCE', 'SBILIFE', 'SBIN', 'SUNPHARMA', 'TCS', 'TATACONSUM', 
+        'TATAMOTORS', 'TATASTEEL', 'TECHM', 'TITAN', 'ULTRACEMCO', 'WIPRO'
     ]
     
     nifty_constituents = instrument_df[
         (instrument_df['tradingsymbol'].isin(nifty50_symbols)) & 
-        (instrument_df['segment'] == 'NSE')
+        (instrument_df['segment'] == 'NSE') &
+        (instrument_df['instrument_type'] == 'EQ')
     ].copy()
 
     constituents_df = pd.DataFrame({
         'Symbol': nifty_constituents['tradingsymbol'],
-        'Name': nifty_constituents['tradingsymbol']
+        'Name': nifty_constituents['name']
     })
     
-    return constituents_df.drop_duplicates(subset='Symbol').head(15)
+    return constituents_df.drop_duplicates(subset='Symbol').head(50)
 
 def create_nifty_heatmap(instrument_df):
     """Generates a Plotly Treemap for NIFTY 50 stocks."""
@@ -1305,7 +1139,7 @@ def create_nifty_heatmap(instrument_df):
         return go.Figure()
         
     full_data = pd.merge(live_data, constituents_df, left_on='Ticker', right_on='Symbol', how='left')
-    full_data['size'] = full_data['Price'].astype(float) * 1000
+    full_data['size'] = full_data['Price'].astype(float).abs() # Use absolute price for size
     
     fig = go.Figure(go.Treemap(
         labels=full_data['Ticker'],
@@ -1798,7 +1632,7 @@ def page_forecasting_ml():
                     st.success("Model trained successfully!")
 
     with col2:
-        if 'ml_instrument_name' in st.session_state:
+        if 'ml_instrument_name' in st.session_state and st.session_state.ml_instrument_name is not None:
             instrument_name = st.session_state.ml_instrument_name
             st.subheader(f"Forecast Results for {instrument_name}")
 
@@ -1878,7 +1712,7 @@ def page_portfolio_and_risk():
             
             holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
             
-            if not holdings_df.empty and sector_df is not None:
+            if not sector_df.empty:
                 holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
                 if 'Sector' not in holdings_df.columns:
                     holdings_df['Sector'] = 'Uncategorized'
@@ -2270,75 +2104,6 @@ def page_algo_strategy_maker():
                 if st.button(f"Place {signal} Order for {results['quantity']} of {results['symbol']}", use_container_width=True):
                     place_order(instrument_df, results['symbol'], results['quantity'], "MARKET", signal, "MIS")
 
-@st.cache_data(ttl=3600)
-def run_scanner(instrument_df, scanner_type, holdings_df=None):
-    """A single function to run different types of market scanners on user holdings or a predefined list."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: return pd.DataFrame()
-
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()
-        st.info("Scanning stocks from your live holdings.")
-    else:
-        scan_list = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 'MARUTI', 'ASIANPAINT']
-        st.info("Scanning a predefined list of NIFTY 50 stocks as no holdings were found.")
-
-    results = []
-    
-    token_map = {
-        row['tradingsymbol']: row['instrument_token']
-        for _, row in instrument_df[instrument_df['tradingsymbol'].isin(scan_list)].iterrows()
-    }
-    
-    for symbol in scan_list:
-        token = token_map.get(symbol)
-        if not token: continue
-        
-        try:
-            df = get_historical_data(token, 'day', period='1y')
-            if df.empty or len(df) < 252: continue
-            
-            df.columns = [c.lower() for c in df.columns]
-
-            if scanner_type == "Momentum":
-                rsi_col = next((c for c in df.columns if 'rsi_14' in c), None)
-                if rsi_col:
-                    rsi = df.iloc[-1].get(rsi_col)
-                    if rsi and (rsi > 70 or rsi < 30):
-                        results.append({'Stock': symbol, 'RSI': f"{rsi:.2f}", 'Signal': "Overbought" if rsi > 70 else "Oversold"})
-            
-            elif scanner_type == "Trend":
-                adx_col = next((c for c in df.columns if 'adx_14' in c), None)
-                ema50_col = next((c for c in df.columns if 'ema_50' in c), None)
-                ema200_col = next((c for c in df.columns if 'ema_200' in c), None)
-                
-                if adx_col and ema50_col and ema200_col:
-                    adx = df.iloc[-1].get(adx_col)
-                    ema50 = df.iloc[-1].get(ema50_col)
-                    ema200 = df.iloc[-1].get(ema200_col)
-                    if adx and adx > 25 and ema50 and ema200:
-                        trend = "Uptrend" if ema50 > ema200 else "Downtrend"
-                        results.append({'Stock': symbol, 'ADX': f"{adx:.2f}", 'Trend': trend})
-
-            elif scanner_type == "Breakout":
-                high_52wk = df['high'].rolling(window=252).max().iloc[-1]
-                low_52wk = df['low'].rolling(window=252).min().iloc[-1]
-                last_close = df['close'].iloc[-1]
-                avg_vol_20d = df['volume'].rolling(window=20).mean().iloc[-1]
-                last_vol = df['volume'].iloc[-1]
-
-                if last_close >= high_52wk * 0.98:
-                    signal = "Near 52-Week High"
-                    if last_vol > avg_vol_20d * 1.5:
-                        signal += " (Volume Surge)"
-                    results.append({'Stock': symbol, 'Signal': signal, 'Last Close': last_close, '52Wk High': high_52wk})
-
-        except Exception:
-            continue
-            
-    return pd.DataFrame(results)
-
 def run_momentum_scanner(instrument_df, holdings_df=None):
     """Momentum scanner with RSI and MACD analysis."""
     client = get_broker_client()
@@ -2348,7 +2113,7 @@ def run_momentum_scanner(instrument_df, holdings_df=None):
     # Get symbols to scan
     scan_list = []
     if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]  # Limit to 20 stocks
+        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20] # Limit to 20 stocks
     else:
         scan_list = [
             'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
@@ -2593,7 +2358,7 @@ def page_momentum_and_trend_finder():
             title = "Trending Stocks (EMA Based)"
             description = "Stocks in strong uptrend/downtrend based on EMA alignment"
             
-        else:  # Breakout
+        else: # Breakout
             data = run_breakout_scanner(instrument_df, holdings_df)
             title = "Breakout Stocks"
             description = "Stocks breaking 20-day high/low resistance/support levels"
@@ -2622,7 +2387,7 @@ def page_momentum_and_trend_finder():
                 return ''
             styled_data = data.style.map(color_trend, subset=['Trend'])
             
-        else:  # Breakout
+        else: # Breakout
             def color_breakout(val):
                 if 'High' in str(val):
                     return 'color: #00aa00; font-weight: bold;'
@@ -2635,8 +2400,8 @@ def page_momentum_and_trend_finder():
         
         # Simple statistics
         if scanner_type == "Momentum (RSI)":
-            bullish = len(data[data['Signal'] == 'Overbought'])
-            bearish = len(data[data['Signal'] == 'Oversold'])
+            bullish = len(data[data['Signal'] == 'Oversold']) # Note: Oversold is bullish signal
+            bearish = len(data[data['Signal'] == 'Overbought']) # Overbought is bearish
             st.metric("Signals Found", len(data), delta=f"{bullish} Bullish, {bearish} Bearish")
             
         elif scanner_type == "Trend (EMA)":
@@ -2644,7 +2409,7 @@ def page_momentum_and_trend_finder():
             downtrend = len(data[data['Trend'] == 'Downtrend'])
             st.metric("Signals Found", len(data), delta=f"{uptrend} Up, {downtrend} Down")
             
-        else:  # Breakout
+        else: # Breakout
             breakouts = len(data[data['Breakout'].str.contains('High')])
             breakdowns = len(data[data['Breakout'].str.contains('Low')])
             st.metric("Signals Found", len(data), delta=f"{breakouts} Breakouts, {breakdowns} Breakdowns")
@@ -2654,20 +2419,19 @@ def page_momentum_and_trend_finder():
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📋 Export to CSV", use_container_width=True):
-                csv = data.to_csv(index=False)
-                st.download_button(
-                    label="Download CSV",
-                    data=csv,
-                    file_name=f"{scanner_type.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
+            csv = data.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📋 Export to CSV",
+                data=csv,
+                file_name=f"{scanner_type.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
         
         with col2:
             if st.button("👀 Add to Watchlist", use_container_width=True):
                 added = 0
-                for symbol in data['Symbol'].head(5):  # Add top 5
+                for symbol in data['Symbol'].head(5): # Add top 5
                     if symbol not in [item['symbol'] for item in st.session_state.watchlists[st.session_state.active_watchlist]]:
                         st.session_state.watchlists[st.session_state.active_watchlist].append({
                             'symbol': symbol, 
@@ -2690,8 +2454,6 @@ def page_momentum_and_trend_finder():
         - Try a different scanner type
         - Check if market is open
         """)
-
-# Replace the existing page_momentum_and_trend_finder function with this clean version
 
 def calculate_strategy_pnl(legs, underlying_ltp):
     """Calculates the P&L for a given options strategy."""
@@ -2834,8 +2596,8 @@ def page_option_strategy_builder():
             
             st.subheader("Risk & Reward Profile")
             metrics_col1, metrics_col2 = st.columns(2)
-            metrics_col1.metric("Max Profit", f"₹{max_profit:,.2f}")
-            metrics_col1.metric("Max Loss", f"₹{max_loss:,.2f}")
+            metrics_col1.metric("Max Profit", f"₹{max_profit:,.2f}" if not np.isinf(max_profit) else "Unlimited")
+            metrics_col1.metric("Max Loss", f"₹{max_loss:,.2f}" if not np.isinf(max_loss) else "Unlimited")
             metrics_col2.metric("Breakeven(s)", ", ".join([f"₹{b:,.2f}" for b in breakevens]) if breakevens else "N/A")
         else:
             st.info("Add legs to see the payoff analysis.")
@@ -2938,7 +2700,7 @@ def generate_ai_trade_idea(instrument_df, active_list):
         token = get_instrument_token(item['symbol'], instrument_df, exchange=item['exchange'])
         if token:
             data = get_historical_data(token, 'day', period='6mo')
-            if not data.empty and len(data) > 20:  # Ensure we have enough data
+            if not data.empty and len(data) > 20: # Ensure we have enough data
                 interpretation = interpret_indicators(data)
                 signals = [v for k, v in interpretation.items() if "Bullish" in v or "Bearish" in v]
                 if signals:
@@ -2957,8 +2719,8 @@ def generate_ai_trade_idea(instrument_df, active_list):
     atr_col = next((c for c in ticker_data.columns if 'atr' in c), None) 
     if not atr_col or pd.isna(ticker_data[atr_col].iloc[-1]):
         # Use a default ATR value based on recent volatility if ATR is not available
-        recent_volatility = ticker_data['close'].pct_change().std() * 100  # Percentage volatility
-        atr = ltp * (recent_volatility / 100) if not pd.isna(recent_volatility) else ltp * 0.02  # Default to 2%
+        recent_volatility = ticker_data['close'].pct_change().std() * 100 # Percentage volatility
+        atr = ltp * (recent_volatility / 100) if not pd.isna(recent_volatility) else ltp * 0.02 # Default to 2%
     else:
         atr = ticker_data[atr_col].iloc[-1]
     
@@ -2984,7 +2746,8 @@ def generate_ai_trade_idea(instrument_df, active_list):
         "entry": entry,
         "target": target,
         "stop_loss": stop_loss,
-        "narrative": narrative
+        "narrative": narrative,
+        "symbol": best_ticker
     }
 
 def page_ai_discovery():
@@ -3013,7 +2776,7 @@ def page_ai_discovery():
             token = get_instrument_token(item['symbol'], instrument_df, exchange=item['exchange'])
             if token:
                 data = get_historical_data(token, 'day', period='6mo')
-                if not data.empty and len(data) > 20:  # Ensure we have enough data
+                if not data.empty and len(data) > 20: # Ensure we have enough data
                     interpretation = interpret_indicators(data)
                     signals = [f"{k}: {v}" for k, v in interpretation.items() if "Bullish" in v or "Bearish" in v]
                     if signals:
@@ -3043,6 +2806,10 @@ def page_ai_discovery():
             <p><strong>Narrative:</strong> {trade_idea['narrative']}</p>
         </div>
         """, unsafe_allow_html=True)
+        
+        if st.button(f"Quick Trade {trade_idea['symbol']}", use_container_width=True):
+             quick_trade_dialog(symbol=trade_idea['symbol'])
+
     else:
         st.info("Could not generate a high-conviction trade idea from the current watchlist signals.")
 
@@ -3114,56 +2881,131 @@ def page_economic_calendar():
     """Economic Calendar page for Indian market events."""
     display_header()
     
-    # Check for market timing notifications
     check_market_timing_notifications()
     
     st.title("Economic Calendar")
-    st.info("Upcoming economic events for the Indian market, updated until October 2025.")
+    st.info("Upcoming economic events for the Indian market, updated until December 2025.")
 
     events = {
         'Date': [
-            '2025-09-26', '2025-09-26', '2025-09-29', '2025-09-30',
-            '2025-10-01', '2025-10-03', '2025-10-08', '2025-10-10',
-            '2025-10-14', '2025-10-15', '2025-10-17', '2025-10-24',
-            '2025-10-31', '2025-10-31'
+            '2025-09-26', '2025-09-26', '2025-09-29', '2025-09-30', '2025-10-01', '2025-10-03', '2025-10-08', '2025-10-10',
+            '2025-10-14', '2025-10-15', '2025-10-17', '2025-10-24', '2025-10-31', '2025-10-31',
+            '2025-11-03', '2025-11-05', '2025-11-12', '2025-11-14', '2025-11-28', '2025-11-28',
+            '2025-12-01', '2025-12-03', '2025-12-05', '2025-12-12', '2025-12-12', '2025-12-31'
         ],
         'Time': [
-            '11:30 AM', '11:30 AM', '10:30 AM', '05:30 PM',
-            '10:30 AM', '10:30 AM', '11:00 AM', '05:00 PM',
-            '12:00 PM', '05:30 PM', '05:00 PM', '05:00 PM',
-            '05:30 PM', '05:00 PM'
+            '11:30 AM', '11:30 AM', '10:30 AM', '05:30 PM', '10:30 AM', '10:30 AM', '11:00 AM', '05:00 PM',
+            '12:00 PM', '05:30 PM', '05:00 PM', '05:00 PM', '05:30 PM', '05:00 PM',
+            '10:30 AM', '10:30 AM', '05:30 PM', '12:00 PM', '11:30 AM', '05:30 PM',
+            '10:30 AM', '10:30 AM', '11:00 AM', '05:30 PM', '10:30 AM', '05:30 PM'
         ],
         'Event Name': [
             'Bank Loan Growth YoY', 'Foreign Exchange Reserves', 'Industrial Production YoY (AUG)', 'Infrastructure Output YoY (AUG)',
-            'Nikkei Manufacturing PMI (SEP)', 'Nikkei Services PMI (SEP)', 'RBI Interest Rate Decision',
-            'Foreign Exchange Reserves', 'WPI Inflation YoY (SEP)', 'CPI Inflation YoY (SEP)',
-            'Foreign Exchange Reserves', 'Foreign Exchange Reserves', 'Fiscal Deficit (SEP)',
-            'Foreign Exchange Reserves'
+            'Nikkei Manufacturing PMI (SEP)', 'Nikkei Services PMI (SEP)', 'RBI Interest Rate Decision', 'Foreign Exchange Reserves',
+            'WPI Inflation YoY (SEP)', 'CPI Inflation YoY (SEP)', 'Foreign Exchange Reserves', 'Foreign Exchange Reserves',
+            'Fiscal Deficit (SEP)', 'Foreign Exchange Reserves',
+            'Nikkei Manufacturing PMI (OCT)', 'Nikkei Services PMI (OCT)', 'CPI Inflation YoY (OCT)', 'WPI Inflation YoY (OCT)',
+            'GDP Growth Rate YoY (Q3)', 'Foreign Exchange Reserves',
+            'Nikkei Manufacturing PMI (NOV)', 'Nikkei Services PMI (NOV)', 'RBI Interest Rate Decision', 'CPI Inflation YoY (NOV)',
+            'Industrial Production YoY (OCT)', 'Fiscal Deficit (NOV)'
         ],
         'Impact': [
-            'Medium', 'Low', 'Medium', 'Medium',
-            'High', 'High', 'High', 'Low',
-            'High', 'High', 'Low', 'Low',
-            'Medium', 'Low'
-        ],
-        'Previous': [
-            '10.0%', '$702.97B', '2.9%', '6.3%',
-            '58.5', '61.6', '6.50%', '$703.1B',
-            '0.3%', '5.1%', '$704.5B', '$705.2B',
-            '-4684.2B INR', '$705.9B'
-        ],
-        'Forecast': [
-            '-', '-', '3.5%', '6.5%',
-            '58.8', '61.2', '6.50%', '-',
-            '0.5%', '5.3%', '-', '-',
-            '-5100.0B INR', '-'
+            'Medium', 'Low', 'Medium', 'Medium', 'High', 'High', 'High', 'Low', 'High', 'High', 'Low', 'Low', 'Medium', 'Low',
+            'High', 'High', 'High', 'High', 'High', 'Low', 'High', 'High', 'High', 'High', 'Medium', 'Medium'
         ]
     }
     calendar_df = pd.DataFrame(events)
+    calendar_df['Date'] = pd.to_datetime(calendar_df['Date'])
+    
+    # Filter to show only upcoming events
+    today = pd.to_datetime(datetime.now(pytz.timezone('Asia/Kolkata')).date())
+    upcoming_events_df = calendar_df[calendar_df['Date'] >= today].copy()
+    upcoming_events_df['Date'] = upcoming_events_df['Date'].dt.strftime('%d %b %Y')
 
-    st.dataframe(calendar_df, use_container_width=True, hide_index=True)
+    st.dataframe(upcoming_events_df, use_container_width=True, hide_index=True)
 
 # ============ 5.5 HFT TERMINAL PAGE - REPAIRED ============
+def page_hft_terminal():
+    """A dedicated terminal for High-Frequency Trading with Level 2 data - REPAIRED VERSION."""
+    display_header()
+    
+    # Check for market timing notifications
+    check_market_timing_notifications()
+    
+    st.title("⚡ HFT Terminal")
+    st.info("High-frequency trading interface with real-time market depth and one-click execution. Optimized for liquid F&O instruments.", icon="⚡")
+
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.warning("Please connect to a broker to use the HFT Terminal.")
+        return
+
+    # --- Instrument Selection and Key Stats ---
+    st.subheader("Instrument Selection")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        symbol = st.text_input(
+            "Instrument Symbol", 
+            "NIFTY24OCTFUT", 
+            key="hft_symbol",
+            placeholder="e.g., NIFTY24OCTFUT, BANKNIFTY24OCT23500CE",
+            help="Enter the exact trading symbol for the instrument"
+        ).upper()
+    
+    # Validate instrument
+    instrument_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
+    if instrument_info.empty:
+        st.error(f"❌ Instrument '{symbol}' not found. Please enter a valid symbol.")
+        
+        # Show popular suggestions
+        st.info("💡 Popular instruments:")
+        suggestions = st.columns(4)
+        popular_instruments = [
+            ("NIFTY24OCTFUT", "Nifty Futures"),
+            ("BANKNIFTY24OCTFUT", "Bank Nifty Futures"), 
+            ("RELIANCE", "Reliance Equity"),
+            ("SBIN", "SBI Equity")
+        ]
+        
+        for i, (sugg_symbol, sugg_name) in enumerate(popular_instruments):
+            if suggestions[i].button(f"{sugg_symbol}", use_container_width=True):
+                st.session_state.hft_symbol = sugg_symbol
+                st.rerun()
+        return
+    
+    exchange = instrument_info.iloc[0]['exchange']
+    instrument_token = instrument_info.iloc[0]['instrument_token']
+    lot_size = instrument_info.iloc[0].get('lot_size', 1)
+
+    # --- Fetch Live Data ---
+    quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
+    depth_data = get_market_depth(instrument_token)
+
+    # --- Display Key Stats ---
+    st.subheader("Live Market Data")
+    
+    if not quote_data.empty:
+        ltp = quote_data.iloc[0]['Price']
+        change = quote_data.iloc[0]['Change']
+        pct_change = quote_data.iloc[0]['% Change']
+        
+        # Determine tick direction for animation
+        tick_direction = ""
+        if ltp > st.session_state.hft_last_price:
+            tick_direction = "tick-up"
+        elif ltp < st.session_state.hft_last_price:
+            tick_direction = "tick-down"
+        
+        # Display metrics in a card layout
+        metric_cols = st.columns(4)
+        with metric_cols[0]:
+            st.markdown(f"<div class='metric-card {tick_direction}'>LTP<br><h3>₹{ltp:,.2f}</h3></div>", unsafe_allow_html=True)
+        with metric_cols[1]:
+            color = 'var(--green)' if change > 0 else 'var(--red)'
+            st.markdown(f"<div class='metric-card'>Change<br><h3 style='color:{color};'>{change:+.2f}</h3></div>", unsafe_allow_html=True)
+        with metric_cols[2]:
+            st.markdown(f"<div class='metric-card'>Change %<br
 def page_hft_terminal():
     """A dedicated terminal for High-Frequency Trading with Level 2 data - REPAIRED VERSION."""
     display_header()
@@ -3760,161 +3602,6 @@ def page_fundamental_analytics():
         - **Profit Margins**: Operating efficiency
         - **Revenue Growth**: Business expansion
         """)
-
-# ============ NEW DATA MANAGER PAGE ============
-
-def page_data_manager():
-    """Page for managing historical data files."""
-    display_header()
-    
-    st.title("Historical Data Manager")
-    st.info("Download and update historical hourly/daily data for all instruments")
-    
-    tab1, tab2, tab3 = st.tabs(["Download Data", "View Data", "Export Data"])
-    
-    with tab1:
-        st.subheader("Download Historical Data")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            selected_instrument = st.selectbox(
-                "Select Instrument",
-                options=list(ENHANCED_DATA_SOURCES.keys()),
-                key="data_instrument"
-            )
-            
-            data_type = st.radio(
-                "Data Frequency",
-                ["Hourly", "Daily"],
-                horizontal=True
-            )
-            
-            period = st.selectbox(
-                "Period",
-                ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"],
-                index=3
-            )
-        
-        with col2:
-            st.metric("Selected Instrument", selected_instrument)
-            source_info = ENHANCED_DATA_SOURCES[selected_instrument]
-            st.metric("Primary Source", source_info.get('fallback', 'yfinance'))
-            st.metric("yfinance Ticker", source_info.get('yfinance_ticker', 'N/A'))
-        
-        if st.button("Download Data", type="primary", use_container_width=True):
-            with st.spinner(f"Downloading {data_type} data for {selected_instrument}..."):
-                data = get_enhanced_historical_data(
-                    selected_instrument, 
-                    data_type.lower()
-                )
-                
-                if not data.empty:
-                    st.session_state[f'current_data_{selected_instrument}'] = data
-                    st.success(f"Successfully downloaded {len(data)} data points!")
-                    
-                    # Show preview
-                    st.subheader("Data Preview")
-                    st.dataframe(data.tail(10), use_container_width=True)
-                    
-                    # Basic stats
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Total Records", len(data))
-                    col2.metric("Date Range", f"{data.index.min().strftime('%d %b %Y')}")
-                    col3.metric("To", f"{data.index.max().strftime('%d %b %Y')}")
-                    col4.metric("Columns", len(data.columns))
-                else:
-                    st.error("Failed to download data. Please check the instrument configuration.")
-    
-    with tab2:
-        st.subheader("View Historical Data")
-        
-        instrument_to_view = st.selectbox(
-            "Select Instrument to View",
-            options=list(ENHANCED_DATA_SOURCES.keys()),
-            key="view_instrument"
-        )
-        
-        if st.button("Load Data", key="load_view_data"):
-            if f'current_data_{instrument_to_view}' in st.session_state:
-                data = st.session_state[f'current_data_{instrument_to_view}']
-                
-                # Display chart
-                st.subheader(f"Price Chart - {instrument_to_view}")
-                fig = create_chart(data, instrument_to_view, 'Candlestick')
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Display data table
-                st.subheader("Raw Data")
-                st.dataframe(data, use_container_width=True)
-            else:
-                st.warning("No data loaded for this instrument. Please download data first.")
-    
-    with tab3:
-        st.subheader("Export Data")
-        
-        st.info("Export historical data for backup or analysis in external tools")
-        
-        export_instrument = st.selectbox(
-            "Select Instrument to Export",
-            options=list(ENHANCED_DATA_SOURCES.keys()),
-            key="export_instrument"
-        )
-        
-        if f'current_data_{export_instrument}' in st.session_state:
-            data = st.session_state[f'current_data_{export_instrument}']
-            
-            # Export options
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                export_format = st.radio(
-                    "Export Format",
-                    ["CSV", "Excel", "JSON"],
-                    horizontal=True
-                )
-            
-            with col2:
-                include_indicators = st.checkbox("Include Technical Indicators", value=True)
-            
-            # Filter data if needed
-            if not include_indicators:
-                basic_cols = ['open', 'high', 'low', 'close', 'volume']
-                available_cols = [col for col in basic_cols if col in data.columns]
-                data = data[available_cols]
-            
-            # Convert to different formats
-            if export_format == "CSV":
-                csv_data = data.to_csv()
-                st.download_button(
-                    label="Download CSV",
-                    data=csv_data,
-                    file_name=f"{export_instrument.replace(' ', '_')}_historical_data.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-            elif export_format == "Excel":
-                excel_buffer = io.BytesIO()
-                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                    data.to_excel(writer, sheet_name='Historical Data')
-                st.download_button(
-                    label="Download Excel",
-                    data=excel_buffer.getvalue(),
-                    file_name=f"{export_instrument.replace(' ', '_')}_historical_data.xlsx",
-                    mime="application/vnd.ms-excel",
-                    use_container_width=True
-                )
-            else:  # JSON
-                json_data = data.reset_index().to_json(orient='records', date_format='iso')
-                st.download_button(
-                    label="Download JSON",
-                    data=json_data,
-                    file_name=f"{export_instrument.replace(' ', '_')}_historical_data.json",
-                    mime="application/json",
-                    use_container_width=True
-                )
-        else:
-            st.warning("No data available for export. Please download data first.")
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
