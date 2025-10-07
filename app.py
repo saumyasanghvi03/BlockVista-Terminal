@@ -223,265 +223,44 @@ def apply_custom_styling():
     """
     st.components.v1.html(js_theme, height=0)
 
-# ================ ENHANCED DATA COLLECTION MODULE ================
-
-# Enhanced data sources with multiple fallbacks
-ENHANCED_DATA_SOURCES = {
+# Centralized data source configuration
+ML_DATA_SOURCES = {
     "NIFTY 50": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/NIFTY50.csv",
-        "yfinance_ticker": "^NSEI",
-        "tradingsymbol": "NIFTY 50", 
-        "exchange": "NSE",
-        "fallback": "yfinance"
+        "tradingsymbol": "NIFTY 50",
+        "exchange": "NSE"
     },
     "BANK NIFTY": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/BANKNIFTY.csv",
-        "yfinance_ticker": "^NSEBANK", 
         "tradingsymbol": "BANKNIFTY",
-        "exchange": "NFO",
-        "fallback": "yfinance"
+        "exchange": "NFO"
     },
     "NIFTY Financial Services": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/FINNIFTY.csv",
-        "yfinance_ticker": "FINNIFTY.NS",
         "tradingsymbol": "FINNIFTY",
-        "exchange": "NFO",
-        "fallback": "yfinance"
+        "exchange": "NFO"
     },
     "GOLD": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/GOLD.csv",
-        "yfinance_ticker": "GC=F",
         "tradingsymbol": "GOLDM",
-        "exchange": "MCX", 
-        "fallback": "yfinance"
+        "exchange": "MCX"
     },
     "USDINR": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/USDINR.csv",
-        "yfinance_ticker": "INR=X",
         "tradingsymbol": "USDINR",
-        "exchange": "CDS",
-        "fallback": "yfinance"
+        "exchange": "CDS"
     },
     "SENSEX": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SENSEX.csv",
-        "yfinance_ticker": "^BSESN",
         "tradingsymbol": "SENSEX",
-        "exchange": "BSE",
-        "fallback": "yfinance"
+        "exchange": "BSE"
     },
     "S&P 500": {
         "github_url": "https://raw.githubusercontent.com/saumyasanghvi03/BlockVista-Terminal/main/SP500.csv",
-        "yfinance_ticker": "^GSPC",
         "tradingsymbol": "^GSPC",
-        "exchange": "yfinance",
-        "fallback": "yfinance"
-    },
-    "NIFTY MIDCAP 100": {
-        "yfinance_ticker": "^CNXMD",
-        "tradingsymbol": "NIFTYMID100",
-        "exchange": "NSE", 
-        "fallback": "yfinance"
+        "exchange": "yfinance"
     }
 }
-
-def download_hourly_data_yfinance(ticker, period="2y"):
-    """Download hourly data using yfinance with error handling."""
-    try:
-        data = yf.download(ticker, period=period, interval="1h")
-        if data.empty:
-            return pd.DataFrame()
-        
-        # Reset index and rename columns
-        data = data.reset_index()
-        data.columns = [col.lower() for col in data.columns]
-        
-        # Ensure standard column names
-        column_mapping = {
-            'date': 'datetime',
-            'open': 'open', 
-            'high': 'high',
-            'low': 'low', 
-            'close': 'close',
-            'volume': 'volume'
-        }
-        
-        data = data.rename(columns=column_mapping)
-        data['datetime'] = pd.to_datetime(data['datetime'])
-        data.set_index('datetime', inplace=True)
-        
-        return data
-        
-    except Exception as e:
-        st.error(f"Error downloading {ticker} from yfinance: {e}")
-        return pd.DataFrame()
-
-def download_from_github(url):
-    """Download CSV data from GitHub with error handling."""
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = pd.read_csv(io.StringIO(response.text))
-        
-        # Standardize column names
-        data.columns = [col.lower() for col in data.columns]
-        
-        # Handle different date column names
-        date_columns = ['date', 'datetime', 'time', 'timestamp']
-        date_col = next((col for col in date_columns if col in data.columns), None)
-        
-        if date_col:
-            data[date_col] = pd.to_datetime(data[date_col], errors='coerce')
-            data.set_index(date_col, inplace=True)
-        
-        # Convert numeric columns
-        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
-        for col in numeric_cols:
-            if col in data.columns:
-                data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', ''), errors='coerce')
-        
-        return data
-        
-    except Exception as e:
-        st.error(f"Error downloading from GitHub {url}: {e}")
-        return pd.DataFrame()
-
-def get_enhanced_historical_data(instrument_name, data_type="hourly"):
-    """
-    Enhanced historical data fetcher with multiple fallback sources.
-    
-    Parameters:
-    - instrument_name: Name of the instrument from ENHANCED_DATA_SOURCES
-    - data_type: "hourly" or "daily"
-    """
-    source_info = ENHANCED_DATA_SOURCES.get(instrument_name)
-    if not source_info:
-        st.error(f"No data source configured for {instrument_name}")
-        return pd.DataFrame()
-    
-    data = pd.DataFrame()
-    
-    # Try GitHub first if available
-    if "github_url" in source_info:
-        data = download_from_github(source_info["github_url"])
-    
-    # If GitHub fails or we need hourly data, try yfinance
-    if data.empty or data_type == "hourly":
-        yf_ticker = source_info.get("yfinance_ticker")
-        if yf_ticker:
-            period = "2y" if data_type == "hourly" else "max"
-            interval = "1h" if data_type == "hourly" else "1d"
-            
-            try:
-                yf_data = yf.download(yf_ticker, period=period, interval=interval)
-                if not yf_data.empty:
-                    yf_data = yf_data.reset_index()
-                    yf_data.columns = [col.lower() for col in yf_data.columns]
-                    
-                    # Handle different date column names in yfinance
-                    if 'date' in yf_data.columns:
-                        yf_data.rename(columns={'date': 'datetime'}, inplace=True)
-                    elif 'index' in yf_data.columns:
-                        yf_data.rename(columns={'index': 'datetime'}, inplace=True)
-                    
-                    yf_data['datetime'] = pd.to_datetime(yf_data['datetime'])
-                    yf_data.set_index('datetime', inplace=True)
-                    
-                    # If we have existing data, merge them
-                    if not data.empty:
-                        # Keep yfinance data for periods not in GitHub data
-                        combined_data = pd.concat([data, yf_data])
-                        combined_data = combined_data[~combined_data.index.duplicated(keep='last')]
-                        data = combined_data.sort_index()
-                    else:
-                        data = yf_data
-            except Exception as e:
-                st.error(f"Error downloading {instrument_name} from yfinance: {e}")
-    
-    # Add technical indicators if we have data
-    if not data.empty:
-        try:
-            # Basic technical indicators
-            if all(col in data.columns for col in ['open', 'high', 'low', 'close']):
-                # RSI
-                data['rsi_14'] = ta.rsi(data['close'], length=14)
-                
-                # Moving averages
-                data['sma_20'] = ta.sma(data['close'], length=20)
-                data['ema_12'] = ta.ema(data['close'], length=12)
-                data['ema_26'] = ta.ema(data['close'], length=26)
-                
-                # MACD
-                macd = ta.macd(data['close'])
-                if macd is not None:
-                    data = pd.concat([data, macd], axis=1)
-                
-                # Bollinger Bands
-                bb = ta.bbands(data['close'])
-                if bb is not None:
-                    data = pd.concat([data, bb], axis=1)
-                    
-        except Exception as e:
-            st.warning(f"Could not add technical indicators for {instrument_name}: {e}")
-    
-    return data
-
-def update_historical_data_files():
-    """Function to update all historical data files with latest data."""
-    st.subheader("Update Historical Data Files")
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    instruments = list(ENHANCED_DATA_SOURCES.keys())
-    results = []
-    
-    for i, instrument in enumerate(instruments):
-        status_text.text(f"Downloading {instrument}...")
-        
-        try:
-            data = get_enhanced_historical_data(instrument, "daily")
-            if not data.empty:
-                # Save to session state or file
-                if f'historical_{instrument}' not in st.session_state:
-                    st.session_state[f'historical_{instrument}'] = data
-                
-                results.append({
-                    'Instrument': instrument,
-                    'Status': '✅ Success',
-                    'Data Points': len(data),
-                    'Date Range': f"{data.index.min().strftime('%Y-%m-%d')} to {data.index.max().strftime('%Y-%m-%d')}"
-                })
-            else:
-                results.append({
-                    'Instrument': instrument,
-                    'Status': '❌ Failed',
-                    'Data Points': 0,
-                    'Date Range': 'N/A'
-                })
-                
-        except Exception as e:
-            results.append({
-                'Instrument': instrument,
-                'Status': f'❌ Error: {str(e)[:50]}...',
-                'Data Points': 0,
-                'Date Range': 'N/A'
-            })
-        
-        progress_bar.progress((i + 1) / len(instruments))
-    
-    # Display results
-    results_df = pd.DataFrame(results)
-    st.dataframe(results_df, use_container_width=True)
-    
-    # Download option
-    if st.button("Export All Data as ZIP"):
-        # Implementation for ZIP export
-        st.info("Export feature would save all data files as CSV in a ZIP archive")
-    
-    return results_df
-
-# Replace the existing ML_DATA_SOURCES with enhanced version
-ML_DATA_SOURCES = ENHANCED_DATA_SOURCES
 
 # ================ 1.5 INITIALIZATION ========================
 def initialize_session_state():
@@ -1009,8 +788,57 @@ def train_seasonal_arima_model(_data, forecast_steps=30):
 
 @st.cache_data
 def load_and_combine_data(instrument_name):
-    """Enhanced version using the new data fetcher."""
-    return get_enhanced_historical_data(instrument_name, "daily")
+    """Loads and combines historical data from a static CSV with live data from the broker."""
+    source_info = ML_DATA_SOURCES.get(instrument_name)
+    if not source_info:
+        st.error(f"No data source configured for {instrument_name}")
+        return pd.DataFrame()
+    try:
+        response = requests.get(source_info['github_url'])
+        response.raise_for_status()
+        hist_df = pd.read_csv(io.StringIO(response.text))
+        hist_df['Date'] = pd.to_datetime(hist_df['Date'], format='mixed', dayfirst=True).dt.tz_localize(None)
+        hist_df.set_index('Date', inplace=True)
+        hist_df.columns = [col.lower() for col in hist_df.columns]
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            if col in hist_df.columns:
+                hist_df[col] = pd.to_numeric(hist_df[col].astype(str).str.replace(',', ''), errors='coerce')
+        hist_df.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
+    except Exception as e:
+        st.error(f"Failed to load historical data: {e}")
+        return pd.DataFrame()
+        
+    live_df = pd.DataFrame()
+    if get_broker_client() and source_info.get('tradingsymbol') and source_info.get('exchange') != 'yfinance':
+        instrument_df = get_instrument_df()
+        token = get_instrument_token(source_info['tradingsymbol'], instrument_df, source_info['exchange'])
+        if token:
+            from_date = hist_df.index.max().date() if not hist_df.empty else datetime.now().date() - timedelta(days=365)
+            live_df = get_historical_data(token, 'day', from_date=from_date)
+            if not live_df.empty: 
+                live_df.index = live_df.index.tz_convert(None)
+                live_df.columns = [col.lower() for col in live_df.columns]
+    elif source_info.get('exchange') == 'yfinance':
+        try:
+            live_df = yf.download(source_info['tradingsymbol'], period="max")
+            if not live_df.empty: 
+                live_df.index = live_df.index.tz_localize(None)
+                live_df.columns = [col.lower() for col in live_df.columns]
+        except Exception as e:
+            st.error(f"Failed to load yfinance data: {e}")
+            live_df = pd.DataFrame()
+            
+    if not live_df.empty:
+        hist_df.index = hist_df.index.tz_localize(None) if hist_df.index.tz is not None else hist_df.index
+        live_df.index = live_df.index.tz_localize(None) if live_df.index.tz is not None else live_df.index
+        
+        combined_df = pd.concat([hist_df, live_df])
+        combined_df = combined_df[~combined_df.index.duplicated(keep='last')]
+        combined_df.sort_index(inplace=True)
+        return combined_df
+    else:
+        hist_df.sort_index(inplace=True)
+        return hist_df
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
     """Calculates Black-Scholes option price and Greeks."""
@@ -3761,161 +3589,6 @@ def page_fundamental_analytics():
         - **Revenue Growth**: Business expansion
         """)
 
-# ============ NEW DATA MANAGER PAGE ============
-
-def page_data_manager():
-    """Page for managing historical data files."""
-    display_header()
-    
-    st.title("Historical Data Manager")
-    st.info("Download and update historical hourly/daily data for all instruments")
-    
-    tab1, tab2, tab3 = st.tabs(["Download Data", "View Data", "Export Data"])
-    
-    with tab1:
-        st.subheader("Download Historical Data")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            selected_instrument = st.selectbox(
-                "Select Instrument",
-                options=list(ENHANCED_DATA_SOURCES.keys()),
-                key="data_instrument"
-            )
-            
-            data_type = st.radio(
-                "Data Frequency",
-                ["Hourly", "Daily"],
-                horizontal=True
-            )
-            
-            period = st.selectbox(
-                "Period",
-                ["1mo", "3mo", "6mo", "1y", "2y", "5y", "max"],
-                index=3
-            )
-        
-        with col2:
-            st.metric("Selected Instrument", selected_instrument)
-            source_info = ENHANCED_DATA_SOURCES[selected_instrument]
-            st.metric("Primary Source", source_info.get('fallback', 'yfinance'))
-            st.metric("yfinance Ticker", source_info.get('yfinance_ticker', 'N/A'))
-        
-        if st.button("Download Data", type="primary", use_container_width=True):
-            with st.spinner(f"Downloading {data_type} data for {selected_instrument}..."):
-                data = get_enhanced_historical_data(
-                    selected_instrument, 
-                    data_type.lower()
-                )
-                
-                if not data.empty:
-                    st.session_state[f'current_data_{selected_instrument}'] = data
-                    st.success(f"Successfully downloaded {len(data)} data points!")
-                    
-                    # Show preview
-                    st.subheader("Data Preview")
-                    st.dataframe(data.tail(10), use_container_width=True)
-                    
-                    # Basic stats
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Total Records", len(data))
-                    col2.metric("Date Range", f"{data.index.min().strftime('%d %b %Y')}")
-                    col3.metric("To", f"{data.index.max().strftime('%d %b %Y')}")
-                    col4.metric("Columns", len(data.columns))
-                else:
-                    st.error("Failed to download data. Please check the instrument configuration.")
-    
-    with tab2:
-        st.subheader("View Historical Data")
-        
-        instrument_to_view = st.selectbox(
-            "Select Instrument to View",
-            options=list(ENHANCED_DATA_SOURCES.keys()),
-            key="view_instrument"
-        )
-        
-        if st.button("Load Data", key="load_view_data"):
-            if f'current_data_{instrument_to_view}' in st.session_state:
-                data = st.session_state[f'current_data_{instrument_to_view}']
-                
-                # Display chart
-                st.subheader(f"Price Chart - {instrument_to_view}")
-                fig = create_chart(data, instrument_to_view, 'Candlestick')
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Display data table
-                st.subheader("Raw Data")
-                st.dataframe(data, use_container_width=True)
-            else:
-                st.warning("No data loaded for this instrument. Please download data first.")
-    
-    with tab3:
-        st.subheader("Export Data")
-        
-        st.info("Export historical data for backup or analysis in external tools")
-        
-        export_instrument = st.selectbox(
-            "Select Instrument to Export",
-            options=list(ENHANCED_DATA_SOURCES.keys()),
-            key="export_instrument"
-        )
-        
-        if f'current_data_{export_instrument}' in st.session_state:
-            data = st.session_state[f'current_data_{export_instrument}']
-            
-            # Export options
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                export_format = st.radio(
-                    "Export Format",
-                    ["CSV", "Excel", "JSON"],
-                    horizontal=True
-                )
-            
-            with col2:
-                include_indicators = st.checkbox("Include Technical Indicators", value=True)
-            
-            # Filter data if needed
-            if not include_indicators:
-                basic_cols = ['open', 'high', 'low', 'close', 'volume']
-                available_cols = [col for col in basic_cols if col in data.columns]
-                data = data[available_cols]
-            
-            # Convert to different formats
-            if export_format == "CSV":
-                csv_data = data.to_csv()
-                st.download_button(
-                    label="Download CSV",
-                    data=csv_data,
-                    file_name=f"{export_instrument.replace(' ', '_')}_historical_data.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-            elif export_format == "Excel":
-                excel_buffer = io.BytesIO()
-                with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
-                    data.to_excel(writer, sheet_name='Historical Data')
-                st.download_button(
-                    label="Download Excel",
-                    data=excel_buffer.getvalue(),
-                    file_name=f"{export_instrument.replace(' ', '_')}_historical_data.xlsx",
-                    mime="application/vnd.ms-excel",
-                    use_container_width=True
-                )
-            else:  # JSON
-                json_data = data.reset_index().to_json(orient='records', date_format='iso')
-                st.download_button(
-                    label="Download JSON",
-                    data=json_data,
-                    file_name=f"{export_instrument.replace(' ', '_')}_historical_data.json",
-                    mime="application/json",
-                    use_container_width=True
-                )
-        else:
-            st.warning("No data available for export. Please download data first.")
-
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
 def get_user_secret(user_profile):
@@ -4190,7 +3863,6 @@ def main_app():
     pages = {
         "Cash": {
             "Dashboard": page_dashboard,
-            "Data Manager": page_data_manager,  # NEW PAGE ADDED
             "Premarket Pulse": page_premarket_pulse,
             "Advanced Charting": page_advanced_charting,
             "Market Scanners": page_momentum_and_trend_finder,
@@ -4232,7 +3904,7 @@ def main_app():
             del st.session_state[key]
         st.rerun()
 
-    no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub", "Fundamental Analytics", "Data Manager"]
+    no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub", "Fundamental Analytics"]
     if auto_refresh and selection not in no_refresh_pages:
         st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
     
