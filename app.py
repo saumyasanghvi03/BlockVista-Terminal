@@ -562,7 +562,7 @@ def page_algo_bots():
         st.subheader("Momentum Trader (RSI + EMA)")
         st.markdown("Buys stocks in a strong uptrend (Price > 20-EMA) with strong momentum (RSI > 60). Sells when momentum fades (RSI < 50).")
         
-        capital1 = st.number_input("Capital per Trade (₹)", 10000, 100000, 25000, 1000, key="cap1")
+        capital1 = st.number_input("Capital per Trade (₹)", 1000, 1000, 2500, 1000, key="cap1")
         scan_list1 = st.multiselect("Stocks to Scan", nifty50_stocks, default=nifty50_stocks[:5], key="scan1")
         
         is_running = st.session_state.get('bot_momentum_running', False)
