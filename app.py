@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from kiteconnect import KiteConnect, exceptions as kite_exceptions
 from streamlit_autorefresh import st_autorefresh
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time as dt_time
 import pytz
 import feedparser
 from email.utils import mktime_tz
@@ -356,7 +356,7 @@ def get_market_status():
     ist = pytz.timezone('Asia/Kolkata')
     now = datetime.now(ist)
     holidays = get_market_holidays(now.year)
-    market_open_time, market_close_time = time(9, 15), time(15, 30)
+    market_open_time, market_close_time = dt_time(9, 15), dt_time(15, 30)
     
     if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays:
         return {"status": "CLOSED", "color": "#FF4B4B"}
@@ -381,11 +381,11 @@ def check_market_timing_notifications():
     
     # Market timing events
     market_events = [
-        {"time": time(9, 15), "type": "open", "title": "Market Open", "message": "Indian Stock Market is now open for trading", "class": "open", "duration": 10},
-        {"time": time(9, 45), "type": "ipo_preopen", "title": "IPO Pre-Opening Window", "message": "IPO pre-opening session has started. Orders can be placed but will be executed after 10:00 AM", "class": "info", "duration": 10},
-        {"time": time(10, 0), "type": "ipo_open", "title": "IPO Trading Starts", "message": "IPO orders are now being executed in the market", "class": "info", "duration": 10},
-        {"time": time(15, 15), "type": "closing_warning", "title": "Market Closing Soon", "message": "Market will close in 15 minutes. Place your final orders", "class": "warning", "duration": 10},
-        {"time": time(15, 30), "type": "closed", "title": "Market Closed", "message": "Indian Stock Market is now closed for the day", "class": "closed", "duration": 10}
+        {"time": dt_time(9, 15), "type": "open", "title": "Market Open", "message": "Indian Stock Market is now open for trading", "class": "open", "duration": 10},
+        {"time": dt_time(9, 45), "type": "ipo_preopen", "title": "IPO Pre-Opening Window", "message": "IPO pre-opening session has started. Orders can be placed but will be executed after 10:00 AM", "class": "info", "duration": 10},
+        {"time": dt_time(10, 0), "type": "ipo_open", "title": "IPO Trading Starts", "message": "IPO orders are now being executed in the market", "class": "info", "duration": 10},
+        {"time": dt_time(15, 15), "type": "closing_warning", "title": "Market Closing Soon", "message": "Market will close in 15 minutes. Place your final orders", "class": "warning", "duration": 10},
+        {"time": dt_time(15, 30), "type": "closed", "title": "Market Closed", "message": "Indian Stock Market is now closed for the day", "class": "closed", "duration": 10}
     ]
     
     # Check if we should show any notifications
@@ -2808,7 +2808,7 @@ def page_ai_discovery():
         """, unsafe_allow_html=True)
         
         if st.button(f"Quick Trade {trade_idea['symbol']}", use_container_width=True):
-             quick_trade_dialog(symbol=trade_idea['symbol'])
+                 quick_trade_dialog(symbol=trade_idea['symbol'])
 
     else:
         st.info("Could not generate a high-conviction trade idea from the current watchlist signals.")
