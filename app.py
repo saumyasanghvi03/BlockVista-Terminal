@@ -325,7 +325,13 @@ def get_historical_data(instrument_token, interval, period='5y'):
         if not df.empty:
             df.set_index('date', inplace=True)
             df.index = pd.to_datetime(df.index)
-            df.ta.adx(append=True); df.ta.macd(append=True); df.ta.rsi(append=True)
+            # Add indicators needed by bots
+            df.ta.rsi(length=14, append=True)
+            df.ta.ema(length=20, append=True)
+            df.ta.ema(length=50, append=True)
+            df.ta.bbands(length=20, std=2, append=True)
+            df.ta.adx(length=14, append=True)
+            df.ta.supertrend(length=10, multiplier=3, append=True)
         return df
     except Exception as e:
         st.error(f"Error fetching historical data: {e}")
@@ -379,7 +385,6 @@ def momentum_trader_strategy(symbol, capital, instrument_df):
     if data.empty or len(data) < 20: return None, "Insufficient data"
     
     latest = data.iloc[-1]
-    # Check if 'RSI_14' column exists
     if 'RSI_14' not in data.columns:
         return "HOLD", "RSI indicator not available"
 
@@ -401,7 +406,6 @@ def mean_reversion_strategy(symbol, capital, instrument_df):
     data = pd.concat([data, bbands], axis=1)
     latest = data.iloc[-1]
     
-    # Check if 'RSI_14' column exists
     if 'RSI_14' not in data.columns:
         return "HOLD", "RSI indicator not available"
 
@@ -435,10 +439,9 @@ def value_investor_strategy(symbol, capital, instrument_df):
 
     if latest_price < sma_50 and latest_price > sma_200:
         return "BUY", "Price is below 50-day SMA but above 200-day SMA"
-    elif latest_price > sma_50 * 1.2: # 20% above 50-day SMA as a simple overvalued metric
+    elif latest_price > sma_50 * 1.2: 
         return "SELL", "Price is overextended from 50-day SMA"
     return "HOLD", "Neutral"
-
 
 def execute_algo_trade(bot_id, symbol, signal, capital, instrument_df):
     if signal not in ["BUY", "SELL"]: return False, "No valid signal"
@@ -520,15 +523,12 @@ def page_algo_trading_bots():
                 st.metric("Capital", f"₹{bot['capital']:,.0f}")
                 st.metric("P&L", f"₹{bot.get('pnl', 0):,.2f}")
             with c3:
-                # Use a key to ensure the toggle state is managed correctly
                 auto_trade_key = f"auto_{bot_id}"
                 is_auto_trading = st.toggle('Enable Auto-Trading', value=st.session_state.algo_bots[bot_id].get('auto_trade_enabled', False), key=auto_trade_key)
                 st.session_state.algo_bots[bot_id]['auto_trade_enabled'] = is_auto_trading
 
-                if is_auto_trading:
-                    st.success("Auto ON")
-                else:
-                    st.warning("Auto OFF")
+                if is_auto_trading: st.success("Auto ON")
+                else: st.warning("Auto OFF")
 
                 if bot.get("status") == "active":
                     if st.button("🛑 Stop", key=f"stop_{bot_id}"):
@@ -632,3 +632,4 @@ if __name__ == "__main__":
         main_app()
     else:
         login_page()
+
