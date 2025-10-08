@@ -262,9 +262,6 @@ def initialize_session_state():
     if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
     if 'last_bot_result' not in st.session_state: st.session_state.last_bot_result = None
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = "Cash"
-    if 'trade_mode' not in st.session_state: st.session_state.trade_mode = "Paper"  # Default to paper mode
-    if 'paper_positions' not in st.session_state: st.session_state.paper_positions = {}  # Virtual positions for paper trading
-    if 'paper_capital' not in st.session_state: st.session_state.paper_capital = {}  # Bot-specific capital
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -831,9 +828,9 @@ def execute_basket_order(basket_items, instrument_df):
 def get_sector_data():
     """Loads stock-to-sector mapping from a local CSV file."""
     try:
-        return pd.read_csv("sensex_sectors.csv")
+        return pd.read_csv("NIFTY50_sectors.csv")
     except FileNotFoundError:
-        st.warning("'sensex_sectors.csv' not found. Sector allocation will be unavailable.")
+        st.warning("'NIFTY50_sectors.csv' not found. Sector allocation will be unavailable.")
         return None
 
 def style_option_chain(df, ltp):
@@ -942,49 +939,6 @@ def get_global_indices_data(tickers):
         return pd.DataFrame()
 
 # ================ ALGO TRADING BOTS SECTION ================
-
-def get_trending_large_caps(instrument_df):
-    """Returns a list of trending large-cap symbols based on ADX > 25."""
-    large_caps = [
-        'RELIANCE', 'HDFCBANK', 'ICICIBANK', 'INFY', 'TCS', 'HINDUNILVR', 'ITC', 
-        'LT', 'KOTAKBANK', 'SBIN', 'BAJFINANCE', 'BHARTIARTL', 'ASIANPAINT', 
-        'AXISBANK', 'WIPRO', 'TITAN', 'ULTRACEMCO', 'M&M', 'NESTLEIND',
-        'TATAMOTORS', 'SUNPHARMA', 'HCLTECH', 'MARUTI', 'NTPC'
-    ]
-    
-    trending = []
-    for symbol in large_caps:
-        token = get_instrument_token(symbol, instrument_df)
-        if token:
-            data = get_historical_data(token, 'day', period='1mo')
-            if not data.empty:
-                adx_col = next((c for c in data.columns if 'adx' in c), None)
-                if adx_col and data.iloc[-1][adx_col] > 25:
-                    trending.append(symbol)
-    
-    return trending[:5]  # Limit to top 5 trending
-
-def run_bot_on_trending(bot_function, instrument_df, symbols, capital):
-    """Runs the bot on multiple trending symbols with capital allocation."""
-    if 'paper_capital' not in st.session_state:
-        st.session_state.paper_capital = {}
-    
-    bot_name = bot_function.__name__.replace('_bot', '').title().replace('_', ' ')
-    if bot_name not in st.session_state.paper_capital:
-        st.session_state.paper_capital[bot_name] = capital
-    
-    remaining_capital = st.session_state.paper_capital[bot_name]
-    per_symbol_cap = remaining_capital / len(symbols) if symbols else 0
-    
-    results = []
-    for symbol in symbols:
-        result = bot_function(instrument_df, symbol, per_symbol_cap)
-        if not result.get("error") and result["action"] != "HOLD":
-            results.append(result)
-            remaining_capital -= result["capital_required"]
-            st.session_state.paper_capital[bot_name] = remaining_capital
-    
-    return results
 
 def momentum_trader_bot(instrument_df, symbol, capital=100):
     """Momentum trading bot that buys on upward momentum and sells on downward momentum."""
@@ -1284,11 +1238,11 @@ def scalper_bot(instrument_df, symbol, capital=100):
     
     action = "HOLD"
     if (any("BULLISH" in s for s in signals) and 
-        "BEARISH" not in str(signals) and
+        not any("BEARISH" in s for s in signals) and
         rsi_9 < 70):
         action = "BUY"
     elif (any("BEARISH" in s for s in signals) and 
-          "BULLISH" not in str(signals) and
+          not any("BULLISH" in s for s in signals) and
           rsi_9 > 30):
         action = "SELL"
     
@@ -1378,56 +1332,83 @@ def trend_follower_bot(instrument_df, symbol, capital=100):
         "risk_level": "Medium"
     }
 
+def pairs_trading_bot(instrument_df, symbol1, symbol2, capital=100):
+    """Pairs trading bot based on statistical arbitrage."""
+    if symbol1 == symbol2:
+        return {"error": "Please select two different stocks for pairs trading."}
+
+    token1 = get_instrument_token(symbol1, instrument_df, 'NSE')
+    token2 = get_instrument_token(symbol2, instrument_df, 'NSE')
+
+    if not token1 or not token2:
+        return {"error": "Could not find one or both instruments."}
+
+    data1 = get_historical_data(token1, '15minute', period='5d')
+    data2 = get_historical_data(token2, '15minute', period='5d')
+
+    if data1.empty or data2.empty or len(data1) < 50 or len(data2) < 50:
+        return {"error": "Insufficient historical data for pairs analysis."}
+
+    # Align data
+    df = pd.DataFrame(index=data1.index).join(data1['close'], rsuffix='_1').join(data2['close'], rsuffix='_2').dropna()
+    df.columns = ['price1', 'price2']
+
+    # Calculate spread/ratio and Z-score
+    df['ratio'] = df['price1'] / df['price2']
+    rolling_mean = df['ratio'].rolling(window=40).mean()
+    rolling_std = df['ratio'].rolling(window=40).std()
+    df['z_score'] = (df['ratio'] - rolling_mean) / rolling_std
+
+    latest = df.iloc[-1]
+    z_score = latest['z_score']
+    
+    signals = []
+    action = "HOLD"
+    entry_threshold = 2.0
+
+    if z_score > entry_threshold:
+        action = "PAIRS_TRADE"
+        signals.append(f"Z-Score ({z_score:.2f}) > {entry_threshold}. Ratio is high.")
+        signals.append(f"SELL {symbol1} - BULLISH") # Signal is bullish for the pair to converge
+        signals.append(f"BUY {symbol2} - BULLISH")
+    elif z_score < -entry_threshold:
+        action = "PAIRS_TRADE"
+        signals.append(f"Z-Score ({z_score:.2f}) < -{entry_threshold}. Ratio is low.")
+        signals.append(f"BUY {symbol1} - BULLISH")
+        signals.append(f"SELL {symbol2} - BULLISH")
+    else:
+        signals.append(f"Z-Score ({z_score:.2f}) is within thresholds. No trade.")
+
+    # Simplified quantity calculation for each leg
+    capital_per_leg = capital / 2
+    quantity1 = max(1, int(capital_per_leg / latest['price1']))
+    quantity2 = max(1, int(capital_per_leg / latest['price2']))
+
+    return {
+        "bot_name": "Pairs Trading",
+        "symbol": f"{symbol1}/{symbol2}",
+        "action": action,
+        "quantity": f"{quantity1}/{quantity2}",
+        "current_price": f"{latest['price1']}/{latest['price2']}",
+        "signals": signals,
+        "capital_required": (quantity1 * latest['price1']) + (quantity2 * latest['price2']),
+        "risk_level": "Medium"
+    }
+
 # Dictionary of all available bots
 ALGO_BOTS = {
     "Momentum Trader": momentum_trader_bot,
     "Mean Reversion": mean_reversion_bot,
-    "Volatility Breakout": volatility_breakout_bot,
+    "Volatility Breakout": volatility_breakout_bot, # type: ignore
     "Value Investor": value_investor_bot,
     "Scalper Pro": scalper_bot,
     "Trend Follower": trend_follower_bot
+    "Trend Follower": trend_follower_bot,
+    "Pairs Trading": pairs_trading_bot
 }
 
-def simulate_bot_trade(bot_result):
-    """Simulates a paper trade and updates virtual portfolio."""
-    if bot_result.get("error"):
-        st.error(bot_result["error"])
-        return
-    
-    if bot_result["action"] == "HOLD":
-        st.info(f"🤖 {bot_result['bot_name']} recommends HOLDING {bot_result['symbol']} (Paper Mode)")
-        return
-    
-    action = bot_result["action"]
-    symbol = bot_result["symbol"]
-    quantity = bot_result["quantity"]
-    current_price = bot_result["current_price"]
-    
-    # Simulate position update
-    if 'paper_positions' not in st.session_state:
-        st.session_state.paper_positions = {}
-    
-    if symbol not in st.session_state.paper_positions:
-        st.session_state.paper_positions[symbol] = {'quantity': 0, 'entry_price': 0, 'pnl': 0}
-    
-    position = st.session_state.paper_positions[symbol]
-    
-    if action == "BUY" and position['quantity'] == 0:
-        position['quantity'] = quantity
-        position['entry_price'] = current_price
-        st.toast(f"📄 Paper BUY executed for {quantity} {symbol} @ ₹{current_price:.2f}", icon="🎉")
-    
-    elif action == "SELL" and position['quantity'] > 0:
-        profit = (current_price - position['entry_price']) * quantity
-        position['pnl'] += profit
-        position['quantity'] = 0
-        position['entry_price'] = 0
-        st.toast(f"📄 Paper SELL executed for {quantity} {symbol} @ ₹{current_price:.2f} | P&L: ₹{profit:.2f}", icon="🎉")
-    
-    st.success(f"📄 Paper Mode: {action} {quantity} {symbol} @ ₹{current_price:.2f} | Virtual P&L: ₹{position['pnl']:.2f}")
-
 def execute_bot_trade(instrument_df, bot_result):
-    """Executes a trade based on bot recommendation, with paper mode support."""
+    """Executes a trade based on bot recommendation."""
     if bot_result.get("error"):
         st.error(bot_result["error"])
         return
@@ -1453,49 +1434,20 @@ def execute_bot_trade(instrument_df, bot_result):
     col1, col2 = st.columns(2)
     
     if col1.button(f"Execute {action} Order", key=f"execute_{symbol}", use_container_width=True):
-        if st.session_state.trade_mode == "Real":
-            place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
-        else:
-            simulate_bot_trade(bot_result)
+        place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
     
     if col2.button("Ignore Recommendation", key=f"ignore_{symbol}", use_container_width=True):
         st.info("Trade execution cancelled.")
 
-def page_algo_bots():
-    """Main algo bots page where users can run different trading bots."""
-    display_header()
-    st.title("🤖 Algo Trading Bots")
-    st.info("Run automated trading bots with minimum capital of ₹100. Each bot uses different strategies and risk profiles.", icon="🤖")
-    
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to use algo bots.")
-        return
-    
-    # Trade mode toggle
-    st.session_state.trade_mode = st.radio(
-        "Trade Mode",
-        ["Paper (Demo)", "Real"],
-        horizontal=True,
-        help="Paper mode simulates trades without real execution. Real mode places live orders."
-    )
-    
-    if st.session_state.trade_mode == "Paper":
-        st.warning("Paper Mode Active: All trades are simulated.")
-    else:
-        st.error("Real Mode Active: Trades will be executed live!")
-
-    # Bot selection and configuration
+def display_bot_configuration():
+    """Handles UI for bot selection and capital configuration."""
     col1, col2 = st.columns([2, 1])
-    
     with col1:
         selected_bot = st.selectbox(
             "Select Trading Bot",
             list(ALGO_BOTS.keys()),
             help="Choose a trading bot based on your risk appetite and trading style"
         )
-        
-        # Bot descriptions
         bot_descriptions = {
             "Momentum Trader": "Trades on strong price momentum and trend continuations. Medium risk.",
             "Mean Reversion": "Buys low and sells high based on statistical mean reversion. Low risk.",
@@ -1503,26 +1455,21 @@ def page_algo_bots():
             "Value Investor": "Focuses on longer-term value and fundamental trends. Low risk.",
             "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk.",
             "Trend Follower": "Rides established trends with multiple confirmations. Medium risk."
+            "Pairs Trading": "A market-neutral strategy that trades on the statistical relationship between two correlated stocks. Medium risk."
         }
-        
         st.markdown(f"**Description:** {bot_descriptions[selected_bot]}")
-    
     with col2:
         trading_capital = st.number_input(
             "Trading Capital (₹)",
-            min_value=100,
-            max_value=100000,
-            value=1000,
-            step=100,
+            min_value=100, max_value=100000, value=1000, step=100,
             help="Minimum ₹100 required"
         )
-    
-    st.markdown("---")
-    
-    # Symbol selection and bot execution
-    col3, col4 = st.columns([1, 1])
-    
-    with col3:
+    return selected_bot, trading_capital
+
+def display_bot_execution_controls(instrument_df, selected_bot, trading_capital):
+    """Handles UI for stock selection and running the bot."""
+    col1, col2 = st.columns([1, 1])
+    with col1:
         st.subheader("Stock Selection")
         all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'BSE'])]['tradingsymbol'].unique()
         selected_symbol = st.selectbox(
@@ -1531,97 +1478,107 @@ def page_algo_bots():
             index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0
         )
         
-        # Show current price
+        selected_symbol_2 = None
+        if selected_bot == "Pairs Trading":
+            selected_symbol_2 = st.selectbox(
+                "Select Stock 2",
+                sorted(all_symbols),
+                index=list(all_symbols).index('HDFCBANK') if 'HDFCBANK' in all_symbols else 1
+            )
+
         quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': 'NSE'}])
         if not quote_data.empty:
             current_price = quote_data.iloc[0]['Price']
             st.metric("Current Price", f"₹{current_price:.2f}")
-    
-    with col4:
+
+    with col2:
         st.subheader("Bot Execution")
         st.write(f"**Selected Bot:** {selected_bot}")
         st.write(f"**Available Capital:** ₹{trading_capital:,}")
-        
         if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary"):
             with st.spinner(f"Running {selected_bot} analysis..."):
+                args = [instrument_df, selected_symbol, trading_capital]
+                if selected_bot == "Pairs Trading":
+                    args.insert(2, selected_symbol_2)  # Add second symbol
                 bot_function = ALGO_BOTS[selected_bot]
-                bot_result = bot_function(instrument_df, selected_symbol, trading_capital)
-                
+                bot_result = bot_function(*args)
                 if bot_result and not bot_result.get("error"):
                     st.session_state.last_bot_result = bot_result
                     st.rerun()
-    
-    # Display bot results
-    if 'last_bot_result' in st.session_state and st.session_state.last_bot_result:
-        bot_result = st.session_state.last_bot_result
-        
-        if bot_result.get("error"):
-            st.error(bot_result["error"])
-        else:
-            st.markdown("---")
-            st.subheader("🤖 Bot Analysis Results")
-            
-            # Create metrics cards
-            col5, col6, col7, col8 = st.columns(4)
-            
-            with col5:
-                action_color = "green" if bot_result["action"] == "BUY" else "red" if bot_result["action"] == "SELL" else "orange"
-                st.markdown(f'<div class="metric-card" style="border-color: {action_color};">'
-                           f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
-                           f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
-            
-            with col6:
-                st.metric("Quantity", bot_result["quantity"])
-            
-            with col7:
-                st.metric("Capital Required", f"₹{bot_result['capital_required']:.2f}")
-            
-            with col8:
-                risk_color = {"Low": "green", "Medium": "orange", "High": "red", "Very High": "darkred"}
-                st.markdown(f'<div class="metric-card" style="border-color: {risk_color.get(bot_result["risk_level"], "gray")};">'
-                           f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
-                           f'<p>Risk Level</p></div>', unsafe_allow_html=True)
-            
-            # Display signals
-            st.subheader("📊 Analysis Signals")
-            for signal in bot_result["signals"]:
-                if "BULLISH" in signal:
-                    st.success(f"✅ {signal}")
-                elif "BEARISH" in signal:
-                    st.error(f"❌ {signal}")
-                else:
-                    st.info(f"📈 {signal}")
-            
-            # Execute trade
-            execute_bot_trade(instrument_df, bot_result)
-    
-    # Bot performance history
+
+def display_bot_results(instrument_df):
+    """Renders the analysis results and trade execution options from a bot run."""
+    bot_result = st.session_state.last_bot_result
+    if bot_result.get("error"):
+        st.error(bot_result["error"])
+        return
+
     st.markdown("---")
+    st.subheader("🤖 Bot Analysis Results")
+
+    col1, col2, col3, col4 = st.columns(4)
+    action_color = "green" if bot_result["action"] == "BUY" else "red" if bot_result["action"] == "SELL" else "orange"
+    col1.markdown(f'<div class="metric-card" style="border-color: {action_color};">'
+                  f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
+                  f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
+    col2.metric("Quantity", bot_result["quantity"])
+    col3.metric("Capital Required", f"₹{bot_result['capital_required']:.2f}")
+    risk_color = {"Low": "green", "Medium": "orange", "High": "red", "Very High": "darkred"}
+    col4.markdown(f'<div class="metric-card" style="border-color: {risk_color.get(bot_result["risk_level"], "gray")};">'
+                  f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
+                  f'<p>Risk Level</p></div>', unsafe_allow_html=True)
+
+    st.subheader("📊 Analysis Signals")
+    for signal in bot_result["signals"]:
+        if "BULLISH" in signal:
+            st.success(f"✅ {signal}")
+        elif "BEARISH" in signal:
+            st.error(f"❌ {signal}")
+        else:
+            st.info(f"📈 {signal}")
+    if bot_result["action"] == "PAIRS_TRADE":
+        st.info("Pairs trade recommended. Execute both legs simultaneously for best results.")
+        legs = [s for s in bot_result["signals"] if "BUY" in s or "SELL" in s]
+        for leg in legs:
+            action, symbol, _ = leg.split()
+            st.success(f"✅ **{action} {symbol}**")
+    else:
+        for signal in bot_result["signals"]:
+            if "BULLISH" in signal:
+                st.success(f"✅ {signal}")
+            elif "BEARISH" in signal:
+                st.error(f"❌ {signal}")
+            else:
+                st.info(f"📈 {signal}")
+
+    execute_bot_trade(instrument_df, bot_result)
+    if bot_result["action"] == "PAIRS_TRADE":
+        st.warning("Automated execution for pairs trades is not yet supported. Please place orders manually.")
+    else:
+        execute_bot_trade(instrument_df, bot_result)
+
+def display_bot_info_and_tips():
+    """Displays the informational sections for bot best practices and comparison."""
     st.subheader("📈 Bot Performance Tips")
-    
-    tips_col1, tips_col2 = st.columns(2)
-    
-    with tips_col1:
+    col1, col2 = st.columns(2)
+    with col1:
         st.markdown("""
         **Best Practices:**
-        - Start with minimum capital (₹100)
-        - Use 'Value Investor' for beginners
-        - 'Scalper Pro' requires constant monitoring
-        - Always check signals before executing
-        - Combine multiple bot recommendations
+        - Start with minimum capital (₹100).
+        - Use 'Value Investor' for beginners.
+        - 'Scalper Pro' requires constant monitoring.
+        - Always check signals before executing.
+        - Combine multiple bot recommendations.
         """)
-    
-    with tips_col2:
+    with col2:
         st.markdown("""
         **Risk Management:**
-        - Never risk more than 2% per trade
-        - Use stop losses with every trade
-        - Diversify across different bots
-        - Monitor performance regularly
-        - Adjust capital based on experience
+        - Never risk more than 2% per trade.
+        - Use stop losses with every trade.
+        - Diversify across different bots.
+        - Monitor performance regularly.
+        - Adjust capital based on experience.
         """)
-    
-    # Quick bot comparison
     with st.expander("🤖 Bot Comparison Guide"):
         comparison_data = {
             "Bot": list(ALGO_BOTS.keys()),
@@ -1629,10 +1586,117 @@ def page_algo_bots():
             "Holding Period": ["Hours", "Days", "Minutes", "Weeks", "Minutes", "Days"],
             "Capital Recommended": ["₹1,000+", "₹500+", "₹2,000+", "₹2,000+", "₹5,000+", "₹1,500+"],
             "Best For": ["Trend riding", "Safe returns", "Quick profits", "Long term", "Experienced", "Trend following"]
+            "Risk Level": ["Medium", "Low", "High", "Low", "Very High", "Medium", "Medium"],
+            "Holding Period": ["Hours", "Days", "Minutes", "Weeks", "Minutes", "Days", "Days"],
+            "Capital Recommended": ["₹1,000+", "₹500+", "₹2,000+", "₹2,000+", "₹5,000+", "₹1,500+", "₹2,500+"],
+            "Best For": ["Trend riding", "Safe returns", "Quick profits", "Long term", "Experienced", "Trend following", "Market Neutral"]
         }
+        st.dataframe(pd.DataFrame(comparison_data), use_container_width=True, hide_index=True)
+
+def run_pairs_backtest(data1, data2, initial_capital=100000, window=40, entry_threshold=2.0, exit_threshold=0.5):
+    """Runs a backtest for a pairs trading strategy."""
+    df = pd.DataFrame(index=data1.index).join(data1['close'], rsuffix='_1').join(data2['close'], rsuffix='_2').dropna()
+    df.columns = ['price1', 'price2']
+
+    df['ratio'] = df['price1'] / df['price2']
+    df['rolling_mean'] = df['ratio'].rolling(window=window).mean()
+    df['rolling_std'] = df['ratio'].rolling(window=window).std()
+    df['z_score'] = (df['ratio'] - df['rolling_mean']) / df['rolling_std']
+    df.dropna(inplace=True)
+
+    capital = initial_capital
+    position1_qty, position2_qty = 0, 0
+    portfolio_value = []
+    trade_count = 0
+    in_position = False
+
+    for i in range(len(df)):
+        z_score = df['z_score'].iloc[i]
+        price1 = df['price1'].iloc[i]
+        price2 = df['price2'].iloc[i]
+
+        # Entry logic
+        if not in_position:
+            if z_score > entry_threshold:  # Short the ratio (Sell S1, Buy S2)
+                in_position = True
+                trade_count += 1
+                capital_per_leg = capital / 2
+                position1_qty = -int(capital_per_leg / price1)
+                position2_qty = int(capital_per_leg / price2)
+                capital -= abs(position1_qty * price1) + abs(position2_qty * price2)
+            elif z_score < -entry_threshold:  # Long the ratio (Buy S1, Sell S2)
+                in_position = True
+                trade_count += 1
+                capital_per_leg = capital / 2
+                position1_qty = int(capital_per_leg / price1)
+                position2_qty = -int(capital_per_leg / price2)
+                capital -= abs(position1_qty * price1) + abs(position2_qty * price2)
+
+        # Exit logic
+        elif in_position:
+            # Exit short ratio position
+            if position1_qty < 0 and z_score < exit_threshold:
+                capital += abs(position1_qty * price1) + abs(position2_qty * price2)
+                position1_qty, position2_qty = 0, 0
+                in_position = False
+            # Exit long ratio position
+            elif position1_qty > 0 and z_score > -exit_threshold:
+                capital += abs(position1_qty * price1) + abs(position2_qty * price2)
+                position1_qty, position2_qty = 0, 0
+                in_position = False
+
+        current_value = capital + (position1_qty * price1) + (position2_qty * price2)
+        portfolio_value.append(current_value)
+
+    pnl = (portfolio_value[-1] - initial_capital) / initial_capital * 100 if portfolio_value else 0
+    return pnl, pd.Series(portfolio_value, index=df.index), trade_count
+
+def page_algo_bots():
+    """Main algo bots page where users can run different trading bots."""
+    display_header()
+    st.title("🤖 Algo Trading Bots")
+
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use algo bots.")
+        return
+
+    tab1, tab2 = st.tabs(["Live Trading", "Backtester"])
+
+    with tab1:
+        st.info("Run automated trading bots with minimum capital of ₹100. Each bot uses different strategies and risk profiles.", icon="🤖")
+        selected_bot, trading_capital = display_bot_configuration()
+        st.markdown("---")
+        display_bot_execution_controls(instrument_df, selected_bot, trading_capital)
+        if st.session_state.get('last_bot_result'):
+            display_bot_results(instrument_df)
+        st.markdown("---")
+        display_bot_info_and_tips()
+
+    with tab2:
+        st.subheader("Strategy Backtester")
+        st.info("Backtest the 'Pairs Trading' strategy on historical data.")
+        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'BSE'])]['tradingsymbol'].unique()
         
-        comparison_df = pd.DataFrame(comparison_data)
-        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+        back_cols = st.columns(2)
+        symbol1 = back_cols[0].selectbox("Select Stock 1", sorted(all_symbols), index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0, key="back_s1")
+        symbol2 = back_cols[1].selectbox("Select Stock 2", sorted(all_symbols), index=list(all_symbols).index('HDFCBANK') if 'HDFCBANK' in all_symbols else 1, key="back_s2")
+
+        if st.button("Run Pairs Trading Backtest", use_container_width=True, type="primary"):
+            with st.spinner(f"Running backtest for {symbol1} and {symbol2}..."):
+                token1 = get_instrument_token(symbol1, instrument_df, 'NSE')
+                token2 = get_instrument_token(symbol2, instrument_df, 'NSE')
+                data1 = get_historical_data(token1, 'day', period='1y')
+                data2 = get_historical_data(token2, 'day', period='1y')
+
+                if not data1.empty and not data2.empty:
+                    pnl, curve, trades = run_pairs_backtest(data1, data2)
+                    st.metric("Total P&L (1 Year)", f"{pnl:.2f}%", delta=f"{trades} trades")
+                    fig = go.Figure(go.Scatter(x=curve.index, y=curve, mode='lines', name='Portfolio Value'))
+                    fig.update_layout(title="Pairs Trading Portfolio Growth (1 Year)", yaxis_title="Portfolio Value (₹)")
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.error("Could not fetch sufficient historical data for one or both stocks.")
 
 # ================ 5. PAGE DEFINITIONS ============
 
@@ -3499,6 +3563,113 @@ def page_economic_calendar():
 
     st.dataframe(calendar_df, use_container_width=True, hide_index=True)
 
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def fetch_live_ipo_data():
+    """Scrapes live IPO data from a financial website."""
+    upcoming_url = "https://www.chittorgarh.com/"
+    recent_url = "https://www.chittorgarh.com/ipo/ipo_list.asp?a=main"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+
+    upcoming_df = pd.DataFrame()
+    recent_df = pd.DataFrame()
+
+    # Scrape upcoming IPOs
+    try:
+        response_upcoming = requests.get(upcoming_url, headers=headers, timeout=10)
+        response_upcoming.raise_for_status()
+        if response_upcoming.status_code == 200:
+            tables = pd.read_html(response_upcoming.text)
+            for table in tables:
+                if 'Open Date' in table.columns and 'Close Date' in table.columns:
+                    upcoming_df = table
+                    break
+    except requests.exceptions.RequestException as e:
+        st.toast(f"Network error fetching upcoming IPOs: {e}", icon="🌐")
+    except (ValueError, IndexError) as e:
+        st.toast(f"Could not parse upcoming IPOs table: {e}", icon="📊")
+
+    # Scrape recent IPOs
+    try:
+        response_recent = requests.get(recent_url, headers=headers, timeout=10)
+        response_recent.raise_for_status()
+        if response_recent.status_code == 200:
+            tables_recent = pd.read_html(response_recent.text)
+            for table in tables_recent:
+                if 'Listing Date' in table.columns and 'Symbol' in table.columns:
+                    recent_df = table
+                    break
+            if not recent_df.empty:
+                try:
+                    # Clean up recent IPO data
+                    recent_df = recent_df[['Symbol', 'Company Name', 'Listing Date', 'Issue Price', 'Listing Price']]
+                    recent_df.columns = ['Symbol', 'Company Name', 'Listing Date', 'Issue Price (₹)', 'Listing Price (₹)']
+                    recent_df['Listing Date'] = pd.to_datetime(recent_df['Listing Date'], format='%b %d, %Y').dt.strftime('%Y-%m-%d')
+                    for col in ['Issue Price (₹)', 'Listing Price (₹)']:
+                        recent_df[col] = pd.to_numeric(recent_df[col], errors='coerce')
+                except KeyError as e:
+                    st.toast(f"Column mismatch in recent IPOs data: {e}", icon="📊")
+                    recent_df = pd.DataFrame() # Invalidate data if columns are wrong
+    except requests.exceptions.RequestException as e:
+        st.toast(f"Network error fetching recent IPOs: {e}", icon="🌐")
+    except (ValueError, IndexError) as e:
+        st.toast(f"Could not parse recent IPOs table: {e}", icon="📊")
+
+    return upcoming_df, recent_df
+
+def page_ipo_tracker():
+    """A new page for tracking upcoming and recent IPOs."""
+    display_header()
+    st.title("IPO Tracker")
+    st.info("Stay updated on upcoming Initial Public Offerings (IPOs) and track the performance of recent listings.")
+
+    instrument_df = get_instrument_df()
+
+    upcoming_df, recent_df = fetch_live_ipo_data()
+
+    tab1, tab2 = st.tabs(["Upcoming IPOs", "Recent Listings"])
+
+    with tab1:
+        st.subheader("Initial Public Offerings on the Horizon")
+        if not upcoming_df.empty:
+            st.dataframe(upcoming_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No upcoming IPOs found or could not fetch data.")
+
+    with tab2:
+        st.subheader("Performance of Recently Listed Companies")
+        if not recent_df.empty and not instrument_df.empty:
+            # Calculate listing gain
+            recent_df['Listing Gain %'] = ((recent_df['Listing Price (₹)'] - recent_df['Issue Price (₹)']) / recent_df['Issue Price (₹)']) * 100
+
+            # Fetch current prices
+            symbols_to_fetch = [{'symbol': s, 'exchange': 'NSE'} for s in recent_df['Symbol'].tolist()]
+            live_data = get_watchlist_data(symbols_to_fetch)
+
+            if not live_data.empty:
+                live_data = live_data.rename(columns={'Ticker': 'Symbol', 'Price': 'Current Price (₹)'})
+                recent_df = pd.merge(recent_df, live_data[['Symbol', 'Current Price (₹)']], on='Symbol', how='left')
+                recent_df['Current Price (₹)'].fillna(0, inplace=True)
+                
+                # Calculate current gain
+                recent_df['Current Gain %'] = ((recent_df['Current Price (₹)'] - recent_df['Issue Price (₹)']) / recent_df['Issue Price (₹)']) * 100
+            else:
+                recent_df['Current Price (₹)'] = 'N/A'
+                recent_df['Current Gain %'] = 'N/A'
+
+            st.dataframe(
+                recent_df,
+                column_config={
+                    "Listing Gain %": st.column_config.NumberColumn(format="%.2f%%"),
+                    "Current Gain %": st.column_config.NumberColumn(format="%.2f%%"),
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("Could not load data for recent listings. Please ensure you are connected to a broker.")
+
 # ============ 5.5 HFT TERMINAL PAGE ============
 def page_hft_terminal():
     """A dedicated terminal for High-Frequency Trading with Level 2 data."""
@@ -3770,6 +3941,7 @@ def main_app():
             "AI Discovery": page_ai_discovery,
             "AI Assistant": page_ai_assistant,
             "Economic Calendar": page_economic_calendar,
+            "IPO Tracker": page_ipo_tracker,
         },
         "Options": {
             "F&O Analytics": page_fo_analytics,
