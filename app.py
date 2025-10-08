@@ -262,6 +262,9 @@ def initialize_session_state():
     if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
     if 'last_bot_result' not in st.session_state: st.session_state.last_bot_result = None
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = "Cash"
+    if 'trade_mode' not in st.session_state: st.session_state.trade_mode = "Paper"  # Default to paper mode
+    if 'paper_positions' not in st.session_state: st.session_state.paper_positions = {}  # Virtual positions for paper trading
+    if 'paper_capital' not in st.session_state: st.session_state.paper_capital = {}  # Bot-specific capital
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -940,6 +943,49 @@ def get_global_indices_data(tickers):
 
 # ================ ALGO TRADING BOTS SECTION ================
 
+def get_trending_large_caps(instrument_df):
+    """Returns a list of trending large-cap symbols based on ADX > 25."""
+    large_caps = [
+        'RELIANCE', 'HDFCBANK', 'ICICIBANK', 'INFY', 'TCS', 'HINDUNILVR', 'ITC', 
+        'LT', 'KOTAKBANK', 'SBIN', 'BAJFINANCE', 'BHARTIARTL', 'ASIANPAINT', 
+        'AXISBANK', 'WIPRO', 'TITAN', 'ULTRACEMCO', 'M&M', 'NESTLEIND',
+        'TATAMOTORS', 'SUNPHARMA', 'HCLTECH', 'MARUTI', 'NTPC'
+    ]
+    
+    trending = []
+    for symbol in large_caps:
+        token = get_instrument_token(symbol, instrument_df)
+        if token:
+            data = get_historical_data(token, 'day', period='1mo')
+            if not data.empty:
+                adx_col = next((c for c in data.columns if 'adx' in c), None)
+                if adx_col and data.iloc[-1][adx_col] > 25:
+                    trending.append(symbol)
+    
+    return trending[:5]  # Limit to top 5 trending
+
+def run_bot_on_trending(bot_function, instrument_df, symbols, capital):
+    """Runs the bot on multiple trending symbols with capital allocation."""
+    if 'paper_capital' not in st.session_state:
+        st.session_state.paper_capital = {}
+    
+    bot_name = bot_function.__name__.replace('_bot', '').title().replace('_', ' ')
+    if bot_name not in st.session_state.paper_capital:
+        st.session_state.paper_capital[bot_name] = capital
+    
+    remaining_capital = st.session_state.paper_capital[bot_name]
+    per_symbol_cap = remaining_capital / len(symbols) if symbols else 0
+    
+    results = []
+    for symbol in symbols:
+        result = bot_function(instrument_df, symbol, per_symbol_cap)
+        if not result.get("error") and result["action"] != "HOLD":
+            results.append(result)
+            remaining_capital -= result["capital_required"]
+            st.session_state.paper_capital[bot_name] = remaining_capital
+    
+    return results
+
 def momentum_trader_bot(instrument_df, symbol, capital=100):
     """Momentum trading bot that buys on upward momentum and sells on downward momentum."""
     exchange = 'NSE'
@@ -1342,8 +1388,46 @@ ALGO_BOTS = {
     "Trend Follower": trend_follower_bot
 }
 
+def simulate_bot_trade(bot_result):
+    """Simulates a paper trade and updates virtual portfolio."""
+    if bot_result.get("error"):
+        st.error(bot_result["error"])
+        return
+    
+    if bot_result["action"] == "HOLD":
+        st.info(f"🤖 {bot_result['bot_name']} recommends HOLDING {bot_result['symbol']} (Paper Mode)")
+        return
+    
+    action = bot_result["action"]
+    symbol = bot_result["symbol"]
+    quantity = bot_result["quantity"]
+    current_price = bot_result["current_price"]
+    
+    # Simulate position update
+    if 'paper_positions' not in st.session_state:
+        st.session_state.paper_positions = {}
+    
+    if symbol not in st.session_state.paper_positions:
+        st.session_state.paper_positions[symbol] = {'quantity': 0, 'entry_price': 0, 'pnl': 0}
+    
+    position = st.session_state.paper_positions[symbol]
+    
+    if action == "BUY" and position['quantity'] == 0:
+        position['quantity'] = quantity
+        position['entry_price'] = current_price
+        st.toast(f"📄 Paper BUY executed for {quantity} {symbol} @ ₹{current_price:.2f}", icon="🎉")
+    
+    elif action == "SELL" and position['quantity'] > 0:
+        profit = (current_price - position['entry_price']) * quantity
+        position['pnl'] += profit
+        position['quantity'] = 0
+        position['entry_price'] = 0
+        st.toast(f"📄 Paper SELL executed for {quantity} {symbol} @ ₹{current_price:.2f} | P&L: ₹{profit:.2f}", icon="🎉")
+    
+    st.success(f"📄 Paper Mode: {action} {quantity} {symbol} @ ₹{current_price:.2f} | Virtual P&L: ₹{position['pnl']:.2f}")
+
 def execute_bot_trade(instrument_df, bot_result):
-    """Executes a trade based on bot recommendation."""
+    """Executes a trade based on bot recommendation, with paper mode support."""
     if bot_result.get("error"):
         st.error(bot_result["error"])
         return
@@ -1369,7 +1453,10 @@ def execute_bot_trade(instrument_df, bot_result):
     col1, col2 = st.columns(2)
     
     if col1.button(f"Execute {action} Order", key=f"execute_{symbol}", use_container_width=True):
-        place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
+        if st.session_state.trade_mode == "Real":
+            place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
+        else:
+            simulate_bot_trade(bot_result)
     
     if col2.button("Ignore Recommendation", key=f"ignore_{symbol}", use_container_width=True):
         st.info("Trade execution cancelled.")
@@ -1385,6 +1472,19 @@ def page_algo_bots():
         st.info("Please connect to a broker to use algo bots.")
         return
     
+    # Trade mode toggle
+    st.session_state.trade_mode = st.radio(
+        "Trade Mode",
+        ["Paper (Demo)", "Real"],
+        horizontal=True,
+        help="Paper mode simulates trades without real execution. Real mode places live orders."
+    )
+    
+    if st.session_state.trade_mode == "Paper":
+        st.warning("Paper Mode Active: All trades are simulated.")
+    else:
+        st.error("Real Mode Active: Trades will be executed live!")
+
     # Bot selection and configuration
     col1, col2 = st.columns([2, 1])
     
