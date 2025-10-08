@@ -479,7 +479,7 @@ def get_watchlist_data(symbols_with_exchange):
                     watchlist.append({'Ticker': item['symbol'], 'Exchange': item['exchange'], 'Price': last_price, 'Change': change, '% Change': pct_change})
             return pd.DataFrame(watchlist)
         except Exception as e:
-            st.toast(f"Error fetching watchlist data: {e}", icon="⚠️")
+            st.toast(f"Error fetching watchlist data: {e}", icon=⚠️")
             return pd.DataFrame()
     else:
         st.warning(f"Watchlist for {st.session_state.broker} not implemented.")
