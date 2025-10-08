@@ -263,6 +263,8 @@ def initialize_session_state():
     if 'last_bot_result' not in st.session_state: st.session_state.last_bot_result = None
     if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = "Cash"
 
+    if 'ipo_alerts_subscribed' not in st.session_state: st.session_state.ipo_alerts_subscribed = False
+    if 'known_ipo_list' not in st.session_state: st.session_state.known_ipo_list = set()
 # ================ 2. HELPER FUNCTIONS ================
 
 def get_broker_client():
@@ -3618,10 +3620,39 @@ def fetch_live_ipo_data():
 
     return upcoming_df, recent_df
 
+def check_for_new_ipos():
+    """Checks for new IPOs and shows a toast notification if subscribed."""
+    if not st.session_state.get('ipo_alerts_subscribed', False):
+        return
+
+    upcoming_df, _ = fetch_live_ipo_data()
+    if upcoming_df.empty or 'Company Name' not in upcoming_df.columns:
+        return
+
+    current_ipos = set(upcoming_df['Company Name'])
+    
+    # Initialize known_ipo_list on first run after subscription
+    if not st.session_state.get('known_ipo_list'):
+        st.session_state.known_ipo_list = current_ipos
+        return
+
+    new_ipos = current_ipos - st.session_state.known_ipo_list
+    
+    if new_ipos:
+        for ipo in new_ipos:
+            st.toast(f"📢 New IPO Alert: {ipo} has been announced!", icon="🎉")
+        # Update the known list
+        st.session_state.known_ipo_list.update(new_ipos)
+
 def page_ipo_tracker():
     """A new page for tracking upcoming and recent IPOs."""
     display_header()
     st.title("IPO Tracker")
+    st.session_state.ipo_alerts_subscribed = st.toggle(
+        "🔔 Subscribe to New IPO Alerts", 
+        value=st.session_state.get('ipo_alerts_subscribed', False),
+        help="Get a notification when a new IPO is detected on the Chittorgarh.com homepage."
+    )
     st.info("Stay updated on upcoming Initial Public Offerings (IPOs) and track the performance of recent listings.")
 
     instrument_df = get_instrument_df()
@@ -3894,6 +3925,7 @@ def main_app():
     """The main application interface after successful login."""
     apply_custom_styling()
     display_overnight_changes_bar()
+    check_for_new_ipos()
     
     # --- 2FA Check ---
     if st.session_state.get('profile'):
