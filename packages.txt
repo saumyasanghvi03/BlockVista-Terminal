@@ -1,4 +1,3 @@
-build-essential
-libatlas-base-dev
+cmake
+libopenblas-dev
 gfortran
-pkg-config
