@@ -1404,7 +1404,7 @@ ALGO_BOTS = {
     "Volatility Breakout": volatility_breakout_bot, # type: ignore
     "Value Investor": value_investor_bot,
     "Scalper Pro": scalper_bot,
-    "Trend Follower": trend_follower_bot,
+    "Trend Follower": trend_follower_bot
     "Trend Follower": trend_follower_bot,
     "Pairs Trading": pairs_trading_bot
 }
@@ -3565,7 +3565,7 @@ def page_economic_calendar():
 
     st.dataframe(calendar_df, use_container_width=True, hide_index=True)
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)
 def fetch_live_ipo_data():
     """Scrapes live IPO data from a financial website."""
     upcoming_url = "https://www.chittorgarh.com/"
@@ -3580,7 +3580,7 @@ def fetch_live_ipo_data():
     # Scrape upcoming IPOs
     try:
         response_upcoming = requests.get(upcoming_url, headers=headers, timeout=10)
-        response_upcoming.raise_for_status()
+        response_upcoming.raise_for_status()  # Will raise an HTTPError for bad responses (4xx or 5xx)
         if response_upcoming.status_code == 200:
             tables = pd.read_html(response_upcoming.text)
             for table in tables:
@@ -3588,14 +3588,14 @@ def fetch_live_ipo_data():
                     upcoming_df = table
                     break
     except requests.exceptions.RequestException as e:
-        st.toast(f"Network error fetching upcoming IPOs: {e}", icon="🌐")
+        st.toast(f"Network error fetching upcoming IPOs: {e}", icon="🌐") if 'streamlit' in sys.modules else print(f"Error: {e}")
     except (ValueError, IndexError) as e:
-        st.toast(f"Could not parse upcoming IPOs table: {e}", icon="📊")
+        st.toast(f"Could not parse upcoming IPOs table: {e}", icon="📊") if 'streamlit' in sys.modules else print(f"Error: {e}")
 
     # Scrape recent IPOs
     try:
         response_recent = requests.get(recent_url, headers=headers, timeout=10)
-        response_recent.raise_for_status()
+        response_recent.raise_for_status()  # Will raise an HTTPError for bad responses
         if response_recent.status_code == 200:
             tables_recent = pd.read_html(response_recent.text)
             for table in tables_recent:
@@ -3611,12 +3611,12 @@ def fetch_live_ipo_data():
                     for col in ['Issue Price (₹)', 'Listing Price (₹)']:
                         recent_df[col] = pd.to_numeric(recent_df[col], errors='coerce')
                 except KeyError as e:
-                    st.toast(f"Column mismatch in recent IPOs data: {e}", icon="📊")
+                    st.toast(f"Column mismatch in recent IPOs data: {e}", icon="📊") if 'streamlit' in sys.modules else print(f"Error: {e}")
                     recent_df = pd.DataFrame() # Invalidate data if columns are wrong
     except requests.exceptions.RequestException as e:
-        st.toast(f"Network error fetching recent IPOs: {e}", icon="🌐")
+        st.toast(f"Network error fetching recent IPOs: {e}", icon="🌐") if 'streamlit' in sys.modules else print(f"Error: {e}")
     except (ValueError, IndexError) as e:
-        st.toast(f"Could not parse recent IPOs table: {e}", icon="📊")
+        st.toast(f"Could not parse recent IPOs table: {e}", icon="📊") if 'streamlit' in sys.modules else print(f"Error: {e}")
 
     return upcoming_df, recent_df
 
