@@ -1405,7 +1405,6 @@ ALGO_BOTS = {
     "Value Investor": value_investor_bot,
     "Scalper Pro": scalper_bot,
     "Trend Follower": trend_follower_bot
-    "Trend Follower": trend_follower_bot,
     "Pairs Trading": pairs_trading_bot
 }
 
@@ -1456,7 +1455,7 @@ def display_bot_configuration():
             "Volatility Breakout": "Captures breakouts from low volatility periods. High risk.",
             "Value Investor": "Focuses on longer-term value and fundamental trends. Low risk.",
             "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk.",
-            "Trend Follower": "Rides established trends with multiple confirmations. Medium risk."
+            "Trend Follower": "Rides established trends with multiple confirmations. Medium risk.",
             "Pairs Trading": "A market-neutral strategy that trades on the statistical relationship between two correlated stocks. Medium risk."
         }
         st.markdown(f"**Description:** {bot_descriptions[selected_bot]}")
@@ -1553,7 +1552,6 @@ def display_bot_results(instrument_df):
             else:
                 st.info(f"📈 {signal}")
 
-    execute_bot_trade(instrument_df, bot_result)
     if bot_result["action"] == "PAIRS_TRADE":
         st.warning("Automated execution for pairs trades is not yet supported. Please place orders manually.")
     else:
@@ -1584,10 +1582,6 @@ def display_bot_info_and_tips():
     with st.expander("🤖 Bot Comparison Guide"):
         comparison_data = {
             "Bot": list(ALGO_BOTS.keys()),
-            "Risk Level": ["Medium", "Low", "High", "Low", "Very High", "Medium"],
-            "Holding Period": ["Hours", "Days", "Minutes", "Weeks", "Minutes", "Days"],
-            "Capital Recommended": ["₹1,000+", "₹500+", "₹2,000+", "₹2,000+", "₹5,000+", "₹1,500+"],
-            "Best For": ["Trend riding", "Safe returns", "Quick profits", "Long term", "Experienced", "Trend following"]
             "Risk Level": ["Medium", "Low", "High", "Low", "Very High", "Medium", "Medium"],
             "Holding Period": ["Hours", "Days", "Minutes", "Weeks", "Minutes", "Days", "Days"],
             "Capital Recommended": ["₹1,000+", "₹500+", "₹2,000+", "₹2,000+", "₹5,000+", "₹1,500+", "₹2,500+"],
