@@ -1404,7 +1404,7 @@ ALGO_BOTS = {
     "Volatility Breakout": volatility_breakout_bot, # type: ignore
     "Value Investor": value_investor_bot,
     "Scalper Pro": scalper_bot,
-    "Trend Follower": trend_follower_bot
+    "Trend Follower": trend_follower_bot,
     "Trend Follower": trend_follower_bot,
     "Pairs Trading": pairs_trading_bot
 }
