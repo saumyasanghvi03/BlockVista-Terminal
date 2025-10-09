@@ -1,33 +1,12 @@
-# ================ 0. REQUIRED LIBRARIES ================
+# ================ 0. REQUIRED LIBRARIES (Lightweight Only) ================
 import streamlit as st
-import pandas as pd
-import pandas_ta as ta
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from kiteconnect import KiteConnect, exceptions as kite_exceptions
-from streamlit_autorefresh import st_autorefresh
 from datetime import datetime, timedelta, time
 import pytz
-import feedparser
-from email.utils import mktime_tz
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from statsmodels.tsa.seasonal import seasonal_decompose
-from statsmodels.tsa.arima.model import ARIMA
-import numpy as np
-from scipy.stats import norm
-from scipy.optimize import newton
-from tabulate import tabulate
-import time as a_time
 import re
-import yfinance as yf
-import pyotp
-import qrcode
-from PIL import Image
-import base64
-import io
-import requests
-import hashlib
-import random
+import time as a_time # Renamed to avoid conflict with datetime.time
+
+# Start profiling startup time
+startup_timer_start = a_time.time()
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -361,6 +340,10 @@ def display_overnight_changes_bar():
 
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_int_df=None):
     """Generates a Plotly chart with various chart types and overlays."""
+    import plotly.graph_objects as go
+    import pandas as pd
+    import pandas_ta as ta
+
     fig = go.Figure()
     if df.empty: return fig
     chart_df = df.copy()
@@ -404,6 +387,7 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
 @st.cache_resource(ttl=3600)
 def get_instrument_df():
     """Fetches the full list of tradable instruments from the broker."""
+    import pandas as pd
     client = get_broker_client()
     if not client: return pd.DataFrame()
     if st.session_state.broker == "Zerodha":
@@ -424,6 +408,10 @@ def get_instrument_token(symbol, instrument_df, exchange='NSE'):
 @st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
     """Fetches historical data from the broker's API."""
+    import pandas as pd
+    import pandas_ta as ta
+    from kiteconnect import exceptions as kite_exceptions
+
     client = get_broker_client()
     if not client or not instrument_token: return pd.DataFrame()
     if st.session_state.broker == "Zerodha":
@@ -461,6 +449,7 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
 @st.cache_data(ttl=15)
 def get_watchlist_data(symbols_with_exchange):
     """Fetches live prices and market data for a list of symbols."""
+    import pandas as pd
     client = get_broker_client()
     if not client or not symbols_with_exchange: return pd.DataFrame()
     if st.session_state.broker == "Zerodha":
@@ -479,7 +468,7 @@ def get_watchlist_data(symbols_with_exchange):
                     watchlist.append({'Ticker': item['symbol'], 'Exchange': item['exchange'], 'Price': last_price, 'Change': change, '% Change': pct_change})
             return pd.DataFrame(watchlist)
         except Exception as e:
-            st.toast(f"Error fetching watchlist data: {e}", icon=⚠️")
+            st.toast(f"Error fetching watchlist data: {e}", icon="⚠️")
             return pd.DataFrame()
     else:
         st.warning(f"Watchlist for {st.session_state.broker} not implemented.")
@@ -501,6 +490,7 @@ def get_market_depth(instrument_token):
 @st.cache_data(ttl=30)
 def get_options_chain(underlying, instrument_df, expiry_date=None):
     """Fetches and processes the options chain for a given underlying."""
+    import pandas as pd
     client = get_broker_client()
     if not client or instrument_df.empty: return pd.DataFrame(), None, 0.0, []
     if st.session_state.broker == "Zerodha":
@@ -555,6 +545,7 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
 @st.cache_data(ttl=10)
 def get_portfolio():
     """Fetches real-time portfolio positions and holdings from the broker."""
+    import pandas as pd
     client = get_broker_client()
     if not client: return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
     if st.session_state.broker == "Zerodha":
@@ -603,6 +594,11 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
 @st.cache_data(ttl=900)
 def fetch_and_analyze_news(query=None):
     """Fetches and performs sentiment analysis on financial news."""
+    import pandas as pd
+    import feedparser
+    from email.utils import mktime_tz
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
     analyzer = SentimentIntensityAnalyzer()
     
     news_sources = {
@@ -629,12 +625,18 @@ def fetch_and_analyze_news(query=None):
 
 def mean_absolute_percentage_error(y_true, y_pred):
     """Custom MAPE function to remove sklearn dependency."""
+    import numpy as np
     y_true, y_pred = np.array(y_true), np.array(y_pred)
     return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
 @st.cache_data(show_spinner=False)
 def train_seasonal_arima_model(_data, forecast_steps=30):
     """Trains a Seasonal ARIMA model for time series forecasting."""
+    import pandas as pd
+    import numpy as np
+    from statsmodels.tsa.seasonal import seasonal_decompose
+    from statsmodels.tsa.arima.model import ARIMA
+
     if _data.empty or len(_data) < 100:
         return None, None, None
 
@@ -679,6 +681,11 @@ def train_seasonal_arima_model(_data, forecast_steps=30):
 @st.cache_data
 def load_and_combine_data(instrument_name):
     """Loads and combines historical data from a static CSV with live data from the broker."""
+    import pandas as pd
+    import requests
+    import io
+    import yfinance as yf
+
     source_info = ML_DATA_SOURCES.get(instrument_name)
     if not source_info:
         st.error(f"No data source configured for {instrument_name}")
@@ -732,6 +739,8 @@ def load_and_combine_data(instrument_name):
 
 def black_scholes(S, K, T, r, sigma, option_type="call"):
     """Calculates Black-Scholes option price and Greeks."""
+    import numpy as np
+    from scipy.stats import norm
     if sigma <= 0 or T <= 0: return {key: 0 for key in ["price", "delta", "gamma", "vega", "theta", "rho"]}
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T)); d2 = d1 - sigma * np.sqrt(T)
     if option_type == "call":
@@ -743,6 +752,8 @@ def black_scholes(S, K, T, r, sigma, option_type="call"):
 
 def implied_volatility(S, K, T, r, market_price, option_type):
     """Calculates implied volatility using the Newton-Raphson method."""
+    import numpy as np
+    from scipy.optimize import newton
     if T <= 0 or market_price <= 0: return np.nan
     equation = lambda sigma: black_scholes(S, K, T, r, sigma, option_type)['price'] - market_price
     try:
@@ -827,6 +838,7 @@ def execute_basket_order(basket_items, instrument_df):
 @st.cache_data(ttl=3600)
 def get_sector_data():
     """Loads stock-to-sector mapping from a local CSV file."""
+    import pandas as pd
     try:
         return pd.read_csv("sensex_sectors.csv")
     except FileNotFoundError:
@@ -863,6 +875,7 @@ def show_most_active_dialog(underlying, instrument_df):
 
 def get_most_active_options(underlying, instrument_df):
     """Fetches the most active options by volume for a given underlying."""
+    import pandas as pd
     client = get_broker_client()
     if not client:
         st.toast("Broker not connected.", icon="⚠️")
@@ -907,6 +920,10 @@ def get_most_active_options(underlying, instrument_df):
 @st.cache_data(ttl=60)
 def get_global_indices_data(tickers):
     """Fetches real-time data for global indices using yfinance."""
+    import pandas as pd
+    import numpy as np
+    import yfinance as yf
+
     if not tickers:
         return pd.DataFrame()
     
@@ -942,6 +959,7 @@ def get_global_indices_data(tickers):
 
 def momentum_trader_bot(instrument_df, symbol, capital=100):
     """Momentum trading bot that buys on upward momentum and sells on downward momentum."""
+    import pandas_ta as ta
     exchange = 'NSE'
     token = get_instrument_token(symbol, instrument_df, exchange)
     if not token:
@@ -999,6 +1017,8 @@ def momentum_trader_bot(instrument_df, symbol, capital=100):
 
 def mean_reversion_bot(instrument_df, symbol, capital=100):
     """Mean reversion bot that trades on price returning to mean levels."""
+    import pandas as pd
+    import pandas_ta as ta
     exchange = 'NSE'
     token = get_instrument_token(symbol, instrument_df, exchange)
     if not token:
@@ -1062,6 +1082,7 @@ def mean_reversion_bot(instrument_df, symbol, capital=100):
 
 def volatility_breakout_bot(instrument_df, symbol, capital=100):
     """Volatility breakout bot that trades on breakouts from consolidation."""
+    import pandas_ta as ta
     exchange = 'NSE'
     token = get_instrument_token(symbol, instrument_df, exchange)
     if not token:
@@ -1127,6 +1148,7 @@ def volatility_breakout_bot(instrument_df, symbol, capital=100):
 
 def value_investor_bot(instrument_df, symbol, capital=100):
     """Value investor bot focusing on longer-term value signals."""
+    import pandas_ta as ta
     exchange = 'NSE'
     token = get_instrument_token(symbol, instrument_df, exchange)
     if not token:
@@ -1197,6 +1219,7 @@ def value_investor_bot(instrument_df, symbol, capital=100):
 
 def scalper_bot(instrument_df, symbol, capital=100):
     """High-frequency scalping bot for quick, small profits."""
+    import pandas_ta as ta
     exchange = 'NSE'
     token = get_instrument_token(symbol, instrument_df, exchange)
     if not token:
@@ -1259,6 +1282,7 @@ def scalper_bot(instrument_df, symbol, capital=100):
 
 def trend_follower_bot(instrument_df, symbol, capital=100):
     """Trend following bot that rides established trends."""
+    import pandas_ta as ta
     exchange = 'NSE'
     token = get_instrument_token(symbol, instrument_df, exchange)
     if not token:
@@ -1376,6 +1400,7 @@ def execute_bot_trade(instrument_df, bot_result):
 
 def page_algo_bots():
     """Main algo bots page where users can run different trading bots."""
+    import pandas as pd
     display_header()
     st.title("🤖 Algo Trading Bots")
     st.info("Run automated trading bots with minimum capital of ₹100. Each bot uses different strategies and risk profiles.", icon="🤖")
@@ -1467,8 +1492,8 @@ def page_algo_bots():
             with col5:
                 action_color = "green" if bot_result["action"] == "BUY" else "red" if bot_result["action"] == "SELL" else "orange"
                 st.markdown(f'<div class="metric-card" style="border-color: {action_color};">'
-                           f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
-                           f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
+                            f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
+                            f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
             
             with col6:
                 st.metric("Quantity", bot_result["quantity"])
@@ -1479,8 +1504,8 @@ def page_algo_bots():
             with col8:
                 risk_color = {"Low": "green", "Medium": "orange", "High": "red", "Very High": "darkred"}
                 st.markdown(f'<div class="metric-card" style="border-color: {risk_color.get(bot_result["risk_level"], "gray")};">'
-                           f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
-                           f'<p>Risk Level</p></div>', unsafe_allow_html=True)
+                            f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
+                            f'<p>Risk Level</p></div>', unsafe_allow_html=True)
             
             # Display signals
             st.subheader("📊 Analysis Signals")
@@ -1570,6 +1595,7 @@ def get_bmp_score_and_label(nifty_change, sensex_change, vix_value, lookback_df)
 @st.cache_data(ttl=300)
 def get_nifty50_constituents(instrument_df):
     """Fetches the list of NIFTY 50 stocks by filtering the Kite API instrument list."""
+    import pandas as pd
     if instrument_df.empty:
         return pd.DataFrame()
     
@@ -1598,6 +1624,10 @@ def get_nifty50_constituents(instrument_df):
 
 def create_nifty_heatmap(instrument_df):
     """Generates a Plotly Treemap for NIFTY 50 stocks."""
+    import pandas as pd
+    import numpy as np
+    import plotly.graph_objects as go
+
     constituents_df = get_nifty50_constituents(instrument_df)
     if constituents_df.empty:
         return go.Figure()
@@ -1632,6 +1662,8 @@ def create_nifty_heatmap(instrument_df):
 @st.cache_data(ttl=300)
 def get_gift_nifty_data():
     """Fetches GIFT NIFTY data using a more reliable yfinance ticker."""
+    import pandas as pd
+    import yfinance as yf
     try:
         data = yf.download("IN=F", period="1d", interval="1m")
         if not data.empty:
@@ -1642,6 +1674,7 @@ def get_gift_nifty_data():
 
 def page_dashboard():
     """A completely redesigned 'Trader UI' Dashboard."""
+    import pandas as pd
     display_header()
     instrument_df = get_instrument_df()
     if instrument_df.empty:
@@ -1879,6 +1912,7 @@ def render_chart_controls(i, instrument_df):
 
 def page_premarket_pulse():
     """Global market overview and premarket indicators with a trader-focused UI."""
+    import numpy as np
     display_header()
     st.title("Premarket & Global Cues")
     st.markdown("---")
@@ -1949,6 +1983,9 @@ def page_premarket_pulse():
 
 def page_fo_analytics():
     """F&O Analytics page with comprehensive options analysis."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
     display_header()
     st.title("F&O Analytics Hub")
     
@@ -2051,6 +2088,7 @@ def page_fo_analytics():
 
 def page_forecasting_ml():
     """A page for advanced ML forecasting with an improved UI and corrected formulas."""
+    import plotly.graph_objects as go
     display_header()
     st.title("Advanced ML Forecasting")
     st.info("Train a Seasonal ARIMA model to forecast future prices. This is for educational purposes and not financial advice.", icon="🧠")
@@ -2123,6 +2161,9 @@ def page_forecasting_ml():
 
 def page_portfolio_and_risk():
     """A page for portfolio and risk management, including live P&L and holdings."""
+    import pandas as pd
+    import plotly.graph_objects as go
+
     display_header()
     st.title("Portfolio & Risk")
 
@@ -2215,6 +2256,10 @@ def page_portfolio_and_risk():
 
 def page_ai_assistant():
     """An AI-powered assistant for portfolio management and market queries."""
+    import pandas as pd
+    from tabulate import tabulate
+    import numpy as np
+
     display_header()
     st.title("Portfolio-Aware Assistant")
     instrument_df = get_instrument_df()
@@ -2393,6 +2438,7 @@ def page_basket_orders():
 
 def run_backtest(strategy_func, data, **params):
     """Runs a backtest for a given strategy function."""
+    import pandas as pd
     df = data.copy()
     signals = strategy_func(df, **params)
     
@@ -2418,6 +2464,7 @@ def run_backtest(strategy_func, data, **params):
 
 def rsi_strategy(df, rsi_period=14, rsi_overbought=70, rsi_oversold=30):
     """Simple RSI Crossover Strategy"""
+    import pandas_ta as ta
     rsi = ta.rsi(df['close'], length=rsi_period)
     signals = [''] * len(df)
     for i in range(1, len(df)):
@@ -2429,6 +2476,7 @@ def rsi_strategy(df, rsi_period=14, rsi_overbought=70, rsi_oversold=30):
 
 def macd_strategy(df, fast=12, slow=26, signal=9):
     """MACD Crossover Strategy"""
+    import pandas_ta as ta
     macd = ta.macd(df['close'], fast=fast, slow=slow, signal=signal)
     signals = [''] * len(df)
     for i in range(1, len(df)):
@@ -2440,6 +2488,7 @@ def macd_strategy(df, fast=12, slow=26, signal=9):
 
 def supertrend_strategy(df, period=7, multiplier=3):
     """Supertrend Strategy"""
+    import pandas_ta as ta
     supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=period, multiplier=multiplier)
     signals = [''] * len(df)
     st_col = next((col for col in supertrend.columns if 'SUPERT' in col), None)
@@ -2453,6 +2502,7 @@ def supertrend_strategy(df, period=7, multiplier=3):
 
 def page_algo_strategy_maker():
     """Algo Strategy Maker page with pre-built, backtestable, and executable strategies."""
+    import plotly.graph_objects as go
     display_header()
     st.title("Algo Strategy Hub")
     instrument_df = get_instrument_df()
@@ -2542,6 +2592,7 @@ def page_algo_strategy_maker():
 @st.cache_data(ttl=3600)
 def run_scanner(instrument_df, scanner_type, holdings_df=None):
     """A single function to run different types of market scanners on user holdings or a predefined list."""
+    import pandas as pd
     client = get_broker_client()
     if not client or instrument_df.empty: return pd.DataFrame()
 
@@ -2610,6 +2661,8 @@ def run_scanner(instrument_df, scanner_type, holdings_df=None):
 
 def run_momentum_scanner(instrument_df, holdings_df=None):
     """Momentum scanner with RSI and MACD analysis."""
+    import pandas as pd
+    import pandas_ta as ta
     client = get_broker_client()
     if not client or instrument_df.empty: 
         return pd.DataFrame()
@@ -2672,7 +2725,7 @@ def run_momentum_scanner(instrument_df, holdings_df=None):
                         'Signal': "Oversold", 
                         'Strength': "High"
                     })
-                    
+                
             except Exception:
                 continue
                 
@@ -2683,6 +2736,8 @@ def run_momentum_scanner(instrument_df, holdings_df=None):
 
 def run_trend_scanner(instrument_df, holdings_df=None):
     """Trend scanner with EMA analysis."""
+    import pandas as pd
+    import pandas_ta as ta
     client = get_broker_client()
     if not client or instrument_df.empty: 
         return pd.DataFrame()
@@ -2746,7 +2801,7 @@ def run_trend_scanner(instrument_df, holdings_df=None):
                         '20 EMA': f"₹{ema_20:.1f}",
                         '50 EMA': f"₹{ema_50:.1f}"
                     })
-                    
+                
             except Exception:
                 continue
                 
@@ -2757,6 +2812,7 @@ def run_trend_scanner(instrument_df, holdings_df=None):
 
 def run_breakout_scanner(instrument_df, holdings_df=None):
     """Breakout scanner for key level breaks."""
+    import pandas as pd
     client = get_broker_client()
     if not client or instrument_df.empty: 
         return pd.DataFrame()
@@ -2958,6 +3014,8 @@ def page_momentum_and_trend_finder():
 
 def calculate_strategy_pnl(legs, underlying_ltp):
     """Calculates the P&L for a given options strategy."""
+    import pandas as pd
+    import numpy as np
     if not legs:
         return pd.DataFrame(), 0, 0, []
 
@@ -2999,6 +3057,8 @@ def calculate_strategy_pnl(legs, underlying_ltp):
 
 def page_option_strategy_builder():
     """Option Strategy Builder page with live data and P&L calculation."""
+    import pandas as pd
+    import plotly.graph_objects as go
     display_header()
     st.title("Options Strategy Builder")
     
@@ -3101,6 +3161,7 @@ def page_option_strategy_builder():
 
 def get_futures_contracts(instrument_df, underlying, exchange):
     """Fetches and sorts futures contracts for a given underlying and exchange."""
+    import pandas as pd
     if instrument_df.empty or not underlying: return pd.DataFrame()
     futures_df = instrument_df[
         (instrument_df['name'] == underlying) &
@@ -3114,6 +3175,7 @@ def get_futures_contracts(instrument_df, underlying, exchange):
 
 def page_futures_terminal():
     """Futures Terminal page with live data."""
+    import pandas as pd
     display_header()
     st.title("Futures Terminal")
     
@@ -3185,6 +3247,7 @@ def page_futures_terminal():
 
 def generate_ai_trade_idea(instrument_df, active_list):
     """Dynamically generates a trade idea based on watchlist signals."""
+    import pandas as pd
     if not active_list or instrument_df.empty:
         return None
 
@@ -3352,6 +3415,7 @@ def page_greeks_calculator():
 
 def page_economic_calendar():
     """Economic Calendar page for Indian market events."""
+    import pandas as pd
     display_header()
     st.title("Economic Calendar")
     st.info("Upcoming economic events for the Indian market, updated until October 2025.")
@@ -3402,6 +3466,8 @@ def page_economic_calendar():
 # ============ 5.5 HFT TERMINAL PAGE ============
 def page_hft_terminal():
     """A dedicated terminal for High-Frequency Trading with Level 2 data."""
+    import pandas as pd
+    import random
     display_header()
     st.title("HFT Terminal (High-Frequency Trading)")
     st.info("This interface provides a simulated high-speed view of market depth and one-click trading. For liquid, F&O instruments only.", icon="⚡️")
@@ -3510,6 +3576,8 @@ def page_hft_terminal():
 
 def get_user_secret(user_profile):
     """Generate a persistent secret based on user profile."""
+    import hashlib
+    import base64
     user_id = user_profile.get('user_id', 'default_user')
     user_hash = hashlib.sha256(str(user_id).encode()).digest()
     secret = base64.b32encode(user_hash).decode('utf-8').replace('=', '')[:16]
@@ -3518,6 +3586,7 @@ def get_user_secret(user_profile):
 @st.dialog("Two-Factor Authentication")
 def two_factor_dialog():
     """Dialog for 2FA login."""
+    import pyotp
     st.subheader("Enter your 2FA code")
     st.caption("Please enter the 6-digit code from your authenticator app to continue.")
     
@@ -3540,6 +3609,10 @@ def two_factor_dialog():
 @st.dialog("Generate QR Code for 2FA")
 def qr_code_dialog():
     """Dialog to generate a QR code for 2FA setup."""
+    import pyotp
+    import qrcode
+    import io
+
     st.subheader("Set up Two-Factor Authentication")
     st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
 
@@ -3586,6 +3659,7 @@ def show_login_animation():
 
 def login_page():
     """Displays the login page for broker authentication."""
+    from kiteconnect import KiteConnect
     st.title("BlockVista Terminal")
     st.subheader("Broker Login")
     
