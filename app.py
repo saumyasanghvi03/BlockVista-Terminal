@@ -922,7 +922,7 @@ def get_global_indices_data(tickers):
         data = []
         for ticker_name, yf_ticker_name in tickers.items():
             if len(tickers) > 1:
-                hist = data_yf.loc[:, (slice(None), yf_ticker_name]
+                hist = data_yf.loc[:, (slice(None), yf_ticker_name)]
                 hist.columns = hist.columns.droplevel(1)
             else:
                 hist = data_yf
@@ -985,7 +985,7 @@ def momentum_trader_bot(instrument_df, symbol, capital=100):
         
         # Calculate position size
         current_price = latest['close']
-        quantity = max(1, int((capital * 0.8) / current_price))  # Use 80% of capital
+        quantity = max(1, int((capital * 0.8) / current_price)) # Use 80% of capital
         
         action = "HOLD"
         if len([s for s in signals if "BULLISH" in s]) >= 2:
@@ -1032,10 +1032,10 @@ def mean_reversion_bot(instrument_df, symbol, capital=100):
         bb_middle = latest.get('BBM_20_2.0', current_price)
         
         # Mean reversion signals
-        if current_price <= bb_lower * 1.02:  # Within 2% of lower band
+        if current_price <= bb_lower * 1.02: # Within 2% of lower band
             signals.append("Near lower Bollinger Band - BULLISH")
         
-        if current_price >= bb_upper * 0.98:  # Within 2% of upper band
+        if current_price >= bb_upper * 0.98: # Within 2% of upper band
             signals.append("Near upper Bollinger Band - BEARISH")
         
         # Distance from mean
@@ -1052,7 +1052,7 @@ def mean_reversion_bot(instrument_df, symbol, capital=100):
             signals.append("RSI supporting overbought condition")
         
         # Calculate position size
-        quantity = max(1, int((capital * 0.6) / current_price))  # Use 60% of capital
+        quantity = max(1, int((capital * 0.6) / current_price)) # Use 60% of capital
         
         action = "HOLD"
         if any("BULLISH" in s for s in signals) and rsi < 40:
@@ -1120,7 +1120,7 @@ def volatility_breakout_bot(instrument_df, symbol, capital=100):
         
         # Calculate position size based on ATR
         atr_percentage = (current_atr / current_price) * 100
-        risk_per_trade = min(20, max(5, atr_percentage * 2))  # Dynamic position sizing
+        risk_per_trade = min(20, max(5, atr_percentage * 2)) # Dynamic position sizing
         quantity = max(1, int((capital * (risk_per_trade / 100)) / current_price))
         
         action = "HOLD"
@@ -1192,7 +1192,7 @@ def value_investor_bot(instrument_df, symbol, capital=100):
             signals.append("Overbought on monthly basis - BEARISH")
         
         # Calculate position size for longer term
-        quantity = max(1, int((capital * 0.5) / current_price))  # Conservative 50%
+        quantity = max(1, int((capital * 0.5) / current_price)) # Conservative 50%
         
         action = "HOLD"
         bullish_signals = len([s for s in signals if "BULLISH" in s])
@@ -1257,7 +1257,7 @@ def scalper_bot(instrument_df, symbol, capital=100):
             signals.append(f"Strong short-term momentum: {price_change_3min:+.2f}%")
         
         # Calculate small position size for scalping
-        quantity = max(1, int((capital * 0.3) / current_price))  # Small position for quick exits
+        quantity = max(1, int((capital * 0.3) / current_price)) # Small position for quick exits
         
         action = "HOLD"
         if (any("BULLISH" in s for s in signals) and 
@@ -1306,7 +1306,7 @@ def trend_follower_bot(instrument_df, symbol, capital=100):
         # Find the correct SuperTrend column (it could have different naming patterns)
         supertrend_col = None
         for col in supertrend_data.columns:
-            if 'SUPERT' in col and not any(x in col for x in ['d', 'l', 's']):  # Main trend line
+            if 'SUPERT' in col and not any(x in col for x in ['d', 'l', 's']): # Main trend line
                 supertrend_col = col
                 break
         
@@ -1353,7 +1353,7 @@ def trend_follower_bot(instrument_df, symbol, capital=100):
             signals.append("Pullback in downtrend - BEARISH")
         
         # Calculate position size
-        quantity = max(1, int((capital * 0.7) / current_price))  # Use 70% of capital
+        quantity = max(1, int((capital * 0.7) / current_price)) # Use 70% of capital
         
         action = "HOLD"
         bullish_count = len([s for s in signals if "BULLISH" in s])
@@ -1377,6 +1377,7 @@ def trend_follower_bot(instrument_df, symbol, capital=100):
     
     except Exception as e:
         return {"error": f"Analysis failed: {str(e)}"}
+
 
 # Dictionary of all available bots
 ALGO_BOTS = {
@@ -1532,8 +1533,8 @@ def page_algo_bots():
             with col5:
                 action_color = "green" if bot_result["action"] == "BUY" else "red" if bot_result["action"] == "SELL" else "orange"
                 st.markdown(f'<div class="metric-card" style="border-color: {action_color};">'
-                           f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
-                           f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
+                            f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
+                            f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
             
             with col6:
                 st.metric("Quantity", bot_result["quantity"])
@@ -1544,22 +1545,12 @@ def page_algo_bots():
             with col8:
                 risk_color = {"Low": "green", "Medium": "orange", "High": "red", "Very High": "darkred"}
                 st.markdown(f'<div class="metric-card" style="border-color: {risk_color.get(bot_result["risk_level"], "gray")};">'
-                           f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
-                           f'<p>Risk Level</p></div>', unsafe_allow_html=True)
+                            f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
+                            f'<p>Risk Level</p></div>', unsafe_allow_html=True)
             
-            # Display signals
-            st.subheader("📊 Analysis Signals")
-            for signal in bot_result["signals"]:
-                if "BULLISH" in signal:
-                    st.success(f"✅ {signal}")
-                elif "BEARISH" in signal:
-                    st.error(f"❌ {signal}")
-                else:
-                    st.info(f"📈 {signal}")
-            
-            # Execute trade
+            # Display signals and execute trade
             execute_bot_trade(instrument_df, bot_result)
-    
+
     # Bot performance history
     st.markdown("---")
     st.subheader("📈 Bot Performance Tips")
@@ -2682,7 +2673,7 @@ def run_momentum_scanner(instrument_df, holdings_df=None):
     # Get symbols to scan
     scan_list = []
     if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]  # Limit to 20 stocks
+        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20] # Limit to 20 stocks
     else:
         scan_list = [
             'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
@@ -2923,7 +2914,7 @@ def page_momentum_and_trend_finder():
             title = "Trending Stocks (EMA Based)"
             description = "Stocks in strong uptrend/downtrend based on EMA alignment"
             
-        else:  # Breakout
+        else: # Breakout
             data = run_breakout_scanner(instrument_df, holdings_df)
             title = "Breakout Stocks"
             description = "Stocks breaking 20-day high/low resistance/support levels"
@@ -2952,7 +2943,7 @@ def page_momentum_and_trend_finder():
                 return ''
             styled_data = data.style.map(color_trend, subset=['Trend'])
             
-        else:  # Breakout
+        else: # Breakout
             def color_breakout(val):
                 if 'High' in str(val):
                     return 'color: #00aa00; font-weight: bold;'
@@ -2974,7 +2965,7 @@ def page_momentum_and_trend_finder():
             downtrend = len(data[data['Trend'] == 'Downtrend'])
             st.metric("Signals Found", len(data), delta=f"{uptrend} Up, {downtrend} Down")
             
-        else:  # Breakout
+        else: # Breakout
             breakouts = len(data[data['Breakout'].str.contains('High')])
             breakdowns = len(data[data['Breakout'].str.contains('Low')])
             st.metric("Signals Found", len(data), delta=f"{breakouts} Breakouts, {breakdowns} Breakdowns")
@@ -2997,7 +2988,7 @@ def page_momentum_and_trend_finder():
         with col2:
             if st.button("👀 Add to Watchlist", use_container_width=True):
                 added = 0
-                for symbol in data['Symbol'].head(5):  # Add top 5
+                for symbol in data['Symbol'].head(5): # Add top 5
                     if symbol not in [item['symbol'] for item in st.session_state.watchlists[st.session_state.active_watchlist]]:
                         st.session_state.watchlists[st.session_state.active_watchlist].append({
                             'symbol': symbol, 
