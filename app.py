@@ -265,6 +265,12 @@ def initialize_session_state():
     if 'hft_last_price' not in st.session_state: st.session_state.hft_last_price = 0
     if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
     if 'last_bot_result' not in st.session_state: st.session_state.last_bot_result = None
+    
+    # Add new dialog state variables
+    if 'show_quick_trade' not in st.session_state: st.session_state.show_quick_trade = False
+    if 'show_most_active' not in st.session_state: st.session_state.show_most_active = False
+    if 'show_2fa_dialog' not in st.session_state: st.session_state.show_2fa_dialog = False
+    if 'show_qr_dialog' not in st.session_state: st.session_state.show_qr_dialog = False
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -274,27 +280,40 @@ def get_broker_client():
         return st.session_state.get('kite')
     return None
 
-@st.dialog("Quick Trade")
+# @st.dialog("Quick Trade")
 def quick_trade_dialog(symbol=None, exchange=None):
     """A quick trade dialog for placing market or limit orders."""
-    instrument_df = get_instrument_df()
-    st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
+    if 'show_quick_trade' not in st.session_state:
+        st.session_state.show_quick_trade = False
     
-    if symbol is None:
-        symbol = st.text_input("Symbol").upper()
-    
-    transaction_type = st.radio("Transaction", ["BUY", "SELL"], horizontal=True, key="diag_trans_type")
-    product = st.radio("Product", ["MIS", "CNC"], horizontal=True, key="diag_prod_type")
-    order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="diag_order_type")
-    quantity = st.number_input("Quantity", min_value=1, step=1, key="diag_qty")
-    price = st.number_input("Price", min_value=0.01, key="diag_price") if order_type == "LIMIT" else 0
+    # Button to open the dialog
+    if st.sidebar.button("Quick Trade", use_container_width=True) or st.session_state.show_quick_trade:
+        st.session_state.show_quick_trade = True
+        
+        # Create the dialog content
+        st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
+        
+        if symbol is None:
+            symbol = st.text_input("Symbol").upper()
+        
+        transaction_type = st.radio("Transaction", ["BUY", "SELL"], horizontal=True, key="diag_trans_type")
+        product = st.radio("Product", ["MIS", "CNC"], horizontal=True, key="diag_prod_type")
+        order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="diag_order_type")
+        quantity = st.number_input("Quantity", min_value=1, step=1, key="diag_qty")
+        price = st.number_input("Price", min_value=0.01, key="diag_price") if order_type == "LIMIT" else 0
 
-    if st.button("Submit Order", use_container_width=True):
-        if symbol and quantity > 0:
-            place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price if price > 0 else None)
+        col1, col2 = st.columns(2)
+        if col1.button("Submit Order", use_container_width=True):
+            if symbol and quantity > 0:
+                place_order(get_instrument_df(), symbol, quantity, order_type, transaction_type, product, price if price > 0 else None)
+                st.session_state.show_quick_trade = False
+                st.rerun()
+            else:
+                st.warning("Please fill in all fields.")
+        
+        if col2.button("Cancel", use_container_width=True):
+            st.session_state.show_quick_trade = False
             st.rerun()
-        else:
-            st.warning("Please fill in all fields.")
 
 @st.cache_data(ttl=3600)
 def get_market_holidays(year):
@@ -341,9 +360,11 @@ def display_header():
     with col3:
         b_col1, b_col2 = st.columns(2)
         if b_col1.button("Buy", use_container_width=True, key="header_buy"):
-            quick_trade_dialog()
+            st.session_state.show_quick_trade = True
+            st.rerun()
         if b_col2.button("Sell", use_container_width=True, key="header_sell"):
-            quick_trade_dialog()
+            st.session_state.show_quick_trade = True
+            st.rerun()
 
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
     
@@ -863,48 +884,58 @@ def style_option_chain(df, ltp):
 @st.dialog("Most Active Options")
 def show_most_active_dialog(underlying, instrument_df):
     """Dialog to display the most active options by volume."""
-    st.subheader(f"Most Active {underlying} Options (By Volume)")
-    with st.spinner("Fetching data..."):
-
-        client = get_broker_client()
-        if not client:
-            st.toast("Broker not connected.", icon="⚠️")
-            return pd.DataFrame()
+    if 'show_most_active' not in st.session_state:
+        st.session_state.show_most_active = False
+    
+    if st.button("Most Active Options", use_container_width=True) or st.session_state.show_most_active:
+        st.session_state.show_most_active = True
         
-        try:
-            chain_df, expiry, _, _ = get_options_chain(underlying, instrument_df)
-            if chain_df.empty or expiry is None:
-                return pd.DataFrame()
-            ce_symbols = chain_df['CALL'].dropna().tolist()
-            pe_symbols = chain_df['PUT'].dropna().tolist()
-            all_symbols = [f"NFO:{s}" for s in ce_symbols + pe_symbols]
+        st.subheader(f"Most Active {underlying} Options (By Volume)")
+        with st.spinner("Fetching data..."):
 
-            if not all_symbols:
+            client = get_broker_client()
+            if not client:
+                st.toast("Broker not connected.", icon="⚠️")
                 return pd.DataFrame()
-
-            quotes = client.quote(all_symbols)
             
-            active_options = []
-            for symbol, data in quotes.items():
-                prev_close = data.get('ohlc', {}).get('close', 0)
-                last_price = data.get('last_price', 0)
-                change = last_price - prev_close
-                pct_change = (change / prev_close * 100) if prev_close != 0 else 0
+            try:
+                chain_df, expiry, _, _ = get_options_chain(underlying, instrument_df)
+                if chain_df.empty or expiry is None:
+                    return pd.DataFrame()
+                ce_symbols = chain_df['CALL'].dropna().tolist()
+                pe_symbols = chain_df['PUT'].dropna().tolist()
+                all_symbols = [f"NFO:{s}" for s in ce_symbols + pe_symbols]
+
+                if not all_symbols:
+                    return pd.DataFrame()
+
+                quotes = client.quote(all_symbols)
                 
-                active_options.append({
-                    'Symbol': data.get('tradingsymbol'),
-                    'LTP': last_price,
-                    'Change %': pct_change,
-                    'Volume': data.get('volume', 0),
-                    'OI': data.get('oi', 0)
-                })
-            
-            df = pd.DataFrame(active_options)
-            df_sorted = df.sort_values(by='Volume', ascending=False)
-            st.dataframe(df_sorted.head(10), use_container_width=True, hide_index=True)
+                active_options = []
+                for symbol, data in quotes.items():
+                    prev_close = data.get('ohlc', {}).get('close', 0)
+                    last_price = data.get('last_price', 0)
+                    change = last_price - prev_close
+                    pct_change = (change / prev_close * 100) if prev_close != 0 else 0
+                    
+                    active_options.append({
+                        'Symbol': data.get('tradingsymbol'),
+                        'LTP': last_price,
+                        'Change %': pct_change,
+                        'Volume': data.get('volume', 0),
+                        'OI': data.get('oi', 0)
+                    })
+                
+                df = pd.DataFrame(active_options)
+                df_sorted = df.sort_values(by='Volume', ascending=False)
+                st.dataframe(df_sorted.head(10), use_container_width=True, hide_index=True)
 
-        except Exception as e:
-            st.error(f"Could not fetch most active options: {e}")
+                if st.button("Close", use_container_width=True):
+                    st.session_state.show_most_active = False
+                    st.rerun()
+
+            except Exception as e:
+                st.error(f"Could not fetch most active options: {e}")
 
 @st.cache_data(ttl=60)
 def get_global_indices_data(tickers):
@@ -3579,48 +3610,68 @@ def get_user_secret(user_profile):
 @st.dialog("Two-Factor Authentication")
 def two_factor_dialog():
     """Dialog for 2FA login."""
-    st.subheader("Enter your 2FA code")
-    st.caption("Please enter the 6-digit code from your authenticator app to continue.")
+    if 'show_2fa_dialog' not in st.session_state:
+        st.session_state.show_2fa_dialog = False
     
-    auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
-    
-    if st.button("Authenticate", use_container_width=True):
-        if auth_code:
-            try:
-                totp = pyotp.TOTP(st.session_state.pyotp_secret)
-                if totp.verify(auth_code):
-                    st.session_state.authenticated = True
-                    st.rerun()
-                else:
-                    st.error("Invalid code. Please try again.")
-            except Exception as e:
-                st.error(f"An error occurred during authentication: {e}")
-        else:
-            st.warning("Please enter a code.")
+    if not st.session_state.get('authenticated', False):
+        st.session_state.show_2fa_dialog = True
+        
+        st.subheader("Enter your 2FA code")
+        st.caption("Please enter the 6-digit code from your authenticator app to continue.")
+        
+        auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
+        
+        col1, col2 = st.columns(2)
+        if col1.button("Authenticate", use_container_width=True):
+            if auth_code:
+                try:
+                    totp = pyotp.TOTP(st.session_state.pyotp_secret)
+                    if totp.verify(auth_code):
+                        st.session_state.authenticated = True
+                        st.session_state.show_2fa_dialog = False
+                        st.rerun()
+                    else:
+                        st.error("Invalid code. Please try again.")
+                except Exception as e:
+                    st.error(f"An error occurred during authentication: {e}")
+            else:
+                st.warning("Please enter a code.")
+        
+        if col2.button("Cancel", use_container_width=True):
+            st.session_state.show_2fa_dialog = False
+            st.rerun()
+
 
 @st.dialog("Generate QR Code for 2FA")
 def qr_code_dialog():
     """Dialog to generate a QR code for 2FA setup."""
-    st.subheader("Set up Two-Factor Authentication")
-    st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
+    if 'show_qr_dialog' not in st.session_state:
+        st.session_state.show_qr_dialog = False
+    
+    if not st.session_state.get('two_factor_setup_complete', False):
+        st.session_state.show_qr_dialog = True
+        
+        st.subheader("Set up Two-Factor Authentication")
+        st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
 
-    if st.session_state.pyotp_secret is None:
-        st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
-    
-    secret = st.session_state.pyotp_secret
-    user_name = st.session_state.get('profile', {}).get('user_name', 'User')
-    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
-    
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    
-    st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
-    st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
-    
-    if st.button("I have scanned the code. Continue.", use_container_width=True):
-        st.session_state.two_factor_setup_complete = True
-        st.rerun()
+        if st.session_state.pyotp_secret is None:
+            st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
+        
+        secret = st.session_state.pyotp_secret
+        user_name = st.session_state.get('profile', {}).get('user_name', 'User')
+        uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
+        
+        img = qrcode.make(uri)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        
+        st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
+        st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
+        
+        if st.button("I have scanned the code. Continue.", use_container_width=True):
+            st.session_state.two_factor_setup_complete = True
+            st.session_state.show_qr_dialog = False
+            st.rerun()
 
 def show_login_animation():
     """Displays a boot-up animation after login."""
@@ -3685,6 +3736,10 @@ def main_app():
     apply_custom_styling()
     display_overnight_changes_bar()
     
+    # Show dialogs if needed
+    if st.session_state.get('show_quick_trade', False):
+        quick_trade_dialog()
+    
     # --- 2FA Check ---
     if st.session_state.get('profile'):
         if not st.session_state.get('two_factor_setup_complete'):
@@ -3693,6 +3748,8 @@ def main_app():
         if not st.session_state.get('authenticated', False):
             two_factor_dialog()
             return
+
+    # ... rest of your main_app function
 
     st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
     st.sidebar.caption(f"Connected via {st.session_state.broker}")
