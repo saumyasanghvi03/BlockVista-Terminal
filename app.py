@@ -2024,7 +2024,7 @@ def page_fully_automated_bots(instrument_df):
     with col3:
         total_capital = st.number_input(
             "Total Capital (₹)",
-            min_value=1000,
+            min_value=100,
             max_value=1000000,
             value=st.session_state.automated_mode.get('total_capital', 10000),
             step=1000,
