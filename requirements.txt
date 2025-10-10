@@ -1,7 +1,7 @@
 streamlit==1.35.0
-pandas==2.3.2
-pandas-ta==0.4.71b0
-numpy==2.2.6
+numpy==1.26.4
+pandas==2.2.2  # latest that works with numpy<2
+# REMOVE pandas-ta (no compatible version!)
 plotly==5.22.0
 kiteconnect==4.0.0
 pytz==2024.1
