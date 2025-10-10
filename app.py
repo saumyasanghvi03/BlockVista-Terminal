@@ -2,7 +2,7 @@
 
 import streamlit as st
 import pandas as pd
-import pandas_ta as ta
+import talib  # Replace pandas_ta with talib
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from kiteconnect import KiteConnect, exceptions as kite_exceptions
@@ -383,8 +383,14 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
         return go.Figure()
 
     if chart_type == 'Heikin-Ashi':
-        ha_df = ta.ha(chart_df['open'], chart_df['high'], chart_df['low'], chart_df['close'])
-        fig.add_trace(go.Candlestick(x=ha_df.index, open=ha_df['HA_open'], high=ha_df['HA_high'], low=ha_df['HA_low'], close=ha_df['HA_close'], name='Heikin-Ashi'))
+        # Manual Heikin-Ashi calculation
+        ha_close = (chart_df['open'] + chart_df['high'] + chart_df['low'] + chart_df['close']) / 4
+        ha_open = (chart_df['open'].shift(1) + chart_df['close'].shift(1)) / 2
+        ha_open.iloc[0] = (chart_df['open'].iloc[0] + chart_df['close'].iloc[0]) / 2
+        ha_high = chart_df[['high', 'open', 'close']].max(axis=1)
+        ha_low = chart_df[['low', 'open', 'close']].min(axis=1)
+        
+        fig.add_trace(go.Candlestick(x=chart_df.index, open=ha_open, high=ha_high, low=ha_low, close=ha_close, name='Heikin-Ashi'))
     elif chart_type == 'Line':
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['close'], mode='lines', name='Line'))
     elif chart_type == 'Bar':
@@ -392,11 +398,11 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
     else:
         fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Candlestick'))
         
-    bbl_col = next((col for col in chart_df.columns if 'bbl' in col), None)
-    bbu_col = next((col for col in chart_df.columns if 'bbu' in col), None)
-    if bbl_col and bbu_col:
-        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbl_col], line=dict(color='rgba(135,206,250,0.5)', width=1), name='Lower Band'))
-        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df[bbu_col], line=dict(color='rgba(135,206,250,0.5)', width=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
+    # Bollinger Bands using TA-Lib
+    if 'close' in chart_df.columns:
+        upperband, middleband, lowerband = talib.BBANDS(chart_df['close'], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
+        fig.add_trace(go.Scatter(x=chart_df.index, y=lowerband, line=dict(color='rgba(135,206,250,0.5)', width=1), name='Lower Band'))
+        fig.add_trace(go.Scatter(x=chart_df.index, y=upperband, line=dict(color='rgba(135,206,250,0.5)', width=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
         
     if forecast_df is not None:
         fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
@@ -759,28 +765,29 @@ def interpret_indicators(df):
     latest.index = latest.index.str.lower()
     interpretation = {}
     
-    rsi_col = next((col for col in latest.index if 'rsi' in col), None)
-    stoch_k_col = next((col for col in latest.index if 'stok' in col), None)
-    macd_col = next((col for col in latest.index if 'macd' in col and 'macds' not in col and 'macdh' not in col), None)
-    signal_col = next((col for col in latest.index if 'macds' in col), None)
-    adx_col = next((col for col in latest.index if 'adx' in col), None)
-
-    r = latest.get(rsi_col)
-    if r is not None:
-        interpretation['RSI (14)'] = "Overbought (Bearish)" if r > 70 else "Oversold (Bullish)" if r < 30 else "Neutral"
+    # RSI using TA-Lib
+    if 'close' in df.columns:
+        rsi = talib.RSI(df['close'], timeperiod=14)
+        if not np.isnan(rsi.iloc[-1]):
+            rsi_val = rsi.iloc[-1]
+            interpretation['RSI (14)'] = "Overbought (Bearish)" if rsi_val > 70 else "Oversold (Bullish)" if rsi_val < 30 else "Neutral"
     
-    stoch_k = latest.get(stoch_k_col)
-    if stoch_k is not None:
+    # Stochastic using TA-Lib
+    slowk, slowd = talib.STOCH(df['high'], df['low'], df['close'], fastk_period=14, slowk_period=3, slowk_matype=0, slowd_period=3, slowd_matype=0)
+    if not np.isnan(slowk.iloc[-1]):
+        stoch_k = slowk.iloc[-1]
         interpretation['Stochastic (14,3,3)'] = "Overbought (Bearish)" if stoch_k > 80 else "Oversold (Bullish)" if stoch_k < 20 else "Neutral"
     
-    macd = latest.get(macd_col)
-    signal = latest.get(signal_col)
-    if macd is not None and signal is not None:
-        interpretation['MACD (12,26,9)'] = "Bullish Crossover" if macd > signal else "Bearish Crossover"
+    # MACD using TA-Lib
+    macd, macdsignal, macdhist = talib.MACD(df['close'], fastperiod=12, slowperiod=26, signalperiod=9)
+    if not np.isnan(macd.iloc[-1]) and not np.isnan(macdsignal.iloc[-1]):
+        interpretation['MACD (12,26,9)'] = "Bullish Crossover" if macd.iloc[-1] > macdsignal.iloc[-1] else "Bearish Crossover"
     
-    adx = latest.get(adx_col)
-    if adx is not None:
-        interpretation['ADX (14)'] = f"Strong Trend ({adx:.1f})" if adx > 25 else f"Weak/No Trend ({adx:.1f})"
+    # ADX using TA-Lib
+    adx = talib.ADX(df['high'], df['low'], df['close'], timeperiod=14)
+    if not np.isnan(adx.iloc[-1]):
+        adx_val = adx.iloc[-1]
+        interpretation['ADX (14)'] = f"Strong Trend ({adx_val:.1f})" if adx_val > 25 else f"Weak/No Trend ({adx_val:.1f})"
     
     return interpretation
 
@@ -949,10 +956,10 @@ def momentum_trader_bot(instrument_df, symbol, capital=100):
         if data.empty or len(data) < 20:
             return {"error": "Insufficient data for analysis"}
         
-        # Calculate indicators with error handling
-        data['RSI'] = ta.rsi(data['close'], length=14)
-        data['EMA_20'] = ta.ema(data['close'], length=20)
-        data['EMA_50'] = ta.ema(data['close'], length=50)
+        # Calculate indicators with TA-Lib
+        data['RSI'] = talib.RSI(data['close'], timeperiod=14)
+        data['EMA_20'] = talib.EMA(data['close'], timeperiod=20)
+        data['EMA_50'] = talib.EMA(data['close'], timeperiod=50)
         
         latest = data.iloc[-1]
         prev = data.iloc[-2]
@@ -978,7 +985,7 @@ def momentum_trader_bot(instrument_df, symbol, capital=100):
         
         # Calculate position size
         current_price = latest['close']
-        quantity = max(1, int((capital * 0.8) / current_price)) # Use 80% of capital
+        quantity = max(1, int((capital * 0.8) / current_price))
         
         action = "HOLD"
         if len([s for s in signals if "BULLISH" in s]) >= 2:
@@ -1012,23 +1019,25 @@ def mean_reversion_bot(instrument_df, symbol, capital=100):
         if data.empty or len(data) < 50:
             return {"error": "Insufficient data for analysis"}
         
-        # Calculate Bollinger Bands
-        bb = ta.bbands(data['close'], length=20, std=2)
-        data = pd.concat([data, bb], axis=1)
+        # Calculate Bollinger Bands using TA-Lib
+        upperband, middleband, lowerband = talib.BBANDS(data['close'], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
+        data['BB_Upper'] = upperband
+        data['BB_Middle'] = middleband
+        data['BB_Lower'] = lowerband
         
         latest = data.iloc[-1]
         
         signals = []
         current_price = latest['close']
-        bb_lower = latest.get('BBL_20_2.0', current_price)
-        bb_upper = latest.get('BBU_20_2.0', current_price)
-        bb_middle = latest.get('BBM_20_2.0', current_price)
+        bb_lower = latest.get('BB_Lower', current_price)
+        bb_upper = latest.get('BB_Upper', current_price)
+        bb_middle = latest.get('BB_Middle', current_price)
         
         # Mean reversion signals
-        if current_price <= bb_lower * 1.02: # Within 2% of lower band
+        if current_price <= bb_lower * 1.02:
             signals.append("Near lower Bollinger Band - BULLISH")
         
-        if current_price >= bb_upper * 0.98: # Within 2% of upper band
+        if current_price >= bb_upper * 0.98:
             signals.append("Near upper Bollinger Band - BEARISH")
         
         # Distance from mean
@@ -1037,7 +1046,7 @@ def mean_reversion_bot(instrument_df, symbol, capital=100):
             signals.append(f"Price {abs(distance_from_mean):.1f}% from mean")
         
         # RSI for confirmation
-        data['RSI'] = ta.rsi(data['close'], length=14)
+        data['RSI'] = talib.RSI(data['close'], timeperiod=14)
         rsi = data['RSI'].iloc[-1]
         if rsi < 35:
             signals.append("RSI supporting oversold condition")
@@ -1045,7 +1054,7 @@ def mean_reversion_bot(instrument_df, symbol, capital=100):
             signals.append("RSI supporting overbought condition")
         
         # Calculate position size
-        quantity = max(1, int((capital * 0.6) / current_price)) # Use 60% of capital
+        quantity = max(1, int((capital * 0.6) / current_price))
         
         action = "HOLD"
         if any("BULLISH" in s for s in signals) and rsi < 40:
@@ -1079,8 +1088,8 @@ def volatility_breakout_bot(instrument_df, symbol, capital=100):
         if data.empty or len(data) < 30:
             return {"error": "Insufficient data for analysis"}
         
-        # Calculate ATR and volatility
-        data['ATR'] = ta.atr(data['high'], data['low'], data['close'], length=14)
+        # Calculate ATR using TA-Lib
+        data['ATR'] = talib.ATR(data['high'], data['low'], data['close'], timeperiod=14)
         data['Range'] = data['high'] - data['low']
         avg_range = data['Range'].rolling(window=20).mean()
         
@@ -1113,7 +1122,7 @@ def volatility_breakout_bot(instrument_df, symbol, capital=100):
         
         # Calculate position size based on ATR
         atr_percentage = (current_atr / current_price) * 100
-        risk_per_trade = min(20, max(5, atr_percentage * 2)) # Dynamic position sizing
+        risk_per_trade = min(20, max(5, atr_percentage * 2))
         quantity = max(1, int((capital * (risk_per_trade / 100)) / current_price))
         
         action = "HOLD"
@@ -1148,10 +1157,10 @@ def value_investor_bot(instrument_df, symbol, capital=100):
         if data.empty or len(data) < 100:
             return {"error": "Insufficient data for analysis"}
         
-        # Calculate moving averages and trends
-        data['SMA_50'] = ta.sma(data['close'], length=50)
-        data['SMA_200'] = ta.sma(data['close'], length=200)
-        data['EMA_21'] = ta.ema(data['close'], length=21)
+        # Calculate moving averages using TA-Lib
+        data['SMA_50'] = talib.SMA(data['close'], timeperiod=50)
+        data['SMA_200'] = talib.SMA(data['close'], timeperiod=200)
+        data['EMA_21'] = talib.EMA(data['close'], timeperiod=21)
         
         latest = data.iloc[-1]
         current_price = latest['close']
@@ -1185,7 +1194,7 @@ def value_investor_bot(instrument_df, symbol, capital=100):
             signals.append("Overbought on monthly basis - BEARISH")
         
         # Calculate position size for longer term
-        quantity = max(1, int((capital * 0.5) / current_price)) # Conservative 50%
+        quantity = max(1, int((capital * 0.5) / current_price))
         
         action = "HOLD"
         bullish_signals = len([s for s in signals if "BULLISH" in s])
@@ -1222,10 +1231,10 @@ def scalper_bot(instrument_df, symbol, capital=100):
         if data.empty or len(data) < 100:
             return {"error": "Insufficient data for analysis"}
         
-        # Calculate scalping indicators
-        data['RSI_9'] = ta.rsi(data['close'], length=9)
-        data['EMA_8'] = ta.ema(data['close'], length=8)
-        data['EMA_21'] = ta.ema(data['close'], length=21)
+        # Calculate scalping indicators using TA-Lib
+        data['RSI_9'] = talib.RSI(data['close'], timeperiod=9)
+        data['EMA_8'] = talib.EMA(data['close'], timeperiod=8)
+        data['EMA_21'] = talib.EMA(data['close'], timeperiod=21)
         
         latest = data.iloc[-1]
         current_price = latest['close']
@@ -1250,7 +1259,7 @@ def scalper_bot(instrument_df, symbol, capital=100):
             signals.append(f"Strong short-term momentum: {price_change_3min:+.2f}%")
         
         # Calculate small position size for scalping
-        quantity = max(1, int((capital * 0.3) / current_price)) # Small position for quick exits
+        quantity = max(1, int((capital * 0.3) / current_price))
         
         action = "HOLD"
         if (any("BULLISH" in s for s in signals) and 
@@ -1276,13 +1285,95 @@ def scalper_bot(instrument_df, symbol, capital=100):
     except Exception as e:
         return {"error": f"Analysis failed: {str(e)}"}
 
+def trend_follower_bot(instrument_df, symbol, capital=100):
+    """Trend following bot that rides established trends."""
+    exchange = 'NSE'
+    token = get_instrument_token(symbol, instrument_df, exchange)
+    if not token:
+        return {"error": f"Could not find instrument for {symbol}"}
+    
+    try:
+        data = get_historical_data(token, 'hour', period='1mo')
+        if data.empty or len(data) < 100:
+            return {"error": "Insufficient data for analysis"}
+        
+        # Calculate trend indicators using TA-Lib
+        data['ADX'] = talib.ADX(data['high'], data['low'], data['close'], timeperiod=14)
+        data['EMA_20'] = talib.EMA(data['close'], timeperiod=20)
+        data['EMA_50'] = talib.EMA(data['close'], timeperiod=50)
+        
+        # Simple trend detection without SuperTrend
+        data['Trend'] = np.where(data['EMA_20'] > data['EMA_50'], 1, -1)
+        
+        latest = data.iloc[-1]
+        current_price = latest['close']
+        
+        signals = []
+        
+        # Trend strength
+        adx = latest.get('ADX', 0)
+        if adx > 25:
+            signals.append(f"Strong trend (ADX: {adx:.1f})")
+        else:
+            signals.append(f"Weak trend (ADX: {adx:.1f})")
+        
+        # Trend direction
+        if latest['EMA_20'] > latest['EMA_50']:
+            signals.append("Uptrend confirmed - BULLISH")
+        else:
+            signals.append("Downtrend confirmed - BEARISH")
+        
+        # Price relative to trend
+        if current_price > latest['EMA_20']:
+            signals.append("Price above short-term trend - BULLISH")
+        else:
+            signals.append("Price below short-term trend - BEARISH")
+        
+        # Pullback opportunities
+        if (latest['EMA_20'] > latest['EMA_50'] and 
+            current_price < latest['EMA_20'] and 
+            current_price > latest['EMA_50']):
+            signals.append("Pullback in uptrend - BULLISH")
+        
+        elif (latest['EMA_20'] < latest['EMA_50'] and 
+              current_price > latest['EMA_20'] and 
+              current_price < latest['EMA_50']):
+            signals.append("Pullback in downtrend - BEARISH")
+        
+        # Calculate position size
+        quantity = max(1, int((capital * 0.7) / current_price))
+        
+        action = "HOLD"
+        bullish_count = len([s for s in signals if "BULLISH" in s])
+        bearish_count = len([s for s in signals if "BEARISH" in s])
+        
+        if bullish_count >= 2 and adx > 20:
+            action = "BUY"
+        elif bearish_count >= 2 and adx > 20:
+            action = "SELL"
+        
+        return {
+            "bot_name": "Trend Follower",
+            "symbol": symbol,
+            "action": action,
+            "quantity": quantity,
+            "current_price": current_price,
+            "signals": signals,
+            "capital_required": quantity * current_price,
+            "risk_level": "Medium"
+        }
+    
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
+
 # Dictionary of all available bots
 ALGO_BOTS = {
     "Momentum Trader": momentum_trader_bot,
     "Mean Reversion": mean_reversion_bot,
     "Volatility Breakout": volatility_breakout_bot,
     "Value Investor": value_investor_bot,
-    "Scalper Pro": scalper_bot
+    "Scalper Pro": scalper_bot,
+    "Trend Follower": trend_follower_bot
 }
 
 def execute_bot_trade(instrument_df, bot_result):
@@ -1306,7 +1397,7 @@ def execute_bot_trade(instrument_df, bot_result):
     - **Action:** {action} {quantity} shares of {symbol}
     - **Current Price:** ₹{current_price:.2f}
     - **Required Capital:** ₹{required_capital:.2f}
-    - **Risk Level:** {bot_result['risk_level']}
+    - **Risk Level:** {bot_result["risk_level"]}
     """)
     
     # Display signals first
@@ -1363,9 +1454,11 @@ def page_algo_bots():
             "Mean Reversion": "Buys low and sells high based on statistical mean reversion. Low risk.",
             "Volatility Breakout": "Captures breakouts from low volatility periods. High risk.",
             "Value Investor": "Focuses on longer-term value and fundamental trends. Low risk.",
-            "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk."
+            "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk.",
+            "Trend Follower": "Rides established trends with multiple confirmation signals. Medium risk."
         }
-            st.markdown(f"**Description:** {bot_descriptions[selected_bot]}")
+        
+        st.markdown(f"**Description:** {bot_descriptions[selected_bot]}")
     
     with col2:
         trading_capital = st.number_input(
@@ -2368,38 +2461,53 @@ def run_backtest(strategy_func, data, **params):
     return pnl, pd.Series(portfolio_value, index=df.index)
 
 def rsi_strategy(df, rsi_period=14, rsi_overbought=70, rsi_oversold=30):
-    """Simple RSI Crossover Strategy"""
-    rsi = ta.rsi(df['close'], length=rsi_period)
+    """Simple RSI Crossover Strategy using TA-Lib"""
+    rsi = talib.RSI(df['close'], timeperiod=rsi_period)
     signals = [''] * len(df)
     for i in range(1, len(df)):
-        if rsi[i-1] < rsi_oversold and rsi[i] > rsi_oversold:
+        if rsi.iloc[i-1] < rsi_oversold and rsi.iloc[i] > rsi_oversold:
             signals[i] = 'BUY'
-        elif rsi[i-1] > rsi_overbought and rsi[i] < rsi_overbought:
+        elif rsi.iloc[i-1] > rsi_overbought and rsi.iloc[i] < rsi_overbought:
             signals[i] = 'SELL'
     return signals
 
 def macd_strategy(df, fast=12, slow=26, signal=9):
-    """MACD Crossover Strategy"""
-    macd = ta.macd(df['close'], fast=fast, slow=slow, signal=signal)
+    """MACD Crossover Strategy using TA-Lib"""
+    macd, macdsignal, macdhist = talib.MACD(df['close'], fastperiod=fast, slowperiod=slow, signalperiod=signal)
     signals = [''] * len(df)
     for i in range(1, len(df)):
-        if macd[f'MACD_{fast}_{slow}_{signal}'][i-1] < macd[f'MACDs_{fast}_{slow}_{signal}'][i-1] and macd[f'MACD_{fast}_{slow}_{signal}'][i] > macd[f'MACDs_{fast}_{slow}_{signal}'][i]:
+        if macd.iloc[i-1] < macdsignal.iloc[i-1] and macd.iloc[i] > macdsignal.iloc[i]:
             signals[i] = 'BUY'
-        elif macd[f'MACD_{fast}_{slow}_{signal}'][i-1] > macd[f'MACDs_{fast}_{slow}_{signal}'][i-1] and macd[f'MACD_{fast}_{slow}_{signal}'][i] < macd[f'MACDs_{fast}_{slow}_{signal}'][i]:
+        elif macd.iloc[i-1] > macdsignal.iloc[i-1] and macd.iloc[i] < macdsignal.iloc[i]:
             signals[i] = 'SELL'
     return signals
 
 def supertrend_strategy(df, period=7, multiplier=3):
-    """Supertrend Strategy"""
-    supertrend = ta.supertrend(df['high'], df['low'], df['close'], length=period, multiplier=multiplier)
+    """Supertrend Strategy - simplified version without pandas-ta"""
+    # Calculate ATR using TA-Lib
+    atr = talib.ATR(df['high'], df['low'], df['close'], timeperiod=period)
+    
+    # Basic upper and lower bands
+    hl2 = (df['high'] + df['low']) / 2
+    upper_band = hl2 + (multiplier * atr)
+    lower_band = hl2 - (multiplier * atr)
+    
     signals = [''] * len(df)
-    st_col = next((col for col in supertrend.columns if 'SUPERT' in col), None)
-    if not st_col: return signals 
+    trend = [1] * len(df)  # 1 for uptrend, -1 for downtrend
+    
     for i in range(1, len(df)):
-        if df['close'][i] > supertrend[st_col][i-1] and df['close'][i-1] <= supertrend[st_col][i-1]:
+        if df['close'].iloc[i] > upper_band.iloc[i-1]:
+            trend[i] = 1
+        elif df['close'].iloc[i] < lower_band.iloc[i-1]:
+            trend[i] = -1
+        else:
+            trend[i] = trend[i-1]
+        
+        if trend[i] == 1 and trend[i-1] == -1:
             signals[i] = 'BUY'
-        elif df['close'][i] < supertrend[st_col][i-1] and df['close'][i-1] >= supertrend[st_col][i-1]:
+        elif trend[i] == -1 and trend[i-1] == 1:
             signals[i] = 'SELL'
+    
     return signals
 
 def page_algo_strategy_maker():
@@ -2489,973 +2597,6 @@ def page_algo_strategy_maker():
             if signal in ["BUY", "SELL"]:
                 if st.button(f"Place {signal} Order for {results['quantity']} of {results['symbol']}", use_container_width=True):
                     place_order(instrument_df, results['symbol'], results['quantity'], "MARKET", signal, "MIS")
-
-@st.cache_data(ttl=3600)
-def run_scanner(instrument_df, scanner_type, holdings_df=None):
-    """A single function to run different types of market scanners on user holdings or a predefined list."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: return pd.DataFrame()
-
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()
-        st.info("Scanning stocks from your live holdings.")
-    else:
-        scan_list = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 'MARUTI', 'ASIANPAINT']
-        st.info("Scanning a predefined list of NIFTY 50 stocks as no holdings were found.")
-
-    results = []
-    
-    token_map = {
-        row['tradingsymbol']: row['instrument_token']
-        for _, row in instrument_df[instrument_df['tradingsymbol'].isin(scan_list)].iterrows()
-    }
-    
-    for symbol in scan_list:
-        token = token_map.get(symbol)
-        if not token: continue
-        
-        try:
-            df = get_historical_data(token, 'day', period='1y')
-            if df.empty or len(df) < 252: continue
-            
-            df.columns = [c.lower() for c in df.columns]
-
-            if scanner_type == "Momentum":
-                rsi_col = next((c for c in df.columns if 'rsi_14' in c), None)
-                if rsi_col:
-                    rsi = df.iloc[-1].get(rsi_col)
-                    if rsi and (rsi > 70 or rsi < 30):
-                        results.append({'Stock': symbol, 'RSI': f"{rsi:.2f}", 'Signal': "Overbought" if rsi > 70 else "Oversold"})
-            
-            elif scanner_type == "Trend":
-                adx_col = next((c for c in df.columns if 'adx_14' in c), None)
-                ema50_col = next((c for c in df.columns if 'ema_50' in c), None)
-                ema200_col = next((c for c in df.columns if 'ema_200' in c), None)
-                
-                if adx_col and ema50_col and ema200_col:
-                    adx = df.iloc[-1].get(adx_col)
-                    ema50 = df.iloc[-1].get(ema50_col)
-                    ema200 = df.iloc[-1].get(ema200_col)
-                    if adx and adx > 25 and ema50 and ema200:
-                        trend = "Uptrend" if ema50 > ema200 else "Downtrend"
-                        results.append({'Stock': symbol, 'ADX': f"{adx:.2f}", 'Trend': trend})
-
-            elif scanner_type == "Breakout":
-                high_52wk = df['high'].rolling(window=252).max().iloc[-1]
-                low_52wk = df['low'].rolling(window=252).min().iloc[-1]
-                last_close = df['close'].iloc[-1]
-                avg_vol_20d = df['volume'].rolling(window=20).mean().iloc[-1]
-                last_vol = df['volume'].iloc[-1]
-
-                if last_close >= high_52wk * 0.98:
-                    signal = "Near 52-Week High"
-                    if last_vol > avg_vol_20d * 1.5:
-                        signal += " (Volume Surge)"
-                    results.append({'Stock': symbol, 'Signal': signal, 'Last Close': last_close, '52Wk High': high_52wk})
-
-        except Exception:
-            continue
-            
-    return pd.DataFrame(results)
-
-def run_momentum_scanner(instrument_df, holdings_df=None):
-    """Momentum scanner with RSI and MACD analysis."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: 
-        return pd.DataFrame()
-
-    # Get symbols to scan
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20] # Limit to 20 stocks
-    else:
-        scan_list = [
-            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
-            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 
-            'MARUTI', 'ASIANPAINT', 'HCLTECH', 'TATAMOTORS', 'SUNPHARMA'
-        ]
-    
-    results = []
-    
-    for symbol in scan_list:
-        try:
-            # Get live quote
-            exchange = 'NSE'
-            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-            if quote_data.empty:
-                continue
-                
-            current_price = quote_data.iloc[0]['Price']
-            change_pct = quote_data.iloc[0]['% Change']
-            
-            # Get historical data
-            token = get_instrument_token(symbol, instrument_df, exchange)
-            if not token:
-                continue
-                
-            hist_data = get_historical_data(token, 'day', period='3mo')
-            if hist_data.empty or len(hist_data) < 30:
-                continue
-            
-            # Calculate RSI
-            try:
-                hist_data['RSI_14'] = ta.rsi(hist_data['close'], length=14)
-                latest = hist_data.iloc[-1]
-                rsi = latest.get('RSI_14', 50)
-                
-                # Momentum signals
-                if rsi > 70 and change_pct > 0:
-                    results.append({
-                        'Symbol': symbol,
-                        'LTP': f"₹{current_price:.2f}",
-                        'Change %': f"{change_pct:.2f}%",
-                        'RSI': f"{rsi:.1f}",
-                        'Signal': "Overbought",
-                        'Strength': "High"
-                    })
-                elif rsi < 30 and change_pct < 0:
-                    results.append({
-                        'Symbol': symbol,
-                        'LTP': f"₹{current_price:.2f}",
-                        'Change %': f"{change_pct:.2f}%",
-                        'RSI': f"{rsi:.1f}",
-                        'Signal': "Oversold", 
-                        'Strength': "High"
-                    })
-                    
-            except Exception:
-                continue
-                
-        except Exception:
-            continue
-            
-    return pd.DataFrame(results)
-
-def run_trend_scanner(instrument_df, holdings_df=None):
-    """Trend scanner with EMA analysis."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: 
-        return pd.DataFrame()
-
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]
-    else:
-        scan_list = [
-            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
-            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK'
-        ]
-    
-    results = []
-    
-    for symbol in scan_list:
-        try:
-            # Get live data
-            exchange = 'NSE'
-            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-            if quote_data.empty:
-                continue
-                
-            current_price = quote_data.iloc[0]['Price']
-            change_pct = quote_data.iloc[0]['% Change']
-            
-            # Get historical data
-            token = get_instrument_token(symbol, instrument_df, exchange)
-            if not token:
-                continue
-                
-            hist_data = get_historical_data(token, 'day', period='3mo')
-            if hist_data.empty or len(hist_data) < 50:
-                continue
-            
-            # Calculate EMAs
-            try:
-                hist_data['EMA_20'] = ta.ema(hist_data['close'], length=20)
-                hist_data['EMA_50'] = ta.ema(hist_data['close'], length=50)
-                
-                latest = hist_data.iloc[-1]
-                ema_20 = latest.get('EMA_20', current_price)
-                ema_50 = latest.get('EMA_50', current_price)
-                
-                # Trend signals
-                if current_price > ema_20 > ema_50 and change_pct > 0:
-                    results.append({
-                        'Symbol': symbol,
-                        'LTP': f"₹{current_price:.2f}",
-                        'Change %': f"{change_pct:.2f}%",
-                        'Trend': "Uptrend",
-                        '20 EMA': f"₹{ema_20:.1f}",
-                        '50 EMA': f"₹{ema_50:.1f}"
-                    })
-                elif current_price < ema_20 < ema_50 and change_pct < 0:
-                    results.append({
-                        'Symbol': symbol,
-                        'LTP': f"₹{current_price:.2f}",
-                        'Change %': f"{change_pct:.2f}%",
-                        'Trend': "Downtrend",
-                        '20 EMA': f"₹{ema_20:.1f}",
-                        '50 EMA': f"₹{ema_50:.1f}"
-                    })
-                    
-            except Exception:
-                continue
-                
-        except Exception:
-            continue
-            
-    return pd.DataFrame(results)
-
-def run_breakout_scanner(instrument_df, holdings_df=None):
-    """Breakout scanner for key level breaks."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: 
-        return pd.DataFrame()
-
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]
-    else:
-        scan_list = [
-            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
-            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK'
-        ]
-    
-    results = []
-    
-    for symbol in scan_list:
-        try:
-            # Get live data
-            exchange = 'NSE'
-            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-            if quote_data.empty:
-                continue
-                
-            current_price = quote_data.iloc[0]['Price']
-            change_pct = quote_data.iloc[0]['% Change']
-            
-            # Get historical data
-            token = get_instrument_token(symbol, instrument_df, exchange)
-            if not token:
-                continue
-                
-            hist_data = get_historical_data(token, 'day', period='6mo')
-            if hist_data.empty or len(hist_data) < 100:
-                continue
-            
-            # Calculate breakout levels
-            high_20d = hist_data['high'].tail(20).max()
-            low_20d = hist_data['low'].tail(20).min()
-            
-            # Breakout signals
-            if current_price >= high_20d and change_pct > 0:
-                results.append({
-                    'Symbol': symbol,
-                    'LTP': f"₹{current_price:.2f}",
-                    'Change %': f"{change_pct:.2f}%",
-                    'Breakout': "20-Day High",
-                    'Resistance': f"₹{high_20d:.1f}"
-                })
-            elif current_price <= low_20d and change_pct < 0:
-                results.append({
-                    'Symbol': symbol,
-                    'LTP': f"₹{current_price:.2f}",
-                    'Change %': f"{change_pct:.2f}%",
-                    'Breakout': "20-Day Low", 
-                    'Support': f"₹{low_20d:.1f}"
-                })
-                
-        except Exception:
-            continue
-            
-    return pd.DataFrame(results)
-
-def page_momentum_and_trend_finder():
-    """Clean and functional Market Scanners page."""
-    display_header()
-    st.title("Market Scanners")
-    
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to use market scanners.")
-        return
-        
-    _, holdings_df, _, _ = get_portfolio()
-    
-    # Simple scanner selection
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        scanner_type = st.radio(
-            "Select Scanner Type",
-            ["Momentum (RSI)", "Trend (EMA)", "Breakout"],
-            horizontal=True
-        )
-    
-    with col2:
-        if st.button("🔄 Scan Now", use_container_width=True, type="primary"):
-            st.rerun()
-    
-    st.markdown("---")
-    
-    # Run selected scanner
-    with st.spinner(f"Running {scanner_type} scanner..."):
-        if scanner_type == "Momentum (RSI)":
-            data = run_momentum_scanner(instrument_df, holdings_df)
-            title = "Momentum Stocks (RSI Based)"
-            description = "Stocks with RSI above 70 (overbought) or below 30 (oversold)"
-            
-        elif scanner_type == "Trend (EMA)":
-            data = run_trend_scanner(instrument_df, holdings_df) 
-            title = "Trending Stocks (EMA Based)"
-            description = "Stocks in strong uptrend/downtrend based on EMA alignment"
-            
-        else: # Breakout
-            data = run_breakout_scanner(instrument_df, holdings_df)
-            title = "Breakout Stocks"
-            description = "Stocks breaking 20-day high/low resistance/support levels"
-    
-    # Display results
-    st.subheader(title)
-    st.caption(description)
-    
-    if not data.empty:
-        # Color coding based on scanner type
-        if scanner_type == "Momentum (RSI)":
-            def color_momentum(val):
-                if 'Overbought' in str(val):
-                    return 'color: #ff4444; font-weight: bold;'
-                elif 'Oversold' in str(val):
-                    return 'color: #00aa00; font-weight: bold;'
-                return ''
-            styled_data = data.style.map(color_momentum, subset=['Signal'])
-            
-        elif scanner_type == "Trend (EMA)":
-            def color_trend(val):
-                if 'Uptrend' in str(val):
-                    return 'color: #00aa00; font-weight: bold;'
-                elif 'Downtrend' in str(val):
-                    return 'color: #ff4444; font-weight: bold;'
-                return ''
-            styled_data = data.style.map(color_trend, subset=['Trend'])
-            
-        else: # Breakout
-            def color_breakout(val):
-                if 'High' in str(val):
-                    return 'color: #00aa00; font-weight: bold;'
-                elif 'Low' in str(val):
-                    return 'color: #ff4444; font-weight: bold;'
-                return ''
-            styled_data = data.style.map(color_breakout, subset=['Breakout'])
-        
-        st.dataframe(styled_data, use_container_width=True, hide_index=True)
-        
-        # Simple statistics
-        if scanner_type == "Momentum (RSI)":
-            bullish = len(data[data['Signal'] == 'Overbought'])
-            bearish = len(data[data['Signal'] == 'Oversold'])
-            st.metric("Signals Found", len(data), delta=f"{bullish} Bullish, {bearish} Bearish")
-            
-        elif scanner_type == "Trend (EMA)":
-            uptrend = len(data[data['Trend'] == 'Uptrend'])
-            downtrend = len(data[data['Trend'] == 'Downtrend'])
-            st.metric("Signals Found", len(data), delta=f"{uptrend} Up, {downtrend} Down")
-            
-        else: # Breakout
-            breakouts = len(data[data['Breakout'].str.contains('High')])
-            breakdowns = len(data[data['Breakout'].str.contains('Low')])
-            st.metric("Signals Found", len(data), delta=f"{breakouts} Breakouts, {breakdowns} Breakdowns")
-        
-        # Quick actions
-        st.markdown("---")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("📋 Export to CSV", use_container_width=True):
-                csv = data.to_csv(index=False)
-                st.download_button(
-                    label="Download CSV",
-                    data=csv,
-                    file_name=f"{scanner_type.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-        
-        with col2:
-            if st.button("👀 Add to Watchlist", use_container_width=True):
-                added = 0
-                for symbol in data['Symbol'].head(5): # Add top 5
-                    if symbol not in [item['symbol'] for item in st.session_state.watchlists[st.session_state.active_watchlist]]:
-                        st.session_state.watchlists[st.session_state.active_watchlist].append({
-                            'symbol': symbol, 
-                            'exchange': 'NSE'
-                        })
-                        added += 1
-                if added > 0:
-                    st.success(f"Added {added} stocks to watchlist")
-                else:
-                    st.info("No new stocks to add")
-                    
-    else:
-        # Clear, helpful empty state
-        st.info(f"""
-        **No {scanner_type.lower()} signals found.**
-        
-        This could mean:
-        - Markets are in consolidation
-        - No extreme conditions detected
-        - Try a different scanner type
-        - Check if market is open
-        """)
-
-def calculate_strategy_pnl(legs, underlying_ltp):
-    """Calculates the P&L for a given options strategy."""
-    if not legs:
-        return pd.DataFrame(), 0, 0, []
-
-    price_range = np.linspace(underlying_ltp * 0.8, underlying_ltp * 1.2, 100)
-    pnl_df = pd.DataFrame(index=price_range)
-    pnl_df.index.name = "Underlying Price at Expiry"
-    
-    total_premium = 0
-    for i, leg in enumerate(legs):
-        pnl = 0
-        if leg['type'] == 'Call':
-            if leg['position'] == 'Buy':
-                pnl = np.maximum(0, price_range - leg['strike']) - leg['premium']
-                total_premium -= leg['premium'] * leg['quantity']
-            else:
-                pnl = leg['premium'] - np.maximum(0, price_range - leg['strike'])
-                total_premium += leg['premium'] * leg['quantity']
-        else:
-            if leg['position'] == 'Buy':
-                pnl = np.maximum(0, leg['strike'] - price_range) - leg['premium']
-                total_premium -= leg['premium'] * leg['quantity']
-            else:
-                pnl = leg['premium'] - np.maximum(0, leg['strike'] - price_range)
-                total_premium += leg['premium'] * leg['quantity']
-        
-        pnl_df[f'Leg_{i+1}'] = pnl * leg['quantity']
-    
-    pnl_df['Total P&L'] = pnl_df.sum(axis=1)
-    
-    max_profit = pnl_df['Total P&L'].max()
-    max_loss = pnl_df['Total P&L'].min()
-    
-    breakevens = []
-    sign_changes = np.where(np.diff(np.sign(pnl_df['Total P&L'])))[0]
-    for idx in sign_changes:
-        breakevens.append(pnl_df.index[idx])
-
-    return pnl_df, max_profit, max_loss, breakevens
-
-def page_option_strategy_builder():
-    """Option Strategy Builder page with live data and P&L calculation."""
-    display_header()
-    st.title("Options Strategy Builder")
-    
-    instrument_df = get_instrument_df()
-    client = get_broker_client()
-    if instrument_df.empty or not client:
-        st.info("Please connect to a broker to build strategies.")
-        return
-    
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("Strategy Configuration")
-        underlying = st.selectbox("Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY"])
-        
-        _, _, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
-
-        if not available_expiries:
-            st.error(f"No options available for {underlying}.")
-            st.stop()
-            
-        expiry_date = st.selectbox("Expiry", [e.strftime("%d %b %Y") for e in available_expiries])
-        
-        with st.form("add_leg_form"):
-            st.write("**Add a New Leg**")
-            leg_cols = st.columns(4)
-            position = leg_cols[0].selectbox("Position", ["Buy", "Sell"])
-            option_type = leg_cols[1].selectbox("Type", ["Call", "Put"])
-            
-            expiry_dt = datetime.strptime(expiry_date, "%d %b %Y").date()
-            options = instrument_df[
-                (instrument_df['name'] == underlying) & 
-                (instrument_df['expiry'].dt.date == expiry_dt) & 
-                (instrument_df['instrument_type'] == option_type[0])
-            ]
-            
-            if not options.empty:
-                strikes = sorted(options['strike'].unique())
-                strike = leg_cols[2].selectbox("Strike", strikes, index=len(strikes)//2)
-                quantity = leg_cols[3].number_input("Lots", min_value=1, value=1)
-                
-                submitted = st.form_submit_button("Add Leg")
-                if submitted:
-                    lot_size = options.iloc[0]['lot_size']
-                    tradingsymbol = options[options['strike'] == strike].iloc[0]['tradingsymbol']
-                    
-                    try:
-                        quote = client.quote(f"NFO:{tradingsymbol}")[f"NFO:{tradingsymbol}"]
-                        premium = quote['last_price']
-                        
-                        st.session_state.strategy_legs.append({
-                            'symbol': tradingsymbol,
-                            'position': position,
-                            'type': option_type,
-                            'strike': strike,
-                            'quantity': quantity * lot_size,
-                            'premium': premium
-                        })
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Could not fetch premium: {e}")
-            else:
-                st.warning("No strikes found for selected expiry/type.")
-
-        st.subheader("Current Legs")
-        if st.session_state.strategy_legs:
-            for i, leg in enumerate(st.session_state.strategy_legs):
-                st.text(f"{i+1}: {leg['position']} {leg['quantity']} {leg['symbol']} @ ₹{leg['premium']:.2f}")
-            if st.button("Clear All Legs"):
-                st.session_state.strategy_legs = []
-                st.rerun()
-        else:
-            st.info("Add legs to your strategy.")
-            
-    with col2:
-        st.subheader("Strategy Payoff Analysis")
-        
-        if st.session_state.strategy_legs:
-            pnl_df, max_profit, max_loss, breakevens = calculate_strategy_pnl(st.session_state.strategy_legs, underlying_ltp)
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=pnl_df.index, y=pnl_df['Total P&L'], mode='lines', name='P&L'))
-            fig.add_hline(y=0, line_dash="dash", line_color="gray")
-            fig.add_vline(x=underlying_ltp, line_dash="dot", line_color="yellow", annotation_text="Current LTP")
-            fig.update_layout(
-                title="Strategy P&L Payoff Chart",
-                xaxis_title="Underlying Price at Expiry",
-                yaxis_title="Profit / Loss (₹)",
-                template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            st.subheader("Risk & Reward Profile")
-            metrics_col1, metrics_col2 = st.columns(2)
-            metrics_col1.metric("Max Profit", f"₹{max_profit:,.2f}")
-            metrics_col1.metric("Max Loss", f"₹{max_loss:,.2f}")
-            metrics_col2.metric("Breakeven(s)", ", ".join([f"₹{b:,.2f}" for b in breakevens]) if breakevens else "N/A")
-        else:
-            st.info("Add legs to see the payoff analysis.")
-
-def get_futures_contracts(instrument_df, underlying, exchange):
-    """Fetches and sorts futures contracts for a given underlying and exchange."""
-    if instrument_df.empty or not underlying: return pd.DataFrame()
-    futures_df = instrument_df[
-        (instrument_df['name'] == underlying) &
-        (instrument_df['instrument_type'] == 'FUT') &
-        (instrument_df['exchange'] == exchange)
-    ].copy()
-    if not futures_df.empty:
-        futures_df['expiry'] = pd.to_datetime(futures_df['expiry'])
-        return futures_df.sort_values('expiry')
-    return pd.DataFrame()
-
-def page_futures_terminal():
-    """Futures Terminal page with live data."""
-    display_header()
-    st.title("Futures Terminal")
-    
-    instrument_df = get_instrument_df()
-    client = get_broker_client()
-    if instrument_df.empty or not client:
-        st.info("Please connect to a broker to access futures data.")
-        return
-    
-    exchange_options = sorted(instrument_df[instrument_df['instrument_type'] == 'FUT']['exchange'].unique())
-    if not exchange_options:
-        st.warning("No futures contracts found in the instrument list.")
-        return
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        selected_exchange = st.selectbox("Select Exchange", exchange_options, index=exchange_options.index('NFO') if 'NFO' in exchange_options else 0)
-    
-    underlyings = sorted(instrument_df[(instrument_df['instrument_type'] == 'FUT') & (instrument_df['exchange'] == selected_exchange)]['name'].unique())
-    if not underlyings:
-        st.warning(f"No futures underlyings found for the {selected_exchange} exchange.")
-        return
-        
-    with col2:
-        selected_underlying = st.selectbox("Select Underlying", underlyings)
-
-    tab1, tab2 = st.tabs(["Live Futures Contracts", "Futures Calendar"])
-    
-    with tab1:
-        st.subheader(f"Live Contracts for {selected_underlying}")
-        futures_contracts = get_futures_contracts(instrument_df, selected_underlying, selected_exchange)
-        
-        if not futures_contracts.empty:
-            symbols = [f"{row['exchange']}:{row['tradingsymbol']}" for _, row in futures_contracts.iterrows()]
-            try:
-                quotes = client.quote(symbols)
-                live_data = []
-                for symbol_key, data in quotes.items():
-                    if data:
-                        prev_close = data.get('ohlc', {}).get('close', 0)
-                        last_price = data.get('last_price', 0)
-                        change = last_price - prev_close
-                        pct_change = (change / prev_close * 100) if prev_close != 0 else 0
-                        
-                        live_data.append({
-                            'Contract': data.get('tradingsymbol', symbol_key.split(':')[-1]),
-                            'LTP': last_price,
-                            'Change': change,
-                            '% Change': pct_change,
-                            'Volume': data.get('volume', 0),
-                            'OI': data.get('oi', 0)
-                        })
-                live_df = pd.DataFrame(live_data)
-                st.dataframe(live_df, use_container_width=True, hide_index=True)
-
-            except Exception as e:
-                st.error(f"Could not fetch live futures data: {e}")
-        else:
-            st.info(f"No active futures contracts found for {selected_underlying}.")
-    
-    with tab2:
-        st.subheader("Futures Expiry Calendar")
-        futures_contracts = get_futures_contracts(instrument_df, selected_underlying, selected_exchange)
-        if not futures_contracts.empty:
-            calendar_df = futures_contracts[['tradingsymbol', 'expiry']].copy()
-            calendar_df['expiry'] = pd.to_datetime(calendar_df['expiry'])
-            calendar_df['Days to Expiry'] = (calendar_df['expiry'] - pd.to_datetime('today')).dt.days
-            st.dataframe(calendar_df.rename(columns={'tradingsymbol': 'Contract', 'expiry': 'Expiry Date'}), use_container_width=True, hide_index=True)
-
-def generate_ai_trade_idea(instrument_df, active_list):
-    """Dynamically generates a trade idea based on watchlist signals."""
-    if not active_list or instrument_df.empty:
-        return None
-
-    discovery_results = {}
-    for item in active_list:
-        token = get_instrument_token(item['symbol'], instrument_df, exchange=item['exchange'])
-        if token:
-            data = get_historical_data(token, 'day', period='6mo')
-            if not data.empty:
-                interpretation = interpret_indicators(data)
-                signals = [v for k, v in interpretation.items() if "Bullish" in v or "Bearish" in v]
-                if signals:
-                    discovery_results[item['symbol']] = {'signals': signals, 'data': data}
-    
-    if not discovery_results:
-        return None
-
-    best_ticker = max(discovery_results, key=lambda k: len(discovery_results[k]['signals']))
-    
-    ticker_data = discovery_results[best_ticker]['data']
-    ltp = ticker_data['close'].iloc[-1]
-    atr_col = next((c for c in ticker_data.columns if 'atr' in c), None) 
-    if not atr_col or pd.isna(ticker_data[atr_col].iloc[-1]): return None 
-    atr = ticker_data[atr_col].iloc[-1]
-    
-    is_bullish = any("Bullish" in s for s in discovery_results[best_ticker]['signals'])
-
-    narrative = f"**{best_ticker}** is showing a confluence of {'bullish' if is_bullish else 'bearish'} signals. Analysis indicates: {', '.join(discovery_results[best_ticker]['signals'])}. "
-
-    if is_bullish:
-        narrative += f"A move above recent resistance could trigger further upside."
-        entry = ltp
-        target = ltp + (2 * atr)
-        stop_loss = ltp - (1.5 * atr)
-        title = f"High-Conviction Long Setup: {best_ticker}"
-    else:
-        narrative += f"A break below recent support could lead to further downside."
-        entry = ltp
-        target = ltp - (2 * atr)
-        stop_loss = ltp + (1.5 * atr)
-        title = f"High-Conviction Short Setup: {best_ticker}"
-
-    return {
-        "title": title,
-        "entry": entry,
-        "target": target,
-        "stop_loss": stop_loss,
-        "narrative": narrative
-    }
-
-def page_ai_discovery():
-    """AI-driven discovery engine with real data analysis."""
-    display_header()
-    st.title("AI Discovery Engine")
-    st.info("This engine discovers technical patterns and suggests high-conviction trade setups based on your active watchlist. The suggestions are for informational purposes only.", icon="🧠")
-    
-    active_list = st.session_state.get('watchlists', {}).get(st.session_state.get('active_watchlist', 'Watchlist 1'), [])
-    instrument_df = get_instrument_df()
-
-    if not active_list or instrument_df.empty:
-        st.warning("Please set up your watchlist on the Dashboard page to enable AI Discovery.")
-        return
-
-    st.markdown("---")
-    
-    st.subheader("Automated Pattern Discovery")
-    with st.spinner("Analyzing your watchlist for technical signals..."):
-        discovery_results = {}
-        for item in active_list:
-            token = get_instrument_token(item['symbol'], instrument_df, exchange=item['exchange'])
-            if token:
-                data = get_historical_data(token, 'day', period='6mo')
-                if not data.empty:
-                    interpretation = interpret_indicators(data)
-                    signals = [f"{k}: {v}" for k, v in interpretation.items() if "Bullish" in v or "Bearish" in v]
-                    if signals:
-                        discovery_results[item['symbol']] = signals
-    
-    if discovery_results:
-        for ticker, signals in discovery_results.items():
-            st.markdown(f"**Potential Signals for {ticker}:** " + ", ".join(signals))
-    else:
-        st.info("No significant technical patterns found in your watchlist.")
-        
-    st.markdown("---")
-    
-    st.subheader("AI-Powered Trade Idea")
-    with st.spinner("Generating a high-conviction trade idea..."):
-        trade_idea = generate_ai_trade_idea(instrument_df, active_list)
-
-    if trade_idea:
-        trade_idea_col = st.columns(3)
-        trade_idea_col[0].metric("Entry Price", f"≈ ₹{trade_idea['entry']:.2f}")
-        trade_idea_col[1].metric("Target Price", f"₹{trade_idea['target']:.2f}")
-        trade_idea_col[2].metric("Stop Loss", f"₹{trade_idea['stop_loss']:.2f}")
-        
-        st.markdown(f"""
-        <div class="trade-card" style="border-left-color: {'#28a745' if 'Long' in trade_idea['title'] else '#FF4B4B'};">
-            <h4>{trade_idea['title']}</h4>
-            <p><strong>Narrative:</strong> {trade_idea['narrative']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.info("Could not generate a high-conviction trade idea from the current watchlist signals.")
-
-def page_greeks_calculator():
-    """Calculates Greeks for any option contract."""
-    display_header()
-    st.title("F&O Greeks Calculator")
-    st.info("Calculate the theoretical value and greeks (Delta, Gamma, Vega, Theta, Rho) for any option contract.")
-    
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to use this feature.")
-        return
-
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("Option Details")
-        
-        underlying_price = st.number_input("Underlying Price", min_value=0.01, value=23500.0)
-        strike_price = st.number_input("Strike Price", min_value=0.01, value=23500.0)
-        time_to_expiry = st.number_input("Days to Expiry", min_value=1, value=30)
-        risk_free_rate = st.number_input("Risk-free Rate (%)", min_value=0.0, value=7.0)
-        volatility = st.number_input("Volatility (%)", min_value=0.1, value=20.0)
-        option_type = st.selectbox("Option Type", ["call", "put"])
-        
-        if st.button("Calculate Greeks"):
-            T = time_to_expiry / 365.0
-            r = risk_free_rate / 100.0
-            sigma = volatility / 100.0
-            
-            greeks = black_scholes(underlying_price, strike_price, T, r, sigma, option_type)
-            
-            st.session_state.calculated_greeks = greeks
-            st.rerun()
-    
-    with col2:
-        st.subheader("Greeks Results")
-        
-        if 'calculated_greeks' in st.session_state and st.session_state.calculated_greeks is not None:
-            greeks = st.session_state.calculated_greeks
-            
-            st.metric("Option Price", f"₹{greeks['price']:.2f}")
-            
-            col_greeks1, col_greeks2 = st.columns(2)
-            col_greeks1.metric("Delta", f"{greeks['delta']:.4f}")
-            col_greeks1.metric("Gamma", f"{greeks['gamma']:.4f}")
-            col_greeks1.metric("Vega", f"{greeks['vega']:.4f}")
-            
-            col_greeks2.metric("Theta", f"{greeks['theta']:.4f}")
-            col_greeks2.metric("Rho", f"{greeks['rho']:.4f}")
-            
-            with st.expander("Understanding Greeks"):
-                st.markdown("""
-                - **Delta**: Price sensitivity to underlying movement
-                - **Gamma**: Rate of change of Delta
-                - **Vega**: Sensitivity to volatility changes
-                - **Theta**: Time decay per day
-                - **Rho**: Sensitivity to interest rate changes
-                """)
-        else:
-            st.info("Enter option details and click 'Calculate Greeks' to see results.")
-
-def page_economic_calendar():
-    """Economic Calendar page for Indian market events."""
-    display_header()
-    st.title("Economic Calendar")
-    st.info("Upcoming economic events for the Indian market, updated until October 2025.")
-
-    events = {
-        'Date': [
-            '2025-09-26', '2025-09-26', '2025-09-29', '2025-09-30',
-            '2025-10-01', '2025-10-03', '2025-10-08', '2025-10-10',
-            '2025-10-14', '2025-10-15', '2025-10-17', '2025-10-24',
-            '2025-10-31', '2025-10-31'
-        ],
-        'Time': [
-            '11:30 AM', '11:30 AM', '10:30 AM', '05:30 PM',
-            '10:30 AM', '10:30 AM', '11:00 AM', '05:00 PM',
-            '12:00 PM', '05:30 PM', '05:00 PM', '05:00 PM',
-            '05:30 PM', '05:00 PM'
-        ],
-        'Event Name': [
-            'Bank Loan Growth YoY', 'Foreign Exchange Reserves', 'Industrial Production YoY (AUG)', 'Infrastructure Output YoY (AUG)',
-            'Nikkei Manufacturing PMI (SEP)', 'Nikkei Services PMI (SEP)', 'RBI Interest Rate Decision',
-            'Foreign Exchange Reserves', 'WPI Inflation YoY (SEP)', 'CPI Inflation YoY (SEP)',
-            'Foreign Exchange Reserves', 'Foreign Exchange Reserves', 'Fiscal Deficit (SEP)',
-            'Foreign Exchange Reserves'
-        ],
-        'Impact': [
-            'Medium', 'Low', 'Medium', 'Medium',
-            'High', 'High', 'High', 'Low',
-            'High', 'High', 'Low', 'Low',
-            'Medium', 'Low'
-        ],
-        'Previous': [
-            '10.0%', '$702.97B', '2.9%', '6.3%',
-            '58.5', '61.6', '6.50%', '$703.1B',
-            '0.3%', '5.1%', '$704.5B', '$705.2B',
-            '-4684.2B INR', '$705.9B'
-        ],
-        'Forecast': [
-            '-', '-', '3.5%', '6.5%',
-            '58.8', '61.2', '6.50%', '-',
-            '0.5%', '5.3%', '-', '-',
-            '-5100.0B INR', '-'
-        ]
-    }
-    calendar_df = pd.DataFrame(events)
-
-    st.dataframe(calendar_df, use_container_width=True, hide_index=True)
-
-# ============ 5.5 HFT TERMINAL PAGE ============
-def page_hft_terminal():
-    """A dedicated terminal for High-Frequency Trading with Level 2 data."""
-    display_header()
-    st.title("HFT Terminal (High-Frequency Trading)")
-    st.info("This interface provides a simulated high-speed view of market depth and one-click trading. For liquid, F&O instruments only.", icon="⚡️")
-
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.warning("Please connect to a broker to use the HFT Terminal.")
-        return
-
-    # --- Instrument Selection and Key Stats ---
-    top_cols = st.columns([2, 1, 1, 1])
-    with top_cols[0]:
-        symbol = st.text_input("Instrument Symbol", "NIFTY24OCTFUT", key="hft_symbol").upper()
-    
-    instrument_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
-    if instrument_info.empty:
-        st.error(f"Instrument '{symbol}' not found. Please enter a valid symbol.")
-        return
-    
-    exchange = instrument_info.iloc[0]['exchange']
-    instrument_token = instrument_info.iloc[0]['instrument_token']
-
-    # --- Fetch Live Data ---
-    quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-    depth_data = get_market_depth(instrument_token)
-
-    # --- Display Key Stats ---
-    if not quote_data.empty:
-        ltp = quote_data.iloc[0]['Price']
-        change = quote_data.iloc[0]['Change']
-        
-        tick_direction = "tick-up" if ltp > st.session_state.hft_last_price else "tick-down" if ltp < st.session_state.hft_last_price else ""
-        
-        with top_cols[1]:
-            st.markdown(f"##### LTP: <span class='{tick_direction}' style='font-size: 1.2em;'>₹{ltp:,.2f}</span>", unsafe_allow_html=True)
-
-        with top_cols[2]:
-            color = 'var(--green)' if change > 0 else 'var(--red)'
-            st.markdown(f"##### Change: <span style='color:{color}; font-size: 1.2em;'>{change:,.2f}</span>", unsafe_allow_html=True)
-        
-        with top_cols[3]:
-            latency = random.uniform(20, 80)
-            st.metric("Latency (ms)", f"{latency:.2f}")
-
-        # Update tick log
-        if ltp != st.session_state.hft_last_price and st.session_state.hft_last_price != 0:
-            log_entry = {
-                "time": datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S.%f")[:-3],
-                "price": ltp,
-                "change": ltp - st.session_state.hft_last_price
-            }
-            st.session_state.hft_tick_log.insert(0, log_entry)
-            if len(st.session_state.hft_tick_log) > 20:
-                st.session_state.hft_tick_log.pop()
-
-        st.session_state.hft_last_price = ltp
-
-    st.markdown("---")
-
-    # --- Main Layout: Depth, Orders, Ticks ---
-    main_cols = st.columns([1, 1, 1], gap="large")
-
-    with main_cols[0]:
-        st.subheader("Market Depth")
-        if depth_data and depth_data.get('buy') and depth_data.get('sell'):
-            bids = pd.DataFrame(depth_data['buy']).sort_values('price', ascending=False).head(5)
-            asks = pd.DataFrame(depth_data['sell']).sort_values('price', ascending=True).head(5)
-            
-            st.write("**Bids (Buyers)**")
-            for _, row in bids.iterrows():
-                st.markdown(f"<div class='hft-depth-bid'>{row['quantity']} @ **{row['price']:.2f}** ({row['orders']})</div>", unsafe_allow_html=True)
-            
-            st.write("**Asks (Sellers)**")
-            for _, row in asks.iterrows():
-                st.markdown(f"<div class='hft-depth-ask'>({row['orders']}) **{row['price']:.2f}** @ {row['quantity']}</div>", unsafe_allow_html=True)
-        else:
-            st.info("Waiting for market depth data...")
-
-    with main_cols[1]:
-        st.subheader("One-Click Execution")
-        quantity = st.number_input("Order Quantity", min_value=1, value=instrument_info.iloc[0]['lot_size'], step=instrument_info.iloc[0]['lot_size'], key="hft_qty")
-        
-        btn_cols = st.columns(2)
-        if btn_cols[0].button("MARKET BUY", use_container_width=True, type="primary"):
-            place_order(instrument_df, symbol, quantity, 'MARKET', 'BUY', 'MIS')
-        if btn_cols[1].button("MARKET SELL", use_container_width=True):
-            place_order(instrument_df, symbol, quantity, 'MARKET', 'SELL', 'MIS')
-        
-        st.markdown("---")
-        st.subheader("Manual Order")
-        price = st.number_input("Limit Price", min_value=0.01, step=0.05, key="hft_limit_price")
-        limit_btn_cols = st.columns(2)
-        if limit_btn_cols[0].button("LIMIT BUY", use_container_width=True):
-            place_order(instrument_df, symbol, quantity, 'LIMIT', 'BUY', 'MIS', price=price)
-        if limit_btn_cols[1].button("LIMIT SELL", use_container_width=True):
-            place_order(instrument_df, symbol, quantity, 'LIMIT', 'SELL', 'MIS', price=price)
-
-    with main_cols[2]:
-        st.subheader("Tick Log")
-        log_container = st.container(height=400)
-        for entry in st.session_state.hft_tick_log:
-            color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
-            log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
