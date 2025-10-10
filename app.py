@@ -922,7 +922,7 @@ def get_global_indices_data(tickers):
         data = []
         for ticker_name, yf_ticker_name in tickers.items():
             if len(tickers) > 1:
-                hist = data_yf.loc[:, (slice(None), yf_ticker_name)]
+                hist = data_yf.loc[:, (slice(None), yf_ticker_name]
                 hist.columns = hist.columns.droplevel(1)
             else:
                 hist = data_yf
@@ -1070,9 +1070,9 @@ def mean_reversion_bot(instrument_df, symbol, capital=100):
             "capital_required": quantity * current_price,
             "risk_level": "Low"
         }
+    
     except Exception as e:
         return {"error": f"Analysis failed: {str(e)}"}
-
 
 def volatility_breakout_bot(instrument_df, symbol, capital=100):
     """Volatility breakout bot that trades on breakouts from consolidation."""
@@ -1139,6 +1139,7 @@ def volatility_breakout_bot(instrument_df, symbol, capital=100):
             "capital_required": quantity * current_price,
             "risk_level": "High"
         }
+    
     except Exception as e:
         return {"error": f"Analysis failed: {str(e)}"}
 
@@ -1212,6 +1213,7 @@ def value_investor_bot(instrument_df, symbol, capital=100):
             "capital_required": quantity * current_price,
             "risk_level": "Low"
         }
+    
     except Exception as e:
         return {"error": f"Analysis failed: {str(e)}"}
 
@@ -1277,6 +1279,7 @@ def scalper_bot(instrument_df, symbol, capital=100):
             "capital_required": quantity * current_price,
             "risk_level": "Very High"
         }
+    
     except Exception as e:
         return {"error": f"Analysis failed: {str(e)}"}
 
@@ -1436,7 +1439,6 @@ def execute_bot_trade(instrument_df, bot_result):
         st.info("Trade execution cancelled.")
         st.rerun()
 
-
 def page_algo_bots():
     """Main algo bots page where users can run different trading bots."""
     display_header()
@@ -1530,8 +1532,8 @@ def page_algo_bots():
             with col5:
                 action_color = "green" if bot_result["action"] == "BUY" else "red" if bot_result["action"] == "SELL" else "orange"
                 st.markdown(f'<div class="metric-card" style="border-color: {action_color};">'
-                            f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
-                            f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
+                           f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
+                           f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
             
             with col6:
                 st.metric("Quantity", bot_result["quantity"])
@@ -1542,10 +1544,20 @@ def page_algo_bots():
             with col8:
                 risk_color = {"Low": "green", "Medium": "orange", "High": "red", "Very High": "darkred"}
                 st.markdown(f'<div class="metric-card" style="border-color: {risk_color.get(bot_result["risk_level"], "gray")};">'
-                            f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
-                            f'<p>Risk Level</p></div>', unsafe_allow_html=True)
+                           f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
+                           f'<p>Risk Level</p></div>', unsafe_allow_html=True)
             
-            # The execute_bot_trade function now handles signal display and the execution buttons
+            # Display signals
+            st.subheader("📊 Analysis Signals")
+            for signal in bot_result["signals"]:
+                if "BULLISH" in signal:
+                    st.success(f"✅ {signal}")
+                elif "BEARISH" in signal:
+                    st.error(f"❌ {signal}")
+                else:
+                    st.info(f"📈 {signal}")
+            
+            # Execute trade
             execute_bot_trade(instrument_df, bot_result)
     
     # Bot performance history
