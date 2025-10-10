@@ -446,12 +446,7 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
             df.set_index('date', inplace=True)
             df.index = pd.to_datetime(df.index)
             
-            # Add technical indicators
-            try:
-                df.ta.adx(append=True); df.ta.apo(append=True); df.ta.aroon(append=True); df.ta.atr(append=True); df.ta.bbands(append=True); df.ta.cci(append=True); df.ta.chop(append=True); df.ta.cksp(append=True); df.ta.cmf(append=True); df.ta.coppock(append=True); df.ta.ema(length=50, append=True); df.ta.ema(length=200, append=True); df.ta.fisher(append=True); df.ta.kst(append=True); df.ta.macd(append=True); df.ta.mfi(append=True); df.ta.mom(append=True); df.ta.obv(append=True); df.ta.rsi(append=True); df.ta.stoch(append=True); df.ta.supertrend(append=True); df.ta.willr(append=True)
-            except Exception:
-                pass 
-            return df
+        
         except kite_exceptions.KiteException as e:
             st.error(f"Kite API Error (Historical): {e}")
             return pd.DataFrame()
