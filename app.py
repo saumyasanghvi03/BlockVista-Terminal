@@ -1985,17 +1985,20 @@ def page_semi_automated_bots(instrument_df):
 
 def page_fully_automated_bots(instrument_df):
     """Fully automated bots page - automatic execution without manual intervention."""
-    st.info("""
-    **Fully Automated Mode**: Bots automatically analyze markets and execute trades based on your settings. 
-    ⚠️ **Use with caution** - this involves real financial risk and requires careful configuration!
-    """, icon="⚡")
+    st.warning("🚨 **LIVE TRADING WARNING**: Automated bots will execute real trades with real money! Use at your own risk.", icon="⚠️")
     
     # Initialize automated mode if not exists
     if 'automated_mode' not in st.session_state:
         initialize_automated_mode()
     
+    # Add live trading confirmation
+    if st.session_state.automated_mode.get('running', False) and st.session_state.automated_mode.get('live_trading', False):
+        st.error("**🚀 LIVE TRADING ACTIVE** - Real orders are being placed with your broker!")
+    elif st.session_state.automated_mode.get('running', False):
+        st.info("**📄 PAPER TRADING ACTIVE** - Orders are being simulated (no real trades)")
+    
     # Main control panel
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         auto_enabled = st.toggle(
@@ -2007,12 +2010,27 @@ def page_fully_automated_bots(instrument_df):
         st.session_state.automated_mode['enabled'] = auto_enabled
     
     with col2:
+        # Add live trading toggle
+        live_trading = st.toggle(
+            "Live Trading",
+            value=st.session_state.automated_mode.get('live_trading', False),
+            help="WARNING: This will place REAL orders with REAL money!",
+            key="live_trading"
+        )
+        st.session_state.automated_mode['live_trading'] = live_trading
+    
+    with col3:
         if st.session_state.automated_mode['enabled']:
             if not st.session_state.automated_mode.get('running', False):
                 if st.button("🚀 Start Automated Trading", use_container_width=True, type="primary", key="auto_start"):
-                    st.session_state.automated_mode['running'] = True
-                    st.success("🤖 Automated trading started!")
-                    st.rerun()
+                    if live_trading:
+                        # Double confirmation for live trading
+                        st.session_state.need_live_confirmation = True
+                        st.rerun()
+                    else:
+                        st.session_state.automated_mode['running'] = True
+                        st.success("🤖 Paper trading started!")
+                        st.rerun()
             else:
                 if st.button("🛑 Stop Automated Trading", use_container_width=True, type="secondary", key="auto_stop"):
                     st.session_state.automated_mode['running'] = False
@@ -2021,10 +2039,10 @@ def page_fully_automated_bots(instrument_df):
         else:
             st.button("🚀 Start Automated Trading", use_container_width=True, disabled=True)
     
-    with col3:
+    with col4:
         total_capital = st.number_input(
             "Total Capital (₹)",
-            min_value=100,
+            min_value=1000,
             max_value=1000000,
             value=st.session_state.automated_mode.get('total_capital', 10000),
             step=1000,
@@ -2033,22 +2051,57 @@ def page_fully_automated_bots(instrument_df):
         )
         st.session_state.automated_mode['total_capital'] = total_capital
     
-    with col4:
+    with col5:
         # Replace slider with number input to avoid the error
         risk_per_trade = st.number_input(
             "Risk per Trade (%)",
             min_value=0.5,
             max_value=5.0,
-            value=2.0,
+            value=st.session_state.automated_mode.get('risk_per_trade', 2.0),
             step=0.5,
             help="Percentage of capital to risk per trade",
             key="auto_risk"
         )
         st.session_state.automated_mode['risk_per_trade'] = risk_per_trade
     
+    # Live trading confirmation dialog
+    if st.session_state.get('need_live_confirmation', False):
+        st.markdown("---")
+        st.error("""
+        🚨 **LIVE TRADING CONFIRMATION REQUIRED**
+        
+        You are about to enable **LIVE TRADING** with real money!
+        
+        - Real orders will be placed with your broker
+        - Real money will be used for trades
+        - You are solely responsible for any losses
+        - Use at your own risk!
+        """)
+        
+        col_confirm1, col_confirm2, col_confirm3 = st.columns([2, 1, 1])
+        if col_confirm1.button("✅ I UNDERSTAND - START LIVE TRADING", type="primary", use_container_width=True):
+            st.session_state.automated_mode['running'] = True
+            st.session_state.automated_mode['live_trading'] = True
+            st.session_state.need_live_confirmation = False
+            st.success("🚀 LIVE TRADING ACTIVATED! Real orders will be placed.")
+            st.rerun()
+        
+        if col_confirm2.button("📄 PAPER TRADING ONLY", use_container_width=True):
+            st.session_state.automated_mode['running'] = True
+            st.session_state.automated_mode['live_trading'] = False
+            st.session_state.need_live_confirmation = False
+            st.info("Paper trading started. No real orders will be placed.")
+            st.rerun()
+            
+        if col_confirm3.button("❌ CANCEL", use_container_width=True):
+            st.session_state.automated_mode['live_trading'] = False
+            st.session_state.need_live_confirmation = False
+            st.info("Live trading cancelled.")
+            st.rerun()
+        return  # Stop rendering the rest until confirmation is handled
+    
     st.markdown("---")
     
-    # Rest of the function continues normally...
     if st.session_state.automated_mode['enabled']:
         # Bot configuration and performance dashboard
         col5, col6 = st.columns([1, 2])
@@ -2116,7 +2169,11 @@ def page_fully_automated_bots(instrument_df):
                     run_automated_bots_cycle(instrument_df, watchlist_symbols)
                 
                 # Status indicator
-                st.success("🟢 **AUTOMATED TRADING ACTIVE**")
+                if st.session_state.automated_mode.get('live_trading', False):
+                    st.success("🟢 **LIVE TRADING ACTIVE** - Real orders being placed!")
+                else:
+                    st.info("🔵 **PAPER TRADING ACTIVE** - Orders simulated only")
+                    
                 last_check = st.session_state.automated_mode.get('last_signal_check')
                 if last_check:
                     last_check_time = datetime.fromisoformat(last_check).strftime("%H:%M:%S")
@@ -2154,16 +2211,37 @@ def page_fully_automated_bots(instrument_df):
             with col8:
                 st.metric("Average Loss", f"₹{metrics.get('avg_loss', 0):.2f}")
             
+            # Mode indicator
+            st.markdown("---")
+            if st.session_state.automated_mode.get('live_trading', False):
+                st.error("""
+                **🔴 LIVE TRADING MODE**
+                - Real orders are being placed
+                - Real money is at risk
+                - Monitor your positions carefully
+                """)
+            else:
+                st.info("""
+                **🔵 PAPER TRADING MODE**
+                - Orders are simulated only
+                - No real money is being used
+                - Perfect for testing strategies
+                """)
+            
             # Recent trades table
             st.markdown("---")
             st.subheader("📋 Recent Trading Activity")
             recent_trades = st.session_state.automated_mode['trade_history'][-20:]
             
             if recent_trades:
+                # Convert to DataFrame for display
                 trades_display = []
-                for trade in reversed(recent_trades):
+                for trade in reversed(recent_trades):  # Show newest first
+                    order_type = trade.get('order_type', 'PAPER')
+                    type_color = '🔴' if order_type == 'LIVE' else '🔵'
                     trades_display.append({
                         'Time': datetime.fromisoformat(trade['timestamp']).strftime("%H:%M:%S"),
+                        'Type': f"{type_color} {order_type}",
                         'Symbol': trade['symbol'],
                         'Action': trade['action'],
                         'Qty': trade['quantity'],
@@ -2176,6 +2254,7 @@ def page_fully_automated_bots(instrument_df):
                 trades_df = pd.DataFrame(trades_display)
                 st.dataframe(trades_df, use_container_width=True, hide_index=True)
                 
+                # Export trades button
                 if st.button("📥 Export Trade History", use_container_width=True):
                     csv = trades_df.to_csv(index=False)
                     st.download_button(
@@ -2257,15 +2336,18 @@ def page_fully_automated_bots(instrument_df):
 
 # ================ AUTOMATED MODE HELPER FUNCTIONS ================
 
+# ================ AUTOMATED MODE HELPER FUNCTIONS ================
+
 def initialize_automated_mode():
     """Initialize session state for fully automated trading."""
     if 'automated_mode' not in st.session_state:
         st.session_state.automated_mode = {
             'enabled': False,
             'running': False,
+            'live_trading': False,
             'bots_active': {},
             'total_capital': 10000,
-            'risk_per_trade': 2,
+            'risk_per_trade': 2.0,
             'max_open_trades': 5,
             'trade_history': [],
             'performance_metrics': {},
@@ -2304,6 +2386,72 @@ def get_automated_bot_performance():
         'avg_win': avg_win,
         'avg_loss': avg_loss
     }
+
+# <<<--- PLACE execute_automated_trade FUNCTION HERE --->>>
+def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
+    """Execute trades automatically based on bot signals."""
+    if bot_result.get("error") or bot_result["action"] == "HOLD":
+        return None
+    
+    try:
+        symbol = bot_result["symbol"]
+        action = bot_result["action"]
+        current_price = bot_result["current_price"]
+        
+        # Calculate position size based on risk
+        risk_amount = (risk_per_trade / 100) * st.session_state.automated_mode['total_capital']
+        quantity = max(1, int(risk_amount / current_price))
+        
+        # Check if we have too many open trades
+        open_trades = [t for t in st.session_state.automated_mode['trade_history'] 
+                      if t.get('status') == 'OPEN']
+        if len(open_trades) >= st.session_state.automated_mode['max_open_trades']:
+            return None
+        
+        # Check for existing position in the same symbol
+        existing_position = next((t for t in open_trades if t.get('symbol') == symbol), None)
+        if existing_position:
+            # Avoid opening same position multiple times
+            if existing_position['action'] == action:
+                return None
+        
+        # PLACE REAL ORDER if live trading is enabled
+        order_type = "PAPER"
+        if st.session_state.automated_mode.get('live_trading', False):
+            try:
+                # Place the real order
+                place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
+                order_type = "LIVE"
+            except Exception as e:
+                st.error(f"❌ Failed to place LIVE order for {symbol}: {e}")
+                return None
+        
+        # Record the trade
+        trade_record = {
+            'timestamp': datetime.now().isoformat(),
+            'symbol': symbol,
+            'action': action,
+            'quantity': quantity,
+            'entry_price': current_price,
+            'status': 'OPEN',
+            'bot_name': bot_result['bot_name'],
+            'risk_level': bot_result['risk_level'],
+            'order_type': order_type,
+            'pnl': 0  # Initialize P&L
+        }
+        
+        st.session_state.automated_mode['trade_history'].append(trade_record)
+        
+        if order_type == "LIVE":
+            st.toast(f"🤖 LIVE {action} order executed for {symbol} (Qty: {quantity})", icon="⚡")
+        else:
+            st.toast(f"🤖 PAPER {action} order simulated for {symbol} (Qty: {quantity})", icon="📄")
+            
+        return trade_record
+        
+    except Exception as e:
+        st.error(f"Automated trade execution failed: {e}")
+        return None
 
 def run_automated_bots_cycle(instrument_df, watchlist_symbols):
     """Run one cycle of all active automated bots."""
@@ -2363,7 +2511,8 @@ def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
             if existing_position['action'] == action:
                 return None
         
-       # Place the order (commented out for safety - uncomment for live trading)
+       
+        # Place the real order
         place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
         
         # Record the trade (simulated for demo)
