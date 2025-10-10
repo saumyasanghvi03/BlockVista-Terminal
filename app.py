@@ -3743,6 +3743,450 @@ def page_ai_assistant():
                 st.markdown(response)
                 st.session_state.messages.append({"role": "assistant", "content": response})
 
+def page_fundamental_analytics():
+    """Fundamental Analytics page for company financial analysis and comparison."""
+    display_header()
+    st.title("📊 Fundamental Analytics")
+    st.info("Analyze company fundamentals, financial ratios, and compare multiple stocks side-by-side.", icon="📈")
+    
+    tab1, tab2, tab3 = st.tabs(["Company Overview", "Financial Ratios", "Multi-Company Comparison"])
+    
+    with tab1:
+        st.subheader("Company Fundamental Analysis")
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            symbol = st.text_input("Enter Stock Symbol", "RELIANCE.NS", 
+                                 help="Use .NS for NSE stocks, .BO for BSE stocks")
+            if st.button("Fetch Fundamental Data", use_container_width=True):
+                with st.spinner(f"Fetching data for {symbol}..."):
+                    company_data = get_company_fundamentals(symbol)
+                    if company_data:
+                        st.session_state.current_company = company_data
+                        st.session_state.current_symbol = symbol
+                        st.rerun()
+        
+        with col2:
+            if 'current_company' in st.session_state and st.session_state.current_company:
+                display_company_overview(st.session_state.current_company, st.session_state.current_symbol)
+            else:
+                st.info("Enter a stock symbol and click 'Fetch Fundamental Data' to get started.")
+    
+    with tab2:
+        st.subheader("Financial Ratios & Metrics")
+        if 'current_company' in st.session_state and st.session_state.current_company:
+            display_financial_ratios(st.session_state.current_company, st.session_state.current_symbol)
+        else:
+            st.info("First fetch company data in the 'Company Overview' tab.")
+    
+    with tab3:
+        st.subheader("Multi-Company Comparison")
+        display_multi_company_comparison()
+
+def get_company_fundamentals(symbol):
+    """Fetch comprehensive fundamental data for a company."""
+    try:
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        
+        # Basic company info
+        company_data = {
+            'symbol': symbol,
+            'name': info.get('longName', 'N/A'),
+            'sector': info.get('sector', 'N/A'),
+            'industry': info.get('industry', 'N/A'),
+            'country': info.get('country', 'N/A'),
+            'exchange': info.get('exchange', 'N/A'),
+            'currency': info.get('currency', 'N/A'),
+            'market_cap': info.get('marketCap', 0),
+            'description': info.get('longBusinessSummary', 'No description available.'),
+            'employees': info.get('fullTimeEmployees', 'N/A'),
+            'website': info.get('website', 'N/A'),
+        }
+        
+        # Price metrics
+        company_data.update({
+            'current_price': info.get('currentPrice', info.get('regularMarketPrice', 0)),
+            'previous_close': info.get('previousClose', 0),
+            'day_high': info.get('dayHigh', 0),
+            'day_low': info.get('dayLow', 0),
+            '52_week_high': info.get('fiftyTwoWeekHigh', 0),
+            '52_week_low': info.get('fiftyTwoWeekLow', 0),
+            'volume': info.get('volume', 0),
+            'avg_volume': info.get('averageVolume', 0),
+        })
+        
+        # Valuation ratios
+        company_data.update({
+            'pe_ratio': info.get('trailingPE', 0),
+            'forward_pe': info.get('forwardPE', 0),
+            'peg_ratio': info.get('pegRatio', 0),
+            'price_to_sales': info.get('priceToSalesTrailing12Months', 0),
+            'price_to_book': info.get('priceToBook', 0),
+            'enterprise_to_ebitda': info.get('enterpriseToEbitda', 0),
+            'enterprise_to_revenue': info.get('enterpriseToRevenue', 0),
+        })
+        
+        # Financial metrics
+        company_data.update({
+            'profit_margins': info.get('profitMargins', 0),
+            'operating_margins': info.get('operatingMargins', 0),
+            'gross_margins': info.get('grossMargins', 0),
+            'ebitda_margins': info.get('ebitdaMargins', 0),
+            'return_on_equity': info.get('returnOnEquity', 0),
+            'return_on_assets': info.get('returnOnAssets', 0),
+        })
+        
+        # Growth metrics
+        company_data.update({
+            'revenue_growth': info.get('revenueGrowth', 0),
+            'earnings_growth': info.get('earningsGrowth', 0),
+            'earnings_quarterly_growth': info.get('earningsQuarterlyGrowth', 0),
+        })
+        
+        # Dividend information
+        company_data.update({
+            'dividend_yield': info.get('dividendYield', 0),
+            'dividend_rate': info.get('dividendRate', 0),
+            'payout_ratio': info.get('payoutRatio', 0),
+            'dividend_date': info.get('dividendDate', 'N/A'),
+            'ex_dividend_date': info.get('exDividendDate', 'N/A'),
+        })
+        
+        # Financial health
+        company_data.update({
+            'debt_to_equity': info.get('debtToEquity', 0),
+            'current_ratio': info.get('currentRatio', 0),
+            'quick_ratio': info.get('quickRatio', 0),
+            'operating_cash_flow': info.get('operatingCashflow', 0),
+            'free_cash_flow': info.get('freeCashflow', 0),
+            'total_debt': info.get('totalDebt', 0),
+            'total_cash': info.get('totalCash', 0),
+        })
+        
+        # Analyst recommendations
+        company_data.update({
+            'recommendation_mean': info.get('recommendationMean', 0),
+            'recommendation_key': info.get('recommendationKey', 'N/A'),
+            'number_of_analyst_opinions': info.get('numberOfAnalystOpinions', 0),
+            'target_mean_price': info.get('targetMeanPrice', 0),
+            'target_high_price': info.get('targetHighPrice', 0),
+            'target_low_price': info.get('targetLowPrice', 0),
+        })
+        
+        return company_data
+        
+    except Exception as e:
+        st.error(f"Error fetching data for {symbol}: {str(e)}")
+        return None
+
+def display_company_overview(company_data, symbol):
+    """Display comprehensive company overview."""
+    st.subheader(f"{company_data['name']} ({symbol})")
+    
+    # Basic info cards
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Current Price", f"₹{company_data['current_price']:,.2f}" if company_data['current_price'] else "N/A")
+        st.metric("Market Cap", format_market_cap(company_data['market_cap']))
+    
+    with col2:
+        st.metric("P/E Ratio", f"{company_data['pe_ratio']:.2f}" if company_data['pe_ratio'] else "N/A")
+        st.metric("P/B Ratio", f"{company_data['price_to_book']:.2f}" if company_data['price_to_book'] else "N/A")
+    
+    with col3:
+        st.metric("Dividend Yield", f"{company_data['dividend_yield']*100:.2f}%" if company_data['dividend_yield'] else "N/A")
+        st.metric("ROE", f"{company_data['return_on_equity']*100:.2f}%" if company_data['return_on_equity'] else "N/A")
+    
+    with col4:
+        st.metric("52W High", f"₹{company_data['52_week_high']:,.2f}" if company_data['52_week_high'] else "N/A")
+        st.metric("52W Low", f"₹{company_data['52_week_low']:,.2f}" if company_data['52_week_low'] else "N/A")
+    
+    st.markdown("---")
+    
+    # Company details
+    col5, col6 = st.columns(2)
+    
+    with col5:
+        st.subheader("Company Information")
+        st.write(f"**Sector:** {company_data['sector']}")
+        st.write(f"**Industry:** {company_data['industry']}")
+        st.write(f"**Country:** {company_data['country']}")
+        st.write(f"**Exchange:** {company_data['exchange']}")
+        st.write(f"**Employees:** {format_number(company_data['employees'])}")
+        if company_data['website'] != 'N/A':
+            st.write(f"**Website:** [{company_data['website']}]({company_data['website']})")
+    
+    with col6:
+        st.subheader("Analyst Coverage")
+        st.write(f"**Recommendation:** {company_data['recommendation_key'].title() if company_data['recommendation_key'] != 'N/A' else 'N/A'}")
+        st.write(f"**Target Price:** ₹{company_data['target_mean_price']:,.2f}" if company_data['target_mean_price'] else "**Target Price:** N/A")
+        st.write(f"**Analysts:** {company_data['number_of_analyst_opinions']}")
+        st.write(f"**Target High:** ₹{company_data['target_high_price']:,.2f}" if company_data['target_high_price'] else "**Target High:** N/A")
+        st.write(f"**Target Low:** ₹{company_data['target_low_price']:,.2f}" if company_data['target_low_price'] else "**Target Low:** N/A")
+    
+    # Company description
+    st.subheader("Business Description")
+    st.write(company_data['description'][:500] + "..." if len(company_data['description']) > 500 else company_data['description'])
+
+def display_financial_ratios(company_data, symbol):
+    """Display detailed financial ratios and metrics."""
+    st.subheader(f"Financial Ratios - {company_data['name']}")
+    
+    # Create tabs for different ratio categories
+    tab1, tab2, tab3, tab4 = st.tabs(["Valuation", "Profitability", "Financial Health", "Growth"])
+    
+    with tab1:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("P/E Ratio", f"{company_data['pe_ratio']:.2f}" if company_data['pe_ratio'] else "N/A")
+            st.metric("Forward P/E", f"{company_data['forward_pe']:.2f}" if company_data['forward_pe'] else "N/A")
+            st.metric("PEG Ratio", f"{company_data['peg_ratio']:.2f}" if company_data['peg_ratio'] else "N/A")
+        
+        with col2:
+            st.metric("Price to Sales", f"{company_data['price_to_sales']:.2f}" if company_data['price_to_sales'] else "N/A")
+            st.metric("Price to Book", f"{company_data['price_to_book']:.2f}" if company_data['price_to_book'] else "N/A")
+            st.metric("Enterprise to EBITDA", f"{company_data['enterprise_to_ebitda']:.2f}" if company_data['enterprise_to_ebitda'] else "N/A")
+    
+    with tab2:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Gross Margin", f"{company_data['gross_margins']*100:.2f}%" if company_data['gross_margins'] else "N/A")
+            st.metric("Operating Margin", f"{company_data['operating_margins']*100:.2f}%" if company_data['operating_margins'] else "N/A")
+            st.metric("Profit Margin", f"{company_data['profit_margins']*100:.2f}%" if company_data['profit_margins'] else "N/A")
+        
+        with col2:
+            st.metric("Return on Equity", f"{company_data['return_on_equity']*100:.2f}%" if company_data['return_on_equity'] else "N/A")
+            st.metric("Return on Assets", f"{company_data['return_on_assets']*100:.2f}%" if company_data['return_on_assets'] else "N/A")
+            st.metric("EBITDA Margin", f"{company_data['ebitda_margins']*100:.2f}%" if company_data['ebitda_margins'] else "N/A")
+    
+    with tab3:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Debt to Equity", f"{company_data['debt_to_equity']:.2f}" if company_data['debt_to_equity'] else "N/A")
+            st.metric("Current Ratio", f"{company_data['current_ratio']:.2f}" if company_data['current_ratio'] else "N/A")
+            st.metric("Quick Ratio", f"{company_data['quick_ratio']:.2f}" if company_data['quick_ratio'] else "N/A")
+        
+        with col2:
+            st.metric("Operating Cash Flow", format_market_cap(company_data['operating_cash_flow']) if company_data['operating_cash_flow'] else "N/A")
+            st.metric("Free Cash Flow", format_market_cap(company_data['free_cash_flow']) if company_data['free_cash_flow'] else "N/A")
+            st.metric("Total Cash", format_market_cap(company_data['total_cash']) if company_data['total_cash'] else "N/A")
+    
+    with tab4:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Revenue Growth", f"{company_data['revenue_growth']*100:.2f}%" if company_data['revenue_growth'] else "N/A")
+            st.metric("Earnings Growth", f"{company_data['earnings_growth']*100:.2f}%" if company_data['earnings_growth'] else "N/A")
+            st.metric("Quarterly Earnings Growth", f"{company_data['earnings_quarterly_growth']*100:.2f}%" if company_data['earnings_quarterly_growth'] else "N/A")
+        
+        with col2:
+            st.metric("Dividend Rate", f"₹{company_data['dividend_rate']:.2f}" if company_data['dividend_rate'] else "N/A")
+            st.metric("Payout Ratio", f"{company_data['payout_ratio']*100:.2f}%" if company_data['payout_ratio'] else "N/A")
+    
+    # Visualization
+    st.markdown("---")
+    st.subheader("Key Metrics Visualization")
+    
+    # Create radar chart for key metrics
+    metrics_to_plot = ['pe_ratio', 'price_to_book', 'return_on_equity', 'profit_margins', 'debt_to_equity']
+    metric_names = ['P/E Ratio', 'P/B Ratio', 'ROE (%)', 'Profit Margin (%)', 'Debt/Equity']
+    metric_values = []
+    
+    for metric in metrics_to_plot:
+        value = company_data.get(metric, 0)
+        if metric in ['return_on_equity', 'profit_margins']:
+            value = value * 100 if value else 0  # Convert to percentage
+        metric_values.append(value if value else 0)
+    
+    # Normalize values for radar chart (0-100 scale)
+    max_vals = [50, 10, 50, 50, 2]  # Reasonable maximums for normalization
+    normalized_values = [min((v / max_v) * 100, 100) for v, max_v in zip(metric_values, max_vals)]
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=normalized_values,
+        theta=metric_names,
+        fill='toself',
+        name=company_data['name']
+    ))
+    
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100]
+            )),
+        showlegend=False,
+        title="Financial Metrics Radar Chart"
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def display_multi_company_comparison():
+    """Display comparison of multiple companies."""
+    st.subheader("Compare Multiple Companies")
+    
+    # Input for multiple symbols
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        symbols_input = st.text_input(
+            "Enter Stock Symbols (comma separated)", 
+            "RELIANCE.NS, TCS.NS, INFY.NS, HDFCBANK.NS",
+            help="Enter symbols separated by commas. Use .NS for NSE, .BO for BSE"
+        )
+    
+    with col2:
+        if st.button("Compare Companies", use_container_width=True):
+            symbols = [s.strip() for s in symbols_input.split(',')]
+            with st.spinner("Fetching comparison data..."):
+                comparison_data = []
+                for symbol in symbols:
+                    data = get_company_fundamentals(symbol)
+                    if data:
+                        comparison_data.append(data)
+                
+                if comparison_data:
+                    st.session_state.comparison_data = comparison_data
+                    st.rerun()
+    
+    if 'comparison_data' in st.session_state and st.session_state.comparison_data:
+        comparison_df = create_comparison_dataframe(st.session_state.comparison_data)
+        
+        # Select metrics to compare
+        st.subheader("Select Metrics for Comparison")
+        
+        metric_categories = {
+            "Valuation": ['pe_ratio', 'forward_pe', 'price_to_book', 'price_to_sales', 'market_cap'],
+            "Profitability": ['return_on_equity', 'return_on_assets', 'profit_margins', 'operating_margins'],
+            "Growth": ['revenue_growth', 'earnings_growth'],
+            "Dividends": ['dividend_yield', 'payout_ratio'],
+            "Financial Health": ['debt_to_equity', 'current_ratio', 'quick_ratio']
+        }
+        
+        selected_metrics = []
+        for category, metrics in metric_categories.items():
+            with st.expander(f"{category} Metrics"):
+                for metric in metrics:
+                    if st.checkbox(f"{format_metric_name(metric)}", value=True, key=f"comp_{metric}"):
+                        selected_metrics.append(metric)
+        
+        if selected_metrics:
+            # Display comparison table
+            display_metrics = ['name'] + selected_metrics
+            comparison_display_df = comparison_df[display_metrics].copy()
+            
+            # Format the dataframe
+            for col in selected_metrics:
+                if 'ratio' in col.lower() or 'pe' in col.lower() or 'pb' in col.lower():
+                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "N/A")
+                elif 'margin' in col.lower() or 'yield' in col.lower() or 'growth' in col.lower() or 'return' in col.lower():
+                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x*100:.2f}%" if pd.notnull(x) and x != 0 else "N/A")
+                elif 'market_cap' in col.lower():
+                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: format_market_cap(x) if pd.notnull(x) else "N/A")
+                else:
+                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "N/A")
+            
+            st.subheader("Company Comparison")
+            st.dataframe(comparison_display_df, use_container_width=True)
+            
+            # Visual comparisons
+            st.subheader("Visual Comparisons")
+            
+            # Bar chart for selected metrics
+            if len(selected_metrics) >= 1:
+                metric_to_plot = st.selectbox("Select metric for bar chart", selected_metrics)
+                if metric_to_plot:
+                    fig = go.Figure()
+                    
+                    values = []
+                    names = []
+                    for company in st.session_state.comparison_data:
+                        value = company.get(metric_to_plot, 0)
+                        if value:
+                            # Handle percentage metrics
+                            if any(term in metric_to_plot for term in ['margin', 'yield', 'growth', 'return']):
+                                value = value * 100
+                            values.append(value)
+                            names.append(company['name'])
+                    
+                    if values:
+                        fig.add_trace(go.Bar(
+                            x=names,
+                            y=values,
+                            text=[f"{v:.2f}{'%' if any(term in metric_to_plot for term in ['margin', 'yield', 'growth', 'return']) else ''}" for v in values],
+                            textposition='auto',
+                        ))
+                        
+                        fig.update_layout(
+                            title=f"{format_metric_name(metric_to_plot)} Comparison",
+                            xaxis_title="Companies",
+                            yaxis_title=format_metric_name(metric_to_plot),
+                            showlegend=False
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+
+def create_comparison_dataframe(company_data_list):
+    """Create a DataFrame from multiple company data for comparison."""
+    comparison_data = []
+    for company in company_data_list:
+        row = {k: v for k, v in company.items() if not isinstance(v, (list, dict))}
+        comparison_data.append(row)
+    
+    return pd.DataFrame(comparison_data)
+
+def format_market_cap(market_cap):
+    """Format market cap into readable string."""
+    if market_cap >= 1e12:
+        return f"₹{market_cap/1e12:.2f}T"
+    elif market_cap >= 1e9:
+        return f"₹{market_cap/1e9:.2f}B"
+    elif market_cap >= 1e6:
+        return f"₹{market_cap/1e6:.2f}M"
+    else:
+        return f"₹{market_cap:,.0f}"
+
+def format_number(number):
+    """Format large numbers into readable string."""
+    if number == 'N/A':
+        return 'N/A'
+    if number >= 1e9:
+        return f"{number/1e9:.1f}B"
+    elif number >= 1e6:
+        return f"{number/1e6:.1f}M"
+    elif number >= 1e3:
+        return f"{number/1e3:.1f}K"
+    else:
+        return f"{number:,.0f}"
+
+def format_metric_name(metric):
+    """Convert metric key to display name."""
+    metric_names = {
+        'pe_ratio': 'P/E Ratio',
+        'forward_pe': 'Forward P/E',
+        'price_to_book': 'Price to Book',
+        'price_to_sales': 'Price to Sales',
+        'market_cap': 'Market Cap',
+        'return_on_equity': 'Return on Equity',
+        'return_on_assets': 'Return on Assets',
+        'profit_margins': 'Profit Margin',
+        'operating_margins': 'Operating Margin',
+        'revenue_growth': 'Revenue Growth',
+        'earnings_growth': 'Earnings Growth',
+        'dividend_yield': 'Dividend Yield',
+        'payout_ratio': 'Payout Ratio',
+        'debt_to_equity': 'Debt to Equity',
+        'current_ratio': 'Current Ratio',
+        'quick_ratio': 'Quick Ratio'
+    }
+    return metric_names.get(metric, metric.replace('_', ' ').title())
+
 def page_basket_orders():
     """A page for creating, managing, and executing basket orders."""
     display_header()
@@ -4821,6 +5265,8 @@ def page_economic_calendar():
 
     st.dataframe(calendar_df, use_container_width=True, hide_index=True)
 
+
+
 # ============ 5.5 HFT TERMINAL PAGE ============
 def page_hft_terminal():
     """A dedicated terminal for High-Frequency Trading with Level 2 data."""
@@ -5112,6 +5558,7 @@ def main_app():
             "Advanced Charting": page_advanced_charting,
             "Market Scanners": page_momentum_and_trend_finder,
             "Portfolio & Risk": page_portfolio_and_risk,
+            "Fundamental Analytics": page_fundamental_analytics,
             "Basket Orders": page_basket_orders,
             "Forecasting (ML)": page_forecasting_ml,
             "Algo Strategy Hub": page_algo_strategy_maker,
