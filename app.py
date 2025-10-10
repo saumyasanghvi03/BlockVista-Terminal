@@ -1991,6 +1991,11 @@ def page_fully_automated_bots(instrument_df):
     if 'automated_mode' not in st.session_state:
         initialize_automated_mode()
     
+    # Fix the total_capital value if it's below minimum
+    current_capital = st.session_state.automated_mode.get('total_capital', 10000)
+    if current_capital < 1000:
+        st.session_state.automated_mode['total_capital'] = 10000
+    
     # Add live trading confirmation
     if st.session_state.automated_mode.get('running', False) and st.session_state.automated_mode.get('live_trading', False):
         st.error("**🚀 LIVE TRADING ACTIVE** - Real orders are being placed with your broker!")
@@ -2040,11 +2045,15 @@ def page_fully_automated_bots(instrument_df):
             st.button("🚀 Start Automated Trading", use_container_width=True, disabled=True)
     
     with col4:
+        # Get and validate current capital value
+        current_capital = st.session_state.automated_mode.get('total_capital', 10000)
+        current_capital = max(1000, current_capital)  # Ensure it's at least 1000
+        
         total_capital = st.number_input(
             "Total Capital (₹)",
             min_value=1000,
             max_value=1000000,
-            value=st.session_state.automated_mode.get('total_capital', 10000),
+            value=current_capital,  # Use validated value
             step=1000,
             help="Total capital allocated for automated trading",
             key="auto_capital"
@@ -2052,12 +2061,15 @@ def page_fully_automated_bots(instrument_df):
         st.session_state.automated_mode['total_capital'] = total_capital
     
     with col5:
-        # Replace slider with number input to avoid the error
+        # Get and validate current risk value
+        current_risk = st.session_state.automated_mode.get('risk_per_trade', 2.0)
+        current_risk = max(0.5, min(5.0, current_risk))  # Ensure it's within range
+        
         risk_per_trade = st.number_input(
             "Risk per Trade (%)",
             min_value=0.5,
             max_value=5.0,
-            value=st.session_state.automated_mode.get('risk_per_trade', 2.0),
+            value=current_risk,  # Use validated value
             step=0.5,
             help="Percentage of capital to risk per trade",
             key="auto_risk"
@@ -2158,7 +2170,7 @@ def page_fully_automated_bots(instrument_df):
             
             if st.session_state.automated_mode['running']:
                 # Auto-refresh for live trading
-                st_autorefresh(interval=30000, key="auto_refresh")
+                st_autorefresh(interval=30000, key="auto_refresh")  # Refresh every 30 seconds
                 
                 # Get watchlist symbols for automated trading
                 active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
@@ -2231,7 +2243,7 @@ def page_fully_automated_bots(instrument_df):
             # Recent trades table
             st.markdown("---")
             st.subheader("📋 Recent Trading Activity")
-            recent_trades = st.session_state.automated_mode['trade_history'][-20:]
+            recent_trades = st.session_state.automated_mode['trade_history'][-20:]  # Last 20 trades
             
             if recent_trades:
                 # Convert to DataFrame for display
