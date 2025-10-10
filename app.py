@@ -3744,10 +3744,10 @@ def page_ai_assistant():
                 st.session_state.messages.append({"role": "assistant", "content": response})
 
 def page_fundamental_analytics():
-    """Fundamental Analytics page for company financial analysis and comparison."""
+    """Fundamental Analytics page using Kite Connect data and other available sources."""
     display_header()
     st.title("📊 Fundamental Analytics")
-    st.info("Analyze company fundamentals, financial ratios, and compare multiple stocks side-by-side.", icon="📈")
+    st.info("Analyze company fundamentals using available market data from Kite Connect and other sources.", icon="📈")
     
     tab1, tab2, tab3 = st.tabs(["Company Overview", "Financial Ratios", "Multi-Company Comparison"])
     
@@ -3756,11 +3756,13 @@ def page_fundamental_analytics():
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            symbol = st.text_input("Enter Stock Symbol", "RELIANCE.NS", 
-                                 help="Use .NS for NSE stocks, .BO for BSE stocks")
+            symbol = st.text_input("Enter Stock Symbol", "RELIANCE", 
+                                 help="Enter NSE stock symbol (e.g., RELIANCE, TCS, INFY)")
+            exchange = st.selectbox("Exchange", ["NSE", "BSE"], index=0)
+            
             if st.button("Fetch Fundamental Data", use_container_width=True):
                 with st.spinner(f"Fetching data for {symbol}..."):
-                    company_data = get_company_fundamentals(symbol)
+                    company_data = get_company_fundamentals_kite(symbol, exchange)
                     if company_data:
                         st.session_state.current_company = company_data
                         st.session_state.current_symbol = symbol
@@ -3768,110 +3770,108 @@ def page_fundamental_analytics():
         
         with col2:
             if 'current_company' in st.session_state and st.session_state.current_company:
-                display_company_overview(st.session_state.current_company, st.session_state.current_symbol)
+                display_company_overview_kite(st.session_state.current_company, st.session_state.current_symbol)
             else:
                 st.info("Enter a stock symbol and click 'Fetch Fundamental Data' to get started.")
     
     with tab2:
         st.subheader("Financial Ratios & Metrics")
         if 'current_company' in st.session_state and st.session_state.current_company:
-            display_financial_ratios(st.session_state.current_company, st.session_state.current_symbol)
+            display_financial_ratios_kite(st.session_state.current_company, st.session_state.current_symbol)
         else:
             st.info("First fetch company data in the 'Company Overview' tab.")
     
     with tab3:
         st.subheader("Multi-Company Comparison")
-        display_multi_company_comparison()
+        display_multi_company_comparison_kite()
 
-def get_company_fundamentals(symbol):
-    """Fetch comprehensive fundamental data for a company."""
+def get_company_fundamentals_kite(symbol, exchange="NSE"):
+    """Fetch fundamental data using Kite Connect APIs and other available sources."""
+    client = get_broker_client()
+    if not client:
+        st.error("Broker not connected. Please connect to Kite first.")
+        return None
+    
     try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
+        # Get basic instrument info
+        instrument_df = get_instrument_df()
+        if instrument_df.empty:
+            st.error("Could not fetch instrument data.")
+            return None
+            
+        instrument_info = instrument_df[
+            (instrument_df['tradingsymbol'] == symbol.upper()) & 
+            (instrument_df['exchange'] == exchange)
+        ]
+        
+        if instrument_info.empty:
+            st.error(f"Symbol {symbol} not found on {exchange}.")
+            return None
+            
+        instrument_info = instrument_info.iloc[0]
+        
+        # Get current quote data
+        quote_data = client.quote(f"{exchange}:{symbol.upper()}")
+        if not quote_data:
+            st.error(f"Could not fetch quote data for {symbol}.")
+            return None
+            
+        quote = quote_data[f"{exchange}:{symbol.upper()}"]
         
         # Basic company info
         company_data = {
-            'symbol': symbol,
-            'name': info.get('longName', 'N/A'),
-            'sector': info.get('sector', 'N/A'),
-            'industry': info.get('industry', 'N/A'),
-            'country': info.get('country', 'N/A'),
-            'exchange': info.get('exchange', 'N/A'),
-            'currency': info.get('currency', 'N/A'),
-            'market_cap': info.get('marketCap', 0),
-            'description': info.get('longBusinessSummary', 'No description available.'),
-            'employees': info.get('fullTimeEmployees', 'N/A'),
-            'website': info.get('website', 'N/A'),
+            'symbol': symbol.upper(),
+            'exchange': exchange,
+            'name': instrument_info.get('name', symbol.upper()),
+            'lot_size': instrument_info.get('lot_size', 0),
+            'instrument_type': instrument_info.get('instrument_type', 'EQ'),
+            'segment': instrument_info.get('segment', ''),
         }
         
-        # Price metrics
+        # Price metrics from quote
         company_data.update({
-            'current_price': info.get('currentPrice', info.get('regularMarketPrice', 0)),
-            'previous_close': info.get('previousClose', 0),
-            'day_high': info.get('dayHigh', 0),
-            'day_low': info.get('dayLow', 0),
-            '52_week_high': info.get('fiftyTwoWeekHigh', 0),
-            '52_week_low': info.get('fiftyTwoWeekLow', 0),
-            'volume': info.get('volume', 0),
-            'avg_volume': info.get('averageVolume', 0),
+            'current_price': quote.get('last_price', 0),
+            'open': quote.get('ohlc', {}).get('open', 0),
+            'high': quote.get('ohlc', {}).get('high', 0),
+            'low': quote.get('ohlc', {}).get('low', 0),
+            'close': quote.get('ohlc', {}).get('close', 0),
+            'volume': quote.get('volume', 0),
+            'average_volume': quote.get('average_price', 0) * quote.get('volume', 0) if quote.get('volume', 0) > 0 else 0,
         })
         
-        # Valuation ratios
-        company_data.update({
-            'pe_ratio': info.get('trailingPE', 0),
-            'forward_pe': info.get('forwardPE', 0),
-            'peg_ratio': info.get('pegRatio', 0),
-            'price_to_sales': info.get('priceToSalesTrailing12Months', 0),
-            'price_to_book': info.get('priceToBook', 0),
-            'enterprise_to_ebitda': info.get('enterpriseToEbitda', 0),
-            'enterprise_to_revenue': info.get('enterpriseToRevenue', 0),
-        })
+        # Calculate basic ratios from available data
+        if quote.get('ohlc', {}).get('close', 0) > 0:
+            change = company_data['current_price'] - quote['ohlc']['close']
+            company_data['change_percent'] = (change / quote['ohlc']['close']) * 100
+        else:
+            company_data['change_percent'] = 0
         
-        # Financial metrics
-        company_data.update({
-            'profit_margins': info.get('profitMargins', 0),
-            'operating_margins': info.get('operatingMargins', 0),
-            'gross_margins': info.get('grossMargins', 0),
-            'ebitda_margins': info.get('ebitdaMargins', 0),
-            'return_on_equity': info.get('returnOnEquity', 0),
-            'return_on_assets': info.get('returnOnAssets', 0),
-        })
+        # Get historical data for additional calculations
+        token = get_instrument_token(symbol, instrument_df, exchange)
+        if token:
+            hist_data = get_historical_data(token, 'day', period='1y')
+            if not hist_data.empty and len(hist_data) > 200:
+                # Calculate 52-week high/low
+                company_data['52_week_high'] = hist_data['high'].max()
+                company_data['52_week_low'] = hist_data['low'].min()
+                
+                # Calculate basic volatility
+                returns = hist_data['close'].pct_change().dropna()
+                company_data['volatility'] = returns.std() * np.sqrt(252) * 100  # Annualized volatility
+                
+                # Calculate simple moving averages
+                company_data['sma_50'] = hist_data['close'].tail(50).mean()
+                company_data['sma_200'] = hist_data['close'].tail(200).mean()
         
-        # Growth metrics
+        # Placeholder values for fundamental data (in real implementation, you'd fetch from other sources)
         company_data.update({
-            'revenue_growth': info.get('revenueGrowth', 0),
-            'earnings_growth': info.get('earningsGrowth', 0),
-            'earnings_quarterly_growth': info.get('earningsQuarterlyGrowth', 0),
-        })
-        
-        # Dividend information
-        company_data.update({
-            'dividend_yield': info.get('dividendYield', 0),
-            'dividend_rate': info.get('dividendRate', 0),
-            'payout_ratio': info.get('payoutRatio', 0),
-            'dividend_date': info.get('dividendDate', 'N/A'),
-            'ex_dividend_date': info.get('exDividendDate', 'N/A'),
-        })
-        
-        # Financial health
-        company_data.update({
-            'debt_to_equity': info.get('debtToEquity', 0),
-            'current_ratio': info.get('currentRatio', 0),
-            'quick_ratio': info.get('quickRatio', 0),
-            'operating_cash_flow': info.get('operatingCashflow', 0),
-            'free_cash_flow': info.get('freeCashflow', 0),
-            'total_debt': info.get('totalDebt', 0),
-            'total_cash': info.get('totalCash', 0),
-        })
-        
-        # Analyst recommendations
-        company_data.update({
-            'recommendation_mean': info.get('recommendationMean', 0),
-            'recommendation_key': info.get('recommendationKey', 'N/A'),
-            'number_of_analyst_opinions': info.get('numberOfAnalystOpinions', 0),
-            'target_mean_price': info.get('targetMeanPrice', 0),
-            'target_high_price': info.get('targetHighPrice', 0),
-            'target_low_price': info.get('targetLowPrice', 0),
+            'market_cap': company_data['current_price'] * instrument_info.get('lot_size', 1) * 1000,  # Rough estimate
+            'sector': 'Not Available',  # Would need external data source
+            'industry': 'Not Available',
+            'pe_ratio': 0,  # Would need earnings data
+            'dividend_yield': 0,
+            'book_value': 0,
+            'eps': 0,
         })
         
         return company_data
@@ -3880,155 +3880,134 @@ def get_company_fundamentals(symbol):
         st.error(f"Error fetching data for {symbol}: {str(e)}")
         return None
 
-def display_company_overview(company_data, symbol):
-    """Display comprehensive company overview."""
+def display_company_overview_kite(company_data, symbol):
+    """Display company overview using Kite Connect data."""
     st.subheader(f"{company_data['name']} ({symbol})")
     
     # Basic info cards
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Current Price", f"₹{company_data['current_price']:,.2f}" if company_data['current_price'] else "N/A")
-        st.metric("Market Cap", format_market_cap(company_data['market_cap']))
+        st.metric("Current Price", f"₹{company_data['current_price']:,.2f}")
+        st.metric("Today's Change", f"{company_data['change_percent']:.2f}%")
     
     with col2:
-        st.metric("P/E Ratio", f"{company_data['pe_ratio']:.2f}" if company_data['pe_ratio'] else "N/A")
-        st.metric("P/B Ratio", f"{company_data['price_to_book']:.2f}" if company_data['price_to_book'] else "N/A")
+        if company_data.get('52_week_high'):
+            st.metric("52W High", f"₹{company_data['52_week_high']:,.2f}")
+        if company_data.get('52_week_low'):
+            st.metric("52W Low", f"₹{company_data['52_week_low']:,.2f}")
     
     with col3:
-        st.metric("Dividend Yield", f"{company_data['dividend_yield']*100:.2f}%" if company_data['dividend_yield'] else "N/A")
-        st.metric("ROE", f"{company_data['return_on_equity']*100:.2f}%" if company_data['return_on_equity'] else "N/A")
+        st.metric("Volume", f"{company_data['volume']:,}")
+        if company_data.get('volatility'):
+            st.metric("Volatility", f"{company_data['volatility']:.1f}%")
     
     with col4:
-        st.metric("52W High", f"₹{company_data['52_week_high']:,.2f}" if company_data['52_week_high'] else "N/A")
-        st.metric("52W Low", f"₹{company_data['52_week_low']:,.2f}" if company_data['52_week_low'] else "N/A")
+        st.metric("Lot Size", f"{company_data['lot_size']:,}")
+        st.metric("Instrument Type", company_data['instrument_type'])
     
     st.markdown("---")
     
-    # Company details
+    # Additional metrics
     col5, col6 = st.columns(2)
     
     with col5:
-        st.subheader("Company Information")
-        st.write(f"**Sector:** {company_data['sector']}")
-        st.write(f"**Industry:** {company_data['industry']}")
-        st.write(f"**Country:** {company_data['country']}")
+        st.subheader("Trading Information")
         st.write(f"**Exchange:** {company_data['exchange']}")
-        st.write(f"**Employees:** {format_number(company_data['employees'])}")
-        if company_data['website'] != 'N/A':
-            st.write(f"**Website:** [{company_data['website']}]({company_data['website']})")
+        st.write(f"**Segment:** {company_data['segment']}")
+        st.write(f"**Open:** ₹{company_data['open']:,.2f}")
+        st.write(f"**High:** ₹{company_data['high']:,.2f}")
+        st.write(f"**Low:** ₹{company_data['low']:,.2f}")
+        st.write(f"**Close:** ₹{company_data['close']:,.2f}")
     
     with col6:
-        st.subheader("Analyst Coverage")
-        st.write(f"**Recommendation:** {company_data['recommendation_key'].title() if company_data['recommendation_key'] != 'N/A' else 'N/A'}")
-        st.write(f"**Target Price:** ₹{company_data['target_mean_price']:,.2f}" if company_data['target_mean_price'] else "**Target Price:** N/A")
-        st.write(f"**Analysts:** {company_data['number_of_analyst_opinions']}")
-        st.write(f"**Target High:** ₹{company_data['target_high_price']:,.2f}" if company_data['target_high_price'] else "**Target High:** N/A")
-        st.write(f"**Target Low:** ₹{company_data['target_low_price']:,.2f}" if company_data['target_low_price'] else "**Target Low:** N/A")
-    
-    # Company description
-    st.subheader("Business Description")
-    st.write(company_data['description'][:500] + "..." if len(company_data['description']) > 500 else company_data['description'])
+        st.subheader("Technical Indicators")
+        if company_data.get('sma_50'):
+            st.write(f"**50-Day SMA:** ₹{company_data['sma_50']:,.2f}")
+        if company_data.get('sma_200'):
+            st.write(f"**200-Day SMA:** ₹{company_data['sma_200']:,.2f}")
+        
+        # Calculate position relative to moving averages
+        if company_data.get('sma_50') and company_data.get('sma_200'):
+            if company_data['current_price'] > company_data['sma_50'] > company_data['sma_200']:
+                st.success("**Trend:** Bullish (Price > 50 SMA > 200 SMA)")
+            elif company_data['current_price'] < company_data['sma_50'] < company_data['sma_200']:
+                st.error("**Trend:** Bearish (Price < 50 SMA < 200 SMA)")
+            else:
+                st.info("**Trend:** Mixed")
+        
+        # Market cap estimate
+        if company_data.get('market_cap'):
+            st.write(f"**Estimated Market Cap:** {format_market_cap(company_data['market_cap'])}")
 
-def display_financial_ratios(company_data, symbol):
-    """Display detailed financial ratios and metrics."""
-    st.subheader(f"Financial Ratios - {company_data['name']}")
+def display_financial_ratios_kite(company_data, symbol):
+    """Display financial ratios and metrics using available data."""
+    st.subheader(f"Market Data & Ratios - {company_data['name']}")
     
-    # Create tabs for different ratio categories
-    tab1, tab2, tab3, tab4 = st.tabs(["Valuation", "Profitability", "Financial Health", "Growth"])
+    # Create tabs for different metric categories
+    tab1, tab2, tab3 = st.tabs(["Price Analysis", "Volume & Liquidity", "Risk Metrics"])
     
     with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.metric("P/E Ratio", f"{company_data['pe_ratio']:.2f}" if company_data['pe_ratio'] else "N/A")
-            st.metric("Forward P/E", f"{company_data['forward_pe']:.2f}" if company_data['forward_pe'] else "N/A")
-            st.metric("PEG Ratio", f"{company_data['peg_ratio']:.2f}" if company_data['peg_ratio'] else "N/A")
+            if company_data.get('52_week_high') and company_data['52_week_high'] > 0:
+                distance_from_high = ((company_data['52_week_high'] - company_data['current_price']) / company_data['52_week_high']) * 100
+                st.metric("From 52W High", f"-{distance_from_high:.1f}%")
+            
+            if company_data.get('52_week_low') and company_data['52_week_low'] > 0:
+                distance_from_low = ((company_data['current_price'] - company_data['52_week_low']) / company_data['52_week_low']) * 100
+                st.metric("From 52W Low", f"+{distance_from_low:.1f}%")
         
         with col2:
-            st.metric("Price to Sales", f"{company_data['price_to_sales']:.2f}" if company_data['price_to_sales'] else "N/A")
-            st.metric("Price to Book", f"{company_data['price_to_book']:.2f}" if company_data['price_to_book'] else "N/A")
-            st.metric("Enterprise to EBITDA", f"{company_data['enterprise_to_ebitda']:.2f}" if company_data['enterprise_to_ebitda'] else "N/A")
+            if company_data.get('sma_50') and company_data['sma_50'] > 0:
+                vs_sma_50 = ((company_data['current_price'] - company_data['sma_50']) / company_data['sma_50']) * 100
+                st.metric("vs 50-Day SMA", f"{vs_sma_50:+.1f}%")
+            
+            if company_data.get('sma_200') and company_data['sma_200'] > 0:
+                vs_sma_200 = ((company_data['current_price'] - company_data['sma_200']) / company_data['sma_200']) * 100
+                st.metric("vs 200-Day SMA", f"{vs_sma_200:+.1f}%")
     
     with tab2:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.metric("Gross Margin", f"{company_data['gross_margins']*100:.2f}%" if company_data['gross_margins'] else "N/A")
-            st.metric("Operating Margin", f"{company_data['operating_margins']*100:.2f}%" if company_data['operating_margins'] else "N/A")
-            st.metric("Profit Margin", f"{company_data['profit_margins']*100:.2f}%" if company_data['profit_margins'] else "N/A")
+            st.metric("Today's Volume", f"{company_data['volume']:,}")
+            if company_data.get('average_volume'):
+                st.metric("Average Volume", f"{company_data['average_volume']:,.0f}")
         
         with col2:
-            st.metric("Return on Equity", f"{company_data['return_on_equity']*100:.2f}%" if company_data['return_on_equity'] else "N/A")
-            st.metric("Return on Assets", f"{company_data['return_on_assets']*100:.2f}%" if company_data['return_on_assets'] else "N/A")
-            st.metric("EBITDA Margin", f"{company_data['ebitda_margins']*100:.2f}%" if company_data['ebitda_margins'] else "N/A")
+            if company_data.get('lot_size'):
+                st.metric("Lot Size", f"{company_data['lot_size']:,}")
+            
+            # Volume ratio (today vs average)
+            if company_data.get('average_volume') and company_data['average_volume'] > 0:
+                volume_ratio = (company_data['volume'] / company_data['average_volume']) * 100
+                st.metric("Volume Ratio", f"{volume_ratio:.1f}%")
     
     with tab3:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.metric("Debt to Equity", f"{company_data['debt_to_equity']:.2f}" if company_data['debt_to_equity'] else "N/A")
-            st.metric("Current Ratio", f"{company_data['current_ratio']:.2f}" if company_data['current_ratio'] else "N/A")
-            st.metric("Quick Ratio", f"{company_data['quick_ratio']:.2f}" if company_data['quick_ratio'] else "N/A")
+            if company_data.get('volatility'):
+                st.metric("Annual Volatility", f"{company_data['volatility']:.1f}%")
+            
+            # Beta calculation would require market data comparison
+            st.metric("Beta", "N/A")
         
         with col2:
-            st.metric("Operating Cash Flow", format_market_cap(company_data['operating_cash_flow']) if company_data['operating_cash_flow'] else "N/A")
-            st.metric("Free Cash Flow", format_market_cap(company_data['free_cash_flow']) if company_data['free_cash_flow'] else "N/A")
-            st.metric("Total Cash", format_market_cap(company_data['total_cash']) if company_data['total_cash'] else "N/A")
-    
-    with tab4:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric("Revenue Growth", f"{company_data['revenue_growth']*100:.2f}%" if company_data['revenue_growth'] else "N/A")
-            st.metric("Earnings Growth", f"{company_data['earnings_growth']*100:.2f}%" if company_data['earnings_growth'] else "N/A")
-            st.metric("Quarterly Earnings Growth", f"{company_data['earnings_quarterly_growth']*100:.2f}%" if company_data['earnings_quarterly_growth'] else "N/A")
-        
-        with col2:
-            st.metric("Dividend Rate", f"₹{company_data['dividend_rate']:.2f}" if company_data['dividend_rate'] else "N/A")
-            st.metric("Payout Ratio", f"{company_data['payout_ratio']*100:.2f}%" if company_data['payout_ratio'] else "N/A")
-    
-    # Visualization
-    st.markdown("---")
-    st.subheader("Key Metrics Visualization")
-    
-    # Create radar chart for key metrics
-    metrics_to_plot = ['pe_ratio', 'price_to_book', 'return_on_equity', 'profit_margins', 'debt_to_equity']
-    metric_names = ['P/E Ratio', 'P/B Ratio', 'ROE (%)', 'Profit Margin (%)', 'Debt/Equity']
-    metric_values = []
-    
-    for metric in metrics_to_plot:
-        value = company_data.get(metric, 0)
-        if metric in ['return_on_equity', 'profit_margins']:
-            value = value * 100 if value else 0  # Convert to percentage
-        metric_values.append(value if value else 0)
-    
-    # Normalize values for radar chart (0-100 scale)
-    max_vals = [50, 10, 50, 50, 2]  # Reasonable maximums for normalization
-    normalized_values = [min((v / max_v) * 100, 100) for v, max_v in zip(metric_values, max_vals)]
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatterpolar(
-        r=normalized_values,
-        theta=metric_names,
-        fill='toself',
-        name=company_data['name']
-    ))
-    
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[0, 100]
-            )),
-        showlegend=False,
-        title="Financial Metrics Radar Chart"
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
+            # Daily price range
+            if company_data['high'] > 0 and company_data['low'] > 0:
+                daily_range = ((company_data['high'] - company_data['low']) / company_data['low']) * 100
+                st.metric("Daily Range", f"{daily_range:.1f}%")
+            
+            # Gap analysis
+            if company_data['open'] > 0 and company_data['close'] > 0:
+                gap = ((company_data['open'] - company_data['close']) / company_data['close']) * 100
+                st.metric("Opening Gap", f"{gap:+.1f}%")
 
-def display_multi_company_comparison():
-    """Display comparison of multiple companies."""
+def display_multi_company_comparison_kite():
+    """Display comparison of multiple companies using Kite data."""
     st.subheader("Compare Multiple Companies")
     
     # Input for multiple symbols
@@ -4037,17 +4016,17 @@ def display_multi_company_comparison():
     with col1:
         symbols_input = st.text_input(
             "Enter Stock Symbols (comma separated)", 
-            "RELIANCE.NS, TCS.NS, INFY.NS, HDFCBANK.NS",
-            help="Enter symbols separated by commas. Use .NS for NSE, .BO for BSE"
+            "RELIANCE, TCS, INFY, HDFCBANK",
+            help="Enter NSE symbols separated by commas"
         )
     
     with col2:
         if st.button("Compare Companies", use_container_width=True):
-            symbols = [s.strip() for s in symbols_input.split(',')]
+            symbols = [s.strip().upper() for s in symbols_input.split(',')]
             with st.spinner("Fetching comparison data..."):
                 comparison_data = []
                 for symbol in symbols:
-                    data = get_company_fundamentals(symbol)
+                    data = get_company_fundamentals_kite(symbol, "NSE")
                     if data:
                         comparison_data.append(data)
                 
@@ -4056,17 +4035,15 @@ def display_multi_company_comparison():
                     st.rerun()
     
     if 'comparison_data' in st.session_state and st.session_state.comparison_data:
-        comparison_df = create_comparison_dataframe(st.session_state.comparison_data)
+        comparison_df = create_comparison_dataframe_kite(st.session_state.comparison_data)
         
         # Select metrics to compare
         st.subheader("Select Metrics for Comparison")
         
         metric_categories = {
-            "Valuation": ['pe_ratio', 'forward_pe', 'price_to_book', 'price_to_sales', 'market_cap'],
-            "Profitability": ['return_on_equity', 'return_on_assets', 'profit_margins', 'operating_margins'],
-            "Growth": ['revenue_growth', 'earnings_growth'],
-            "Dividends": ['dividend_yield', 'payout_ratio'],
-            "Financial Health": ['debt_to_equity', 'current_ratio', 'quick_ratio']
+            "Price Analysis": ['current_price', 'change_percent', '52_week_high', '52_week_low'],
+            "Volume Analysis": ['volume', 'lot_size'],
+            "Technical Indicators": ['sma_50', 'sma_200', 'volatility']
         }
         
         selected_metrics = []
@@ -4083,12 +4060,12 @@ def display_multi_company_comparison():
             
             # Format the dataframe
             for col in selected_metrics:
-                if 'ratio' in col.lower() or 'pe' in col.lower() or 'pb' in col.lower():
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "N/A")
-                elif 'margin' in col.lower() or 'yield' in col.lower() or 'growth' in col.lower() or 'return' in col.lower():
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x*100:.2f}%" if pd.notnull(x) and x != 0 else "N/A")
-                elif 'market_cap' in col.lower():
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: format_market_cap(x) if pd.notnull(x) else "N/A")
+                if 'price' in col.lower() or 'sma' in col.lower():
+                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"₹{x:,.2f}" if pd.notnull(x) and x != 0 else "N/A")
+                elif 'percent' in col.lower() or 'volatility' in col.lower():
+                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) and x != 0 else "N/A")
+                elif 'volume' in col.lower() or 'lot' in col.lower():
+                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x != 0 else "N/A")
                 else:
                     comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "N/A")
             
@@ -4108,10 +4085,7 @@ def display_multi_company_comparison():
                     names = []
                     for company in st.session_state.comparison_data:
                         value = company.get(metric_to_plot, 0)
-                        if value:
-                            # Handle percentage metrics
-                            if any(term in metric_to_plot for term in ['margin', 'yield', 'growth', 'return']):
-                                value = value * 100
+                        if value and value != 0:
                             values.append(value)
                             names.append(company['name'])
                     
@@ -4119,20 +4093,26 @@ def display_multi_company_comparison():
                         fig.add_trace(go.Bar(
                             x=names,
                             y=values,
-                            text=[f"{v:.2f}{'%' if any(term in metric_to_plot for term in ['margin', 'yield', 'growth', 'return']) else ''}" for v in values],
+                            text=[f"{v:.2f}{'%' if 'percent' in metric_to_plot or 'volatility' in metric_to_plot else ''}" for v in values],
                             textposition='auto',
                         ))
+                        
+                        y_axis_title = format_metric_name(metric_to_plot)
+                        if 'percent' in metric_to_plot or 'volatility' in metric_to_plot:
+                            y_axis_title += " (%)"
+                        elif 'price' in metric_to_plot:
+                            y_axis_title += " (₹)"
                         
                         fig.update_layout(
                             title=f"{format_metric_name(metric_to_plot)} Comparison",
                             xaxis_title="Companies",
-                            yaxis_title=format_metric_name(metric_to_plot),
+                            yaxis_title=y_axis_title,
                             showlegend=False
                         )
                         
                         st.plotly_chart(fig, use_container_width=True)
 
-def create_comparison_dataframe(company_data_list):
+def create_comparison_dataframe_kite(company_data_list):
     """Create a DataFrame from multiple company data for comparison."""
     comparison_data = []
     for company in company_data_list:
@@ -4141,6 +4121,7 @@ def create_comparison_dataframe(company_data_list):
     
     return pd.DataFrame(comparison_data)
 
+# Keep these helper functions as they're still useful
 def format_market_cap(market_cap):
     """Format market cap into readable string."""
     if market_cap >= 1e12:
@@ -4168,22 +4149,21 @@ def format_number(number):
 def format_metric_name(metric):
     """Convert metric key to display name."""
     metric_names = {
-        'pe_ratio': 'P/E Ratio',
-        'forward_pe': 'Forward P/E',
-        'price_to_book': 'Price to Book',
-        'price_to_sales': 'Price to Sales',
-        'market_cap': 'Market Cap',
-        'return_on_equity': 'Return on Equity',
-        'return_on_assets': 'Return on Assets',
-        'profit_margins': 'Profit Margin',
-        'operating_margins': 'Operating Margin',
-        'revenue_growth': 'Revenue Growth',
-        'earnings_growth': 'Earnings Growth',
-        'dividend_yield': 'Dividend Yield',
-        'payout_ratio': 'Payout Ratio',
-        'debt_to_equity': 'Debt to Equity',
-        'current_ratio': 'Current Ratio',
-        'quick_ratio': 'Quick Ratio'
+        'current_price': 'Current Price',
+        'change_percent': 'Change %',
+        '52_week_high': '52W High',
+        '52_week_low': '52W Low',
+        'volume': 'Volume',
+        'lot_size': 'Lot Size',
+        'sma_50': '50-Day SMA',
+        'sma_200': '200-Day SMA',
+        'volatility': 'Volatility',
+        'open': 'Open Price',
+        'high': 'High Price',
+        'low': 'Low Price',
+        'close': 'Close Price',
+        'instrument_type': 'Instrument Type',
+        'segment': 'Segment'
     }
     return metric_names.get(metric, metric.replace('_', ' ').title())
 
