@@ -1276,109 +1276,13 @@ def scalper_bot(instrument_df, symbol, capital=100):
     except Exception as e:
         return {"error": f"Analysis failed: {str(e)}"}
 
-def trend_follower_bot(instrument_df, symbol, capital=100):
-    """Trend following bot that rides established trends."""
-    exchange = 'NSE'
-    token = get_instrument_token(symbol, instrument_df, exchange)
-    if not token:
-        return {"error": f"Could not find instrument for {symbol}"}
-    
-    try:
-        data = get_historical_data(token, 'hour', period='1mo')
-        if data.empty or len(data) < 100:
-            return {"error": "Insufficient data for analysis"}
-        
-        # Calculate trend indicators
-        data['ADX'] = ta.adx(data['high'], data['low'], data['close'], length=14)['ADX_14']
-        data['EMA_20'] = ta.ema(data['close'], length=20)
-        data['EMA_50'] = ta.ema(data['close'], length=50)
-        
-        # Fix SuperTrend calculation - handle different column naming
-        supertrend_data = ta.supertrend(data['high'], data['low'], data['close'], length=10, multiplier=3)
-        
-        # Find the correct SuperTrend column (it could have different naming patterns)
-        supertrend_col = None
-        for col in supertrend_data.columns:
-            if 'SUPERT' in col and not any(x in col for x in ['d', 'l', 's']): # Main trend line
-                supertrend_col = col
-                break
-        
-        if supertrend_col:
-            data['SuperTrend'] = supertrend_data[supertrend_col]
-        else:
-            # Fallback: use the first column if we can't find the main one
-            data['SuperTrend'] = supertrend_data.iloc[:, 0]
-        
-        latest = data.iloc[-1]
-        current_price = latest['close']
-        
-        signals = []
-        
-        # Trend strength
-        adx = latest.get('ADX', 0)
-        if adx > 25:
-            signals.append(f"Strong trend (ADX: {adx:.1f})")
-        else:
-            signals.append(f"Weak trend (ADX: {adx:.1f})")
-        
-        # Trend direction
-        if latest['EMA_20'] > latest['EMA_50']:
-            signals.append("Uptrend confirmed - BULLISH")
-        else:
-            signals.append("Downtrend confirmed - BEARISH")
-        
-        # SuperTrend signals
-        supertrend_val = latest.get('SuperTrend', current_price)
-        if current_price > supertrend_val:
-            signals.append("Price above SuperTrend - BULLISH")
-        else:
-            signals.append("Price below SuperTrend - BEARISH")
-        
-        # Pullback opportunities
-        if (latest['EMA_20'] > latest['EMA_50'] and 
-            current_price < latest['EMA_20'] and 
-            current_price > latest['EMA_50']):
-            signals.append("Pullback in uptrend - BULLISH")
-        
-        elif (latest['EMA_20'] < latest['EMA_50'] and 
-              current_price > latest['EMA_20'] and 
-              current_price < latest['EMA_50']):
-            signals.append("Pullback in downtrend - BEARISH")
-        
-        # Calculate position size
-        quantity = max(1, int((capital * 0.7) / current_price)) # Use 70% of capital
-        
-        action = "HOLD"
-        bullish_count = len([s for s in signals if "BULLISH" in s])
-        bearish_count = len([s for s in signals if "BEARISH" in s])
-        
-        if bullish_count >= 2 and adx > 20:
-            action = "BUY"
-        elif bearish_count >= 2 and adx > 20:
-            action = "SELL"
-        
-        return {
-            "bot_name": "Trend Follower",
-            "symbol": symbol,
-            "action": action,
-            "quantity": quantity,
-            "current_price": current_price,
-            "signals": signals,
-            "capital_required": quantity * current_price,
-            "risk_level": "Medium"
-        }
-    
-    except Exception as e:
-        return {"error": f"Analysis failed: {str(e)}"}
-
 # Dictionary of all available bots
 ALGO_BOTS = {
     "Momentum Trader": momentum_trader_bot,
     "Mean Reversion": mean_reversion_bot,
     "Volatility Breakout": volatility_breakout_bot,
     "Value Investor": value_investor_bot,
-    "Scalper Pro": scalper_bot,
-    "Trend Follower": trend_follower_bot
+    "Scalper Pro": scalper_bot
 }
 
 def execute_bot_trade(instrument_df, bot_result):
@@ -1459,8 +1363,7 @@ def page_algo_bots():
             "Mean Reversion": "Buys low and sells high based on statistical mean reversion. Low risk.",
             "Volatility Breakout": "Captures breakouts from low volatility periods. High risk.",
             "Value Investor": "Focuses on longer-term value and fundamental trends. Low risk.",
-            "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk.",
-            "Trend Follower": "Rides established trends with multiple confirmations. Medium risk."
+            "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk.".
         }
         
         st.markdown(f"**Description:** {bot_descriptions[selected_bot]}")
