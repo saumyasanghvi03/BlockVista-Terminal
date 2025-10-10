@@ -1,4 +1,5 @@
 # ================ 0. REQUIRED LIBRARIES ================
+
 import streamlit as st
 import pandas as pd
 import pandas_ta as ta
@@ -30,6 +31,7 @@ import hashlib
 import random
 
 # ================ 1. STYLING AND CONFIGURATION ===============
+
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
 
 def apply_custom_styling():
@@ -231,6 +233,7 @@ ML_DATA_SOURCES = {
 }
 
 # ================ 1.5 INITIALIZATION ========================
+
 def initialize_session_state():
     """Initializes all necessary session state variables."""
     if 'broker' not in st.session_state: st.session_state.broker = None
@@ -345,7 +348,7 @@ def display_header():
     
 def display_overnight_changes_bar():
     """Displays a notification bar with overnight market changes."""
-    overnight_tickers = {"GIFT NIFTY": "IN=F", "S&P 500 Futures": "ES=F", "NASDAQ Futures": "NQ=F"}
+    overnight_tickers = {"GIFT NIFTY": "NIFTY_F1", "S&P 500 Futures": "ES=F", "NASDAQ Futures": "NQ=F"}
     data = get_global_indices_data(overnight_tickers)
     
     if not data.empty:
@@ -445,8 +448,8 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
             if df.empty: return df
             df.set_index('date', inplace=True)
             df.index = pd.to_datetime(df.index)
-            
-        
+            return df
+
         except kite_exceptions.KiteException as e:
             st.error(f"Kite API Error (Historical): {e}")
             return pd.DataFrame()
@@ -854,55 +857,47 @@ def show_most_active_dialog(underlying, instrument_df):
     """Dialog to display the most active options by volume."""
     st.subheader(f"Most Active {underlying} Options (By Volume)")
     with st.spinner("Fetching data..."):
-        active_df = get_most_active_options(underlying, instrument_df)
-        if not active_df.empty:
-            st.dataframe(active_df, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Could not retrieve data for most active options.")
 
-def get_most_active_options(underlying, instrument_df):
-    """Fetches the most active options by volume for a given underlying."""
-    client = get_broker_client()
-    if not client:
-        st.toast("Broker not connected.", icon="⚠️")
-        return pd.DataFrame()
-    
-    try:
-        chain_df, expiry, _, _ = get_options_chain(underlying, instrument_df)
-        if chain_df.empty or expiry is None:
+        client = get_broker_client()
+        if not client:
+            st.toast("Broker not connected.", icon="⚠️")
             return pd.DataFrame()
-        ce_symbols = chain_df['CALL'].dropna().tolist()
-        pe_symbols = chain_df['PUT'].dropna().tolist()
-        all_symbols = [f"NFO:{s}" for s in ce_symbols + pe_symbols]
-
-        if not all_symbols:
-            return pd.DataFrame()
-
-        quotes = client.quote(all_symbols)
         
-        active_options = []
-        for symbol, data in quotes.items():
-            prev_close = data.get('ohlc', {}).get('close', 0)
-            last_price = data.get('last_price', 0)
-            change = last_price - prev_close
-            pct_change = (change / prev_close * 100) if prev_close != 0 else 0
+        try:
+            chain_df, expiry, _, _ = get_options_chain(underlying, instrument_df)
+            if chain_df.empty or expiry is None:
+                return pd.DataFrame()
+            ce_symbols = chain_df['CALL'].dropna().tolist()
+            pe_symbols = chain_df['PUT'].dropna().tolist()
+            all_symbols = [f"NFO:{s}" for s in ce_symbols + pe_symbols]
+
+            if not all_symbols:
+                return pd.DataFrame()
+
+            quotes = client.quote(all_symbols)
             
-            active_options.append({
-                'Symbol': data.get('tradingsymbol'),
-                'LTP': last_price,
-                'Change %': pct_change,
-                'Volume': data.get('volume', 0),
-                'OI': data.get('oi', 0)
-            })
-        
-        df = pd.DataFrame(active_options)
-        df_sorted = df.sort_values(by='Volume', ascending=False)
-        return df_sorted.head(10)
+            active_options = []
+            for symbol, data in quotes.items():
+                prev_close = data.get('ohlc', {}).get('close', 0)
+                last_price = data.get('last_price', 0)
+                change = last_price - prev_close
+                pct_change = (change / prev_close * 100) if prev_close != 0 else 0
+                
+                active_options.append({
+                    'Symbol': data.get('tradingsymbol'),
+                    'LTP': last_price,
+                    'Change %': pct_change,
+                    'Volume': data.get('volume', 0),
+                    'OI': data.get('oi', 0)
+                })
+            
+            df = pd.DataFrame(active_options)
+            df_sorted = df.sort_values(by='Volume', ascending=False)
+            st.dataframe(df_sorted.head(10), use_container_width=True, hide_index=True)
 
-    except Exception as e:
-        st.error(f"Could not fetch most active options: {e}")
-        return pd.DataFrame()
-        
+        except Exception as e:
+            st.error(f"Could not fetch most active options: {e}")
+
 @st.cache_data(ttl=60)
 def get_global_indices_data(tickers):
     """Fetches real-time data for global indices using yfinance."""
@@ -917,14 +912,17 @@ def get_global_indices_data(tickers):
         data = []
         for ticker_name, yf_ticker_name in tickers.items():
             if len(tickers) > 1:
-                hist = data_yf.loc[:, (slice(None), yf_ticker_name)]
-                hist.columns = hist.columns.droplevel(1)
+                # For multiple tickers, extract data for each ticker
+                if yf_ticker_name in data_yf['Close'].columns:
+                    hist = data_yf['Close'][yf_ticker_name]
+                else:
+                    continue
             else:
-                hist = data_yf
+                hist = data_yf['Close']
 
             if len(hist) >= 2:
-                last_price = hist['Close'].iloc[-1]
-                prev_close = hist['Close'].iloc[-2]
+                last_price = float(hist.iloc[-1])
+                prev_close = float(hist.iloc[-2])
                 change = last_price - prev_close
                 pct_change = (change / prev_close * 100) if prev_close != 0 else 0
                 data.append({'Ticker': ticker_name, 'Price': last_price, 'Change': change, '% Change': pct_change})
@@ -1373,7 +1371,6 @@ def trend_follower_bot(instrument_df, symbol, capital=100):
     except Exception as e:
         return {"error": f"Analysis failed: {str(e)}"}
 
-
 # Dictionary of all available bots
 ALGO_BOTS = {
     "Momentum Trader": momentum_trader_bot,
@@ -1588,6 +1585,7 @@ def page_algo_bots():
 # ================ 5. PAGE DEFINITIONS ============
 
 # --- Bharatiya Market Pulse (BMP) Functions ---
+
 def get_bmp_score_and_label(nifty_change, sensex_change, vix_value, lookback_df):
     """Calculates BMP score and returns the score and a Bharat-flavored label."""
     if lookback_df.empty or len(lookback_df) < 30:
@@ -1684,7 +1682,7 @@ def create_nifty_heatmap(instrument_df):
 def get_gift_nifty_data():
     """Fetches GIFT NIFTY data using a more reliable yfinance ticker."""
     try:
-        data = yf.download("IN=F", period="1d", interval="1m")
+        data = yf.download("NIFTY_F1", period="1d", interval="1m")
         if not data.empty:
             return data
     except Exception:
