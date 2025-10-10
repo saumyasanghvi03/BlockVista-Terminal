@@ -1,23 +1,12 @@
 [theme]
-base = "dark"
-primaryColor = "#00FFAA"
-backgroundColor = "#0B0F17"
-secondaryBackgroundColor = "#111827"
-textColor = "#E5E7EB"
-font = "sans serif"
+base="dark"
+primaryColor="#16F2B3"
+backgroundColor="#06090F"
+secondaryBackgroundColor="#0E1621"
+textColor="#E2E8F0"
+font="monospace"
 
 [server]
-headless = true
-port = 8501
-enableCORS = false
-enableXsrfProtection = true
-
-[browser]
-gatherUsageStats = false
-
-[client]
-toolbarMode = "minimal"
-
-[logger]
-level = "info"
-messageFormat = "%(asctime)s — %(levelname)s — %(message)s"
+headless=true
+enableCORS=false
+port=8501
