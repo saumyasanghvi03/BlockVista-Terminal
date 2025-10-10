@@ -1,7 +1,7 @@
 streamlit==1.35.0
 pytz==2024.1
 pandas==2.2.2
-pandas-ta==0.3.14b0       # Last build compatible with NumPy 1.x
+pandas-ta-fork==0.3.14b0
 plotly==5.22.0
 kiteconnect==4.0.0
 streamlit-autorefresh==0.0.1
