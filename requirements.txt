@@ -1,8 +1,8 @@
 streamlit==1.41.1
 pandas==2.3.2
-pandas-ta==0.4.67b0
-numpy==2.3.0
-scipy==1.14.0
+numpy==1.26.4
+pandas-ta==0.4.15
+scipy==1.13.1
 statsmodels==0.14.2
 plotly==5.22.0
 kiteconnect==4.0.0
