@@ -261,7 +261,6 @@ def initialize_session_state():
     if 'hft_last_price' not in st.session_state: st.session_state.hft_last_price = 0
     if 'hft_tick_log' not in st.session_state: st.session_state.hft_tick_log = []
     if 'last_bot_result' not in st.session_state: st.session_state.last_bot_result = None
-    if 'terminal_mode' not in st.session_state: st.session_state.terminal_mode = "Cash"
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -351,9 +350,14 @@ def display_overnight_changes_bar():
     
     if not data.empty:
         bar_html = "<div class='notification-bar'>"
-        for _, row in data.iterrows():
-            color = 'var(--green)' if row['% Change'] > 0 else 'var(--red)'
-            bar_html += f"<span>{row['Ticker']}: {row['Price']:,.2f} <span style='color:{color};'>({row['% Change']:+.2f}%)</span></span>"
+        for name, ticker in overnight_tickers.items():
+            row = data[data['Ticker'] == name]
+            if not row.empty:
+                price = row.iloc[0]['Price']
+                change = row.iloc[0]['% Change']
+                if not np.isnan(price):
+                    color = 'var(--green)' if change > 0 else 'var(--red)'
+                    bar_html += f"<span>{name}: {price:,.2f} <span style='color:{color};'>({change:+.2f}%)</span></span>"
         bar_html += "</div>"
         st.markdown(bar_html, unsafe_allow_html=True)
 
@@ -479,7 +483,7 @@ def get_watchlist_data(symbols_with_exchange):
                     watchlist.append({'Ticker': item['symbol'], 'Exchange': item['exchange'], 'Price': last_price, 'Change': change, '% Change': pct_change})
             return pd.DataFrame(watchlist)
         except Exception as e:
-            st.toast(f"Error fetching watchlist data: {e}", icon=⚠️")
+            st.toast(f"Error fetching watchlist data: {e}", icon="⚠️")
             return pd.DataFrame()
     else:
         st.warning(f"Watchlist for {st.session_state.broker} not implemented.")
@@ -947,55 +951,61 @@ def momentum_trader_bot(instrument_df, symbol, capital=100):
     if not token:
         return {"error": f"Could not find instrument for {symbol}"}
     
-    data = get_historical_data(token, '5minute', period='1d')
-    if data.empty or len(data) < 20:
-        return {"error": "Insufficient data for analysis"}
+    try:
+        data = get_historical_data(token, '5minute', period='1d')
+        if data.empty or len(data) < 20:
+            return {"error": "Insufficient data for analysis"}
+        
+        # Calculate indicators with error handling
+        data['RSI'] = ta.rsi(data['close'], length=14)
+        data['EMA_20'] = ta.ema(data['close'], length=20)
+        data['EMA_50'] = ta.ema(data['close'], length=50)
+        
+        latest = data.iloc[-1]
+        prev = data.iloc[-2]
+        
+        signals = []
+        
+        # Momentum signals
+        if (latest['EMA_20'] > latest['EMA_50'] and 
+            prev['EMA_20'] <= prev['EMA_50']):
+            signals.append("EMA crossover - BULLISH")
+        
+        rsi_val = latest.get('RSI', 50)
+        if rsi_val < 30:
+            signals.append("RSI oversold - BULLISH")
+        elif rsi_val > 70:
+            signals.append("RSI overbought - BEARISH")
+        
+        # Price momentum
+        if len(data) >= 6:
+            price_change_5min = ((latest['close'] - data.iloc[-6]['close']) / data.iloc[-6]['close']) * 100
+            if price_change_5min > 0.5:
+                signals.append(f"Strong upward momentum: +{price_change_5min:.2f}%")
+        
+        # Calculate position size
+        current_price = latest['close']
+        quantity = max(1, int((capital * 0.8) / current_price))  # Use 80% of capital
+        
+        action = "HOLD"
+        if len([s for s in signals if "BULLISH" in s]) >= 2:
+            action = "BUY"
+        elif len([s for s in signals if "BEARISH" in s]) >= 2:
+            action = "SELL"
+        
+        return {
+            "bot_name": "Momentum Trader",
+            "symbol": symbol,
+            "action": action,
+            "quantity": quantity,
+            "current_price": current_price,
+            "signals": signals,
+            "capital_required": quantity * current_price,
+            "risk_level": "Medium"
+        }
     
-    # Calculate indicators
-    data['RSI'] = ta.rsi(data['close'], length=14)
-    data['EMA_20'] = ta.ema(data['close'], length=20)
-    data['EMA_50'] = ta.ema(data['close'], length=50)
-    
-    latest = data.iloc[-1]
-    prev = data.iloc[-2]
-    
-    signals = []
-    
-    # Momentum signals
-    if (latest['EMA_20'] > latest['EMA_50'] and 
-        prev['EMA_20'] <= prev['EMA_50']):
-        signals.append("EMA crossover - BULLISH")
-    
-    if latest['RSI'] < 30:
-        signals.append("RSI oversold - BULLISH")
-    elif latest['RSI'] > 70:
-        signals.append("RSI overbought - BEARISH")
-    
-    # Price momentum
-    price_change_5min = ((latest['close'] - data.iloc[-6]['close']) / data.iloc[-6]['close']) * 100
-    if price_change_5min > 0.5:
-        signals.append(f"Strong upward momentum: +{price_change_5min:.2f}%")
-    
-    # Calculate position size
-    current_price = latest['close']
-    quantity = max(1, int((capital * 0.8) / current_price))  # Use 80% of capital
-    
-    action = "HOLD"
-    if len([s for s in signals if "BULLISH" in s]) >= 2:
-        action = "BUY"
-    elif len([s for s in signals if "BEARISH" in s]) >= 2:
-        action = "SELL"
-    
-    return {
-        "bot_name": "Momentum Trader",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "Medium"
-    }
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
 
 def mean_reversion_bot(instrument_df, symbol, capital=100):
     """Mean reversion bot that trades on price returning to mean levels."""
@@ -1004,61 +1014,65 @@ def mean_reversion_bot(instrument_df, symbol, capital=100):
     if not token:
         return {"error": f"Could not find instrument for {symbol}"}
     
-    data = get_historical_data(token, '15minute', period='5d')
-    if data.empty or len(data) < 50:
-        return {"error": "Insufficient data for analysis"}
-    
-    # Calculate Bollinger Bands
-    bb = ta.bbands(data['close'], length=20, std=2)
-    data = pd.concat([data, bb], axis=1)
-    
-    latest = data.iloc[-1]
-    
-    signals = []
-    current_price = latest['close']
-    bb_lower = latest.get('BBL_20_2.0', current_price)
-    bb_upper = latest.get('BBU_20_2.0', current_price)
-    bb_middle = latest.get('BBM_20_2.0', current_price)
-    
-    # Mean reversion signals
-    if current_price <= bb_lower * 1.02:  # Within 2% of lower band
-        signals.append("Near lower Bollinger Band - BULLISH")
-    
-    if current_price >= bb_upper * 0.98:  # Within 2% of upper band
-        signals.append("Near upper Bollinger Band - BEARISH")
-    
-    # Distance from mean
-    distance_from_mean = ((current_price - bb_middle) / bb_middle) * 100
-    if abs(distance_from_mean) > 3:
-        signals.append(f"Price {abs(distance_from_mean):.1f}% from mean")
-    
-    # RSI for confirmation
-    data['RSI'] = ta.rsi(data['close'], length=14)
-    rsi = data['RSI'].iloc[-1]
-    if rsi < 35:
-        signals.append("RSI supporting oversold condition")
-    elif rsi > 65:
-        signals.append("RSI supporting overbought condition")
-    
-    # Calculate position size
-    quantity = max(1, int((capital * 0.6) / current_price))  # Use 60% of capital
-    
-    action = "HOLD"
-    if any("BULLISH" in s for s in signals) and rsi < 40:
-        action = "BUY"
-    elif any("BEARISH" in s for s in signals) and rsi > 60:
-        action = "SELL"
-    
-    return {
-        "bot_name": "Mean Reversion",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "Low"
-    }
+    try:
+        data = get_historical_data(token, '15minute', period='5d')
+        if data.empty or len(data) < 50:
+            return {"error": "Insufficient data for analysis"}
+        
+        # Calculate Bollinger Bands
+        bb = ta.bbands(data['close'], length=20, std=2)
+        data = pd.concat([data, bb], axis=1)
+        
+        latest = data.iloc[-1]
+        
+        signals = []
+        current_price = latest['close']
+        bb_lower = latest.get('BBL_20_2.0', current_price)
+        bb_upper = latest.get('BBU_20_2.0', current_price)
+        bb_middle = latest.get('BBM_20_2.0', current_price)
+        
+        # Mean reversion signals
+        if current_price <= bb_lower * 1.02:  # Within 2% of lower band
+            signals.append("Near lower Bollinger Band - BULLISH")
+        
+        if current_price >= bb_upper * 0.98:  # Within 2% of upper band
+            signals.append("Near upper Bollinger Band - BEARISH")
+        
+        # Distance from mean
+        distance_from_mean = ((current_price - bb_middle) / bb_middle) * 100
+        if abs(distance_from_mean) > 3:
+            signals.append(f"Price {abs(distance_from_mean):.1f}% from mean")
+        
+        # RSI for confirmation
+        data['RSI'] = ta.rsi(data['close'], length=14)
+        rsi = data['RSI'].iloc[-1]
+        if rsi < 35:
+            signals.append("RSI supporting oversold condition")
+        elif rsi > 65:
+            signals.append("RSI supporting overbought condition")
+        
+        # Calculate position size
+        quantity = max(1, int((capital * 0.6) / current_price))  # Use 60% of capital
+        
+        action = "HOLD"
+        if any("BULLISH" in s for s in signals) and rsi < 40:
+            action = "BUY"
+        elif any("BEARISH" in s for s in signals) and rsi > 60:
+            action = "SELL"
+        
+        return {
+            "bot_name": "Mean Reversion",
+            "symbol": symbol,
+            "action": action,
+            "quantity": quantity,
+            "current_price": current_price,
+            "signals": signals,
+            "capital_required": quantity * current_price,
+            "risk_level": "Low"
+        }
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
+
 
 def volatility_breakout_bot(instrument_df, symbol, capital=100):
     """Volatility breakout bot that trades on breakouts from consolidation."""
@@ -1067,63 +1081,66 @@ def volatility_breakout_bot(instrument_df, symbol, capital=100):
     if not token:
         return {"error": f"Could not find instrument for {symbol}"}
     
-    data = get_historical_data(token, '30minute', period='5d')
-    if data.empty or len(data) < 30:
-        return {"error": "Insufficient data for analysis"}
-    
-    # Calculate ATR and volatility
-    data['ATR'] = ta.atr(data['high'], data['low'], data['close'], length=14)
-    data['Range'] = data['high'] - data['low']
-    avg_range = data['Range'].rolling(window=20).mean()
-    
-    latest = data.iloc[-1]
-    current_price = latest['close']
-    current_atr = latest['ATR']
-    current_range = latest['Range']
-    
-    signals = []
-    
-    # Volatility signals
-    if current_range > avg_range.iloc[-1] * 1.5:
-        signals.append("High volatility - potential breakout")
-    
-    # Price action signals
-    prev_high = data['high'].iloc[-2]
-    prev_low = data['low'].iloc[-2]
-    
-    if current_price > prev_high + current_atr * 0.5:
-        signals.append("Breakout above resistance - BULLISH")
-    
-    if current_price < prev_low - current_atr * 0.5:
-        signals.append("Breakdown below support - BEARISH")
-    
-    # Volume confirmation (if available)
-    if 'volume' in data.columns:
-        avg_volume = data['volume'].rolling(window=20).mean().iloc[-1]
-        if data['volume'].iloc[-1] > avg_volume * 1.2:
-            signals.append("High volume confirmation")
-    
-    # Calculate position size based on ATR
-    atr_percentage = (current_atr / current_price) * 100
-    risk_per_trade = min(20, max(5, atr_percentage * 2))  # Dynamic position sizing
-    quantity = max(1, int((capital * (risk_per_trade / 100)) / current_price))
-    
-    action = "HOLD"
-    if any("BULLISH" in s for s in signals):
-        action = "BUY"
-    elif any("BEARISH" in s for s in signals):
-        action = "SELL"
-    
-    return {
-        "bot_name": "Volatility Breakout",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "High"
-    }
+    try:
+        data = get_historical_data(token, '30minute', period='5d')
+        if data.empty or len(data) < 30:
+            return {"error": "Insufficient data for analysis"}
+        
+        # Calculate ATR and volatility
+        data['ATR'] = ta.atr(data['high'], data['low'], data['close'], length=14)
+        data['Range'] = data['high'] - data['low']
+        avg_range = data['Range'].rolling(window=20).mean()
+        
+        latest = data.iloc[-1]
+        current_price = latest['close']
+        current_atr = latest['ATR']
+        current_range = latest['Range']
+        
+        signals = []
+        
+        # Volatility signals
+        if current_range > avg_range.iloc[-1] * 1.5:
+            signals.append("High volatility - potential breakout")
+        
+        # Price action signals
+        prev_high = data['high'].iloc[-2]
+        prev_low = data['low'].iloc[-2]
+        
+        if current_price > prev_high + current_atr * 0.5:
+            signals.append("Breakout above resistance - BULLISH")
+        
+        if current_price < prev_low - current_atr * 0.5:
+            signals.append("Breakdown below support - BEARISH")
+        
+        # Volume confirmation (if available)
+        if 'volume' in data.columns:
+            avg_volume = data['volume'].rolling(window=20).mean().iloc[-1]
+            if data['volume'].iloc[-1] > avg_volume * 1.2:
+                signals.append("High volume confirmation")
+        
+        # Calculate position size based on ATR
+        atr_percentage = (current_atr / current_price) * 100
+        risk_per_trade = min(20, max(5, atr_percentage * 2))  # Dynamic position sizing
+        quantity = max(1, int((capital * (risk_per_trade / 100)) / current_price))
+        
+        action = "HOLD"
+        if any("BULLISH" in s for s in signals):
+            action = "BUY"
+        elif any("BEARISH" in s for s in signals):
+            action = "SELL"
+        
+        return {
+            "bot_name": "Volatility Breakout",
+            "symbol": symbol,
+            "action": action,
+            "quantity": quantity,
+            "current_price": current_price,
+            "signals": signals,
+            "capital_required": quantity * current_price,
+            "risk_level": "High"
+        }
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
 
 def value_investor_bot(instrument_df, symbol, capital=100):
     """Value investor bot focusing on longer-term value signals."""
@@ -1132,68 +1149,71 @@ def value_investor_bot(instrument_df, symbol, capital=100):
     if not token:
         return {"error": f"Could not find instrument for {symbol}"}
     
-    data = get_historical_data(token, 'day', period='1y')
-    if data.empty or len(data) < 100:
-        return {"error": "Insufficient data for analysis"}
-    
-    # Calculate moving averages and trends
-    data['SMA_50'] = ta.sma(data['close'], length=50)
-    data['SMA_200'] = ta.sma(data['close'], length=200)
-    data['EMA_21'] = ta.ema(data['close'], length=21)
-    
-    latest = data.iloc[-1]
-    current_price = latest['close']
-    
-    signals = []
-    
-    # Trend analysis
-    if latest['SMA_50'] > latest['SMA_200']:
-        signals.append("Bullish trend (50 > 200 SMA)")
-    else:
-        signals.append("Bearish trend (50 < 200 SMA)")
-    
-    # Support and resistance levels
-    support_20 = data['low'].rolling(window=20).min().iloc[-1]
-    resistance_20 = data['high'].rolling(window=20).max().iloc[-1]
-    
-    distance_to_support = ((current_price - support_20) / current_price) * 100
-    distance_to_resistance = ((resistance_20 - current_price) / current_price) * 100
-    
-    if distance_to_support < 5:
-        signals.append("Near strong support - BULLISH")
-    
-    if distance_to_resistance < 5:
-        signals.append("Near strong resistance - BEARISH")
-    
-    # Monthly performance
-    monthly_return = ((current_price - data['close'].iloc[-21]) / data['close'].iloc[-21]) * 100
-    if monthly_return < -10:
-        signals.append("Oversold on monthly basis - BULLISH")
-    elif monthly_return > 15:
-        signals.append("Overbought on monthly basis - BEARISH")
-    
-    # Calculate position size for longer term
-    quantity = max(1, int((capital * 0.5) / current_price))  # Conservative 50%
-    
-    action = "HOLD"
-    bullish_signals = len([s for s in signals if "BULLISH" in s])
-    bearish_signals = len([s for s in signals if "BEARISH" in s])
-    
-    if bullish_signals >= 2 and bearish_signals == 0:
-        action = "BUY"
-    elif bearish_signals >= 2 and bullish_signals == 0:
-        action = "SELL"
-    
-    return {
-        "bot_name": "Value Investor",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "Low"
-    }
+    try:
+        data = get_historical_data(token, 'day', period='1y')
+        if data.empty or len(data) < 100:
+            return {"error": "Insufficient data for analysis"}
+        
+        # Calculate moving averages and trends
+        data['SMA_50'] = ta.sma(data['close'], length=50)
+        data['SMA_200'] = ta.sma(data['close'], length=200)
+        data['EMA_21'] = ta.ema(data['close'], length=21)
+        
+        latest = data.iloc[-1]
+        current_price = latest['close']
+        
+        signals = []
+        
+        # Trend analysis
+        if latest['SMA_50'] > latest['SMA_200']:
+            signals.append("Bullish trend (50 > 200 SMA)")
+        else:
+            signals.append("Bearish trend (50 < 200 SMA)")
+        
+        # Support and resistance levels
+        support_20 = data['low'].rolling(window=20).min().iloc[-1]
+        resistance_20 = data['high'].rolling(window=20).max().iloc[-1]
+        
+        distance_to_support = ((current_price - support_20) / current_price) * 100
+        distance_to_resistance = ((resistance_20 - current_price) / current_price) * 100
+        
+        if distance_to_support < 5:
+            signals.append("Near strong support - BULLISH")
+        
+        if distance_to_resistance < 5:
+            signals.append("Near strong resistance - BEARISH")
+        
+        # Monthly performance
+        monthly_return = ((current_price - data['close'].iloc[-21]) / data['close'].iloc[-21]) * 100
+        if monthly_return < -10:
+            signals.append("Oversold on monthly basis - BULLISH")
+        elif monthly_return > 15:
+            signals.append("Overbought on monthly basis - BEARISH")
+        
+        # Calculate position size for longer term
+        quantity = max(1, int((capital * 0.5) / current_price))  # Conservative 50%
+        
+        action = "HOLD"
+        bullish_signals = len([s for s in signals if "BULLISH" in s])
+        bearish_signals = len([s for s in signals if "BEARISH" in s])
+        
+        if bullish_signals >= 2 and bearish_signals == 0:
+            action = "BUY"
+        elif bearish_signals >= 2 and bullish_signals == 0:
+            action = "SELL"
+        
+        return {
+            "bot_name": "Value Investor",
+            "symbol": symbol,
+            "action": action,
+            "quantity": quantity,
+            "current_price": current_price,
+            "signals": signals,
+            "capital_required": quantity * current_price,
+            "risk_level": "Low"
+        }
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
 
 def scalper_bot(instrument_df, symbol, capital=100):
     """High-frequency scalping bot for quick, small profits."""
@@ -1202,60 +1222,63 @@ def scalper_bot(instrument_df, symbol, capital=100):
     if not token:
         return {"error": f"Could not find instrument for {symbol}"}
     
-    data = get_historical_data(token, 'minute', period='1d')
-    if data.empty or len(data) < 100:
-        return {"error": "Insufficient data for analysis"}
-    
-    # Calculate scalping indicators
-    data['RSI_9'] = ta.rsi(data['close'], length=9)
-    data['EMA_8'] = ta.ema(data['close'], length=8)
-    data['EMA_21'] = ta.ema(data['close'], length=21)
-    
-    latest = data.iloc[-1]
-    current_price = latest['close']
-    
-    signals = []
-    
-    # Scalping signals
-    if latest['EMA_8'] > latest['EMA_21']:
-        signals.append("Fast EMA above slow EMA - BULLISH")
-    else:
-        signals.append("Fast EMA below slow EMA - BEARISH")
-    
-    rsi_9 = latest['RSI_9']
-    if rsi_9 < 25:
-        signals.append("Extremely oversold - BULLISH")
-    elif rsi_9 > 75:
-        signals.append("Extremely overbought - BEARISH")
-    
-    # Price momentum for scalping
-    price_change_3min = ((current_price - data['close'].iloc[-3]) / data['close'].iloc[-3]) * 100
-    if abs(price_change_3min) > 0.3:
-        signals.append(f"Strong short-term momentum: {price_change_3min:+.2f}%")
-    
-    # Calculate small position size for scalping
-    quantity = max(1, int((capital * 0.3) / current_price))  # Small position for quick exits
-    
-    action = "HOLD"
-    if (any("BULLISH" in s for s in signals) and 
-        "BEARISH" not in str(signals) and
-        rsi_9 < 70):
-        action = "BUY"
-    elif (any("BEARISH" in s for s in signals) and 
-          "BULLISH" not in str(signals) and
-          rsi_9 > 30):
-        action = "SELL"
-    
-    return {
-        "bot_name": "Scalper Pro",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "Very High"
-    }
+    try:
+        data = get_historical_data(token, 'minute', period='1d')
+        if data.empty or len(data) < 100:
+            return {"error": "Insufficient data for analysis"}
+        
+        # Calculate scalping indicators
+        data['RSI_9'] = ta.rsi(data['close'], length=9)
+        data['EMA_8'] = ta.ema(data['close'], length=8)
+        data['EMA_21'] = ta.ema(data['close'], length=21)
+        
+        latest = data.iloc[-1]
+        current_price = latest['close']
+        
+        signals = []
+        
+        # Scalping signals
+        if latest['EMA_8'] > latest['EMA_21']:
+            signals.append("Fast EMA above slow EMA - BULLISH")
+        else:
+            signals.append("Fast EMA below slow EMA - BEARISH")
+        
+        rsi_9 = latest['RSI_9']
+        if rsi_9 < 25:
+            signals.append("Extremely oversold - BULLISH")
+        elif rsi_9 > 75:
+            signals.append("Extremely overbought - BEARISH")
+        
+        # Price momentum for scalping
+        price_change_3min = ((current_price - data['close'].iloc[-3]) / data['close'].iloc[-3]) * 100
+        if abs(price_change_3min) > 0.3:
+            signals.append(f"Strong short-term momentum: {price_change_3min:+.2f}%")
+        
+        # Calculate small position size for scalping
+        quantity = max(1, int((capital * 0.3) / current_price))  # Small position for quick exits
+        
+        action = "HOLD"
+        if (any("BULLISH" in s for s in signals) and 
+            "BEARISH" not in str(signals) and
+            rsi_9 < 70):
+            action = "BUY"
+        elif (any("BEARISH" in s for s in signals) and 
+              "BULLISH" not in str(signals) and
+              rsi_9 > 30):
+            action = "SELL"
+        
+        return {
+            "bot_name": "Scalper Pro",
+            "symbol": symbol,
+            "action": action,
+            "quantity": quantity,
+            "current_price": current_price,
+            "signals": signals,
+            "capital_required": quantity * current_price,
+            "risk_level": "Very High"
+        }
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
 
 def trend_follower_bot(instrument_df, symbol, capital=100):
     """Trend following bot that rides established trends."""
@@ -1264,73 +1287,93 @@ def trend_follower_bot(instrument_df, symbol, capital=100):
     if not token:
         return {"error": f"Could not find instrument for {symbol}"}
     
-    data = get_historical_data(token, 'hour', period='1mo')
-    if data.empty or len(data) < 100:
-        return {"error": "Insufficient data for analysis"}
+    try:
+        data = get_historical_data(token, 'hour', period='1mo')
+        if data.empty or len(data) < 100:
+            return {"error": "Insufficient data for analysis"}
+        
+        # Calculate trend indicators
+        data['ADX'] = ta.adx(data['high'], data['low'], data['close'], length=14)['ADX_14']
+        data['EMA_20'] = ta.ema(data['close'], length=20)
+        data['EMA_50'] = ta.ema(data['close'], length=50)
+        
+        # Fix SuperTrend calculation - handle different column naming
+        supertrend_data = ta.supertrend(data['high'], data['low'], data['close'], length=10, multiplier=3)
+        
+        # Find the correct SuperTrend column (it could have different naming patterns)
+        supertrend_col = None
+        for col in supertrend_data.columns:
+            if 'SUPERT' in col and not any(x in col for x in ['d', 'l', 's']):  # Main trend line
+                supertrend_col = col
+                break
+        
+        if supertrend_col:
+            data['SuperTrend'] = supertrend_data[supertrend_col]
+        else:
+            # Fallback: use the first column if we can't find the main one
+            data['SuperTrend'] = supertrend_data.iloc[:, 0]
+        
+        latest = data.iloc[-1]
+        current_price = latest['close']
+        
+        signals = []
+        
+        # Trend strength
+        adx = latest.get('ADX', 0)
+        if adx > 25:
+            signals.append(f"Strong trend (ADX: {adx:.1f})")
+        else:
+            signals.append(f"Weak trend (ADX: {adx:.1f})")
+        
+        # Trend direction
+        if latest['EMA_20'] > latest['EMA_50']:
+            signals.append("Uptrend confirmed - BULLISH")
+        else:
+            signals.append("Downtrend confirmed - BEARISH")
+        
+        # SuperTrend signals
+        supertrend_val = latest.get('SuperTrend', current_price)
+        if current_price > supertrend_val:
+            signals.append("Price above SuperTrend - BULLISH")
+        else:
+            signals.append("Price below SuperTrend - BEARISH")
+        
+        # Pullback opportunities
+        if (latest['EMA_20'] > latest['EMA_50'] and 
+            current_price < latest['EMA_20'] and 
+            current_price > latest['EMA_50']):
+            signals.append("Pullback in uptrend - BULLISH")
+        
+        elif (latest['EMA_20'] < latest['EMA_50'] and 
+              current_price > latest['EMA_20'] and 
+              current_price < latest['EMA_50']):
+            signals.append("Pullback in downtrend - BEARISH")
+        
+        # Calculate position size
+        quantity = max(1, int((capital * 0.7) / current_price))  # Use 70% of capital
+        
+        action = "HOLD"
+        bullish_count = len([s for s in signals if "BULLISH" in s])
+        bearish_count = len([s for s in signals if "BEARISH" in s])
+        
+        if bullish_count >= 2 and adx > 20:
+            action = "BUY"
+        elif bearish_count >= 2 and adx > 20:
+            action = "SELL"
+        
+        return {
+            "bot_name": "Trend Follower",
+            "symbol": symbol,
+            "action": action,
+            "quantity": quantity,
+            "current_price": current_price,
+            "signals": signals,
+            "capital_required": quantity * current_price,
+            "risk_level": "Medium"
+        }
     
-    # Calculate trend indicators
-    data['ADX'] = ta.adx(data['high'], data['low'], data['close'], length=14)['ADX_14']
-    data['EMA_20'] = ta.ema(data['close'], length=20)
-    data['EMA_50'] = ta.ema(data['close'], length=50)
-    data['SuperTrend'] = ta.supertrend(data['high'], data['low'], data['close'], length=10, multiplier=3)['SUPERT_10_3.0']
-    
-    latest = data.iloc[-1]
-    current_price = latest['close']
-    
-    signals = []
-    
-    # Trend strength
-    adx = latest['ADX']
-    if adx > 25:
-        signals.append(f"Strong trend (ADX: {adx:.1f})")
-    else:
-        signals.append(f"Weak trend (ADX: {adx:.1f})")
-    
-    # Trend direction
-    if latest['EMA_20'] > latest['EMA_50']:
-        signals.append("Uptrend confirmed - BULLISH")
-    else:
-        signals.append("Downtrend confirmed - BEARISH")
-    
-    # SuperTrend signals
-    if current_price > latest['SuperTrend']:
-        signals.append("Price above SuperTrend - BULLISH")
-    else:
-        signals.append("Price below SuperTrend - BEARISH")
-    
-    # Pullback opportunities
-    if (latest['EMA_20'] > latest['EMA_50'] and 
-        current_price < latest['EMA_20'] and 
-        current_price > latest['EMA_50']):
-        signals.append("Pullback in uptrend - BULLISH")
-    
-    elif (latest['EMA_20'] < latest['EMA_50'] and 
-          current_price > latest['EMA_20'] and 
-          current_price < latest['EMA_50']):
-        signals.append("Pullback in downtrend - BEARISH")
-    
-    # Calculate position size
-    quantity = max(1, int((capital * 0.7) / current_price))  # Use 70% of capital
-    
-    action = "HOLD"
-    bullish_count = len([s for s in signals if "BULLISH" in s])
-    bearish_count = len([s for s in signals if "BEARISH" in s])
-    
-    if bullish_count >= 2 and adx > 20:
-        action = "BUY"
-    elif bearish_count >= 2 and adx > 20:
-        action = "SELL"
-    
-    return {
-        "bot_name": "Trend Follower",
-        "symbol": symbol,
-        "action": action,
-        "quantity": quantity,
-        "current_price": current_price,
-        "signals": signals,
-        "capital_required": quantity * current_price,
-        "risk_level": "Medium"
-    }
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
 
 # Dictionary of all available bots
 ALGO_BOTS = {
@@ -1343,7 +1386,7 @@ ALGO_BOTS = {
 }
 
 def execute_bot_trade(instrument_df, bot_result):
-    """Executes a trade based on bot recommendation."""
+    """Displays bot recommendations WITHOUT automatic execution - requires manual confirmation."""
     if bot_result.get("error"):
         st.error(bot_result["error"])
         return
@@ -1366,13 +1409,33 @@ def execute_bot_trade(instrument_df, bot_result):
     - **Risk Level:** {bot_result['risk_level']}
     """)
     
+    # Display signals first
+    st.subheader("📊 Analysis Signals")
+    for signal in bot_result["signals"]:
+        if "BULLISH" in signal:
+            st.success(f"✅ {signal}")
+        elif "BEARISH" in signal:
+            st.error(f"❌ {signal}")
+        else:
+            st.info(f"📈 {signal}")
+    
+    # Manual execution section - clearly separated
+    st.markdown("---")
+    st.subheader("🚀 Manual Trade Execution")
+    st.warning("**Manual Confirmation Required:** Click the button below ONLY if you want to execute this trade.")
+    
     col1, col2 = st.columns(2)
     
-    if col1.button(f"Execute {action} Order", key=f"execute_{symbol}", use_container_width=True):
+    if col1.button(f"Execute {action} Order", key=f"execute_{symbol}", use_container_width=True, type="primary"):
+        # Only execute when user explicitly clicks
         place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
+        st.toast(f"✅ {action} order for {symbol} placed successfully!", icon="🎉")
+        st.rerun()
     
     if col2.button("Ignore Recommendation", key=f"ignore_{symbol}", use_container_width=True):
         st.info("Trade execution cancelled.")
+        st.rerun()
+
 
 def page_algo_bots():
     """Main algo bots page where users can run different trading bots."""
@@ -1467,8 +1530,8 @@ def page_algo_bots():
             with col5:
                 action_color = "green" if bot_result["action"] == "BUY" else "red" if bot_result["action"] == "SELL" else "orange"
                 st.markdown(f'<div class="metric-card" style="border-color: {action_color};">'
-                           f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
-                           f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
+                            f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
+                            f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
             
             with col6:
                 st.metric("Quantity", bot_result["quantity"])
@@ -1479,20 +1542,10 @@ def page_algo_bots():
             with col8:
                 risk_color = {"Low": "green", "Medium": "orange", "High": "red", "Very High": "darkred"}
                 st.markdown(f'<div class="metric-card" style="border-color: {risk_color.get(bot_result["risk_level"], "gray")};">'
-                           f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
-                           f'<p>Risk Level</p></div>', unsafe_allow_html=True)
+                            f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
+                            f'<p>Risk Level</p></div>', unsafe_allow_html=True)
             
-            # Display signals
-            st.subheader("📊 Analysis Signals")
-            for signal in bot_result["signals"]:
-                if "BULLISH" in signal:
-                    st.success(f"✅ {signal}")
-                elif "BEARISH" in signal:
-                    st.error(f"❌ {signal}")
-                else:
-                    st.info(f"📈 {signal}")
-            
-            # Execute trade
+            # The execute_bot_trade function now handles signal display and the execution buttons
             execute_bot_trade(instrument_df, bot_result)
     
     # Bot performance history
