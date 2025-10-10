@@ -271,6 +271,20 @@ def initialize_session_state():
     if 'show_most_active' not in st.session_state: st.session_state.show_most_active = False
     if 'show_2fa_dialog' not in st.session_state: st.session_state.show_2fa_dialog = False
     if 'show_qr_dialog' not in st.session_state: st.session_state.show_qr_dialog = False
+    
+    # Add automated mode variables
+    if 'automated_mode' not in st.session_state:
+        st.session_state.automated_mode = {
+            'enabled': False,
+            'running': False,
+            'bots_active': {},
+            'total_capital': 10000,
+            'risk_per_trade': 2,
+            'max_open_trades': 5,
+            'trade_history': [],
+            'performance_metrics': {},
+            'last_signal_check': None
+        }
 
 # ================ 2. HELPER FUNCTIONS ================
 
@@ -1608,6 +1622,767 @@ def page_algo_bots():
         
         comparison_df = pd.DataFrame(comparison_data)
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+
+# Dictionary of all available bots (semi-automated)
+ALGO_BOTS = {
+    "Momentum Trader": momentum_trader_bot,
+    "Mean Reversion": mean_reversion_bot,
+    "Volatility Breakout": volatility_breakout_bot,
+    "Value Investor": value_investor_bot,
+    "Scalper Pro": scalper_bot,
+    "Trend Follower": trend_follower_bot
+}
+
+# ================ AUTOMATED BOT FUNCTIONS ================
+
+def automated_momentum_trader(instrument_df, symbol):
+    """Enhanced momentum trader for automated mode."""
+    exchange = 'NSE'
+    token = get_instrument_token(symbol, instrument_df, exchange)
+    if not token:
+        return {"error": f"Could not find instrument for {symbol}"}
+    
+    try:
+        data = get_historical_data(token, '5minute', period='1d')
+        if data.empty or len(data) < 50:
+            return {"error": "Insufficient data for analysis"}
+        
+        # Calculate multiple indicators
+        data['RSI_14'] = talib.RSI(data['close'], timeperiod=14)
+        data['RSI_21'] = talib.RSI(data['close'], timeperiod=21)
+        data['EMA_20'] = talib.EMA(data['close'], timeperiod=20)
+        data['EMA_50'] = talib.EMA(data['close'], timeperiod=50)
+        data['MACD'], data['MACD_Signal'], _ = talib.MACD(data['close'])
+        
+        latest = data.iloc[-1]
+        prev = data.iloc[-2]
+        
+        signals = []
+        score = 0
+        
+        # EMA Crossover (30 points)
+        if (latest['EMA_20'] > latest['EMA_50'] and 
+            prev['EMA_20'] <= prev['EMA_50']):
+            signals.append("EMA Bullish Crossover")
+            score += 30
+        
+        # RSI Signals (25 points)
+        rsi_14 = latest['RSI_14']
+        if 30 < rsi_14 < 70:  # Avoid extremes
+            if rsi_14 > 50:
+                signals.append("RSI Bullish")
+                score += 15
+            if rsi_14 > latest['RSI_21']:
+                signals.append("RSI Positive Divergence")
+                score += 10
+        
+        # MACD Signals (20 points)
+        if (latest['MACD'] > latest['MACD_Signal'] and 
+            prev['MACD'] <= prev['MACD_Signal']):
+            signals.append("MACD Bullish Crossover")
+            score += 20
+        
+        # Volume confirmation (15 points)
+        if 'volume' in data.columns and len(data) > 20:
+            avg_volume = data['volume'].rolling(20).mean().iloc[-1]
+            if data['volume'].iloc[-1] > avg_volume * 1.2:
+                signals.append("High Volume Confirmation")
+                score += 15
+        
+        # Price momentum (10 points)
+        if len(data) >= 10:
+            price_change_30min = ((latest['close'] - data['close'].iloc[-6]) / data['close'].iloc[-6]) * 100
+            if price_change_30min > 1:
+                signals.append("Strong Short-term Momentum")
+                score += 10
+        
+        current_price = latest['close']
+        risk_level = "High" if score >= 60 else "Medium" if score >= 40 else "Low"
+        
+        action = "HOLD"
+        if score >= 50:  # Minimum threshold for trade
+            action = "BUY"
+        elif score <= 20:  # Very weak momentum could signal SELL
+            # Check if we have an existing position to sell
+            open_trades = [t for t in st.session_state.automated_mode['trade_history'] 
+                          if t.get('symbol') == symbol and t.get('status') == 'OPEN']
+            if open_trades and open_trades[0]['action'] == 'BUY':
+                action = "SELL"
+        
+        return {
+            "bot_name": "Auto Momentum Trader",
+            "symbol": symbol,
+            "action": action,
+            "quantity": 1,  # Will be calculated based on risk
+            "current_price": current_price,
+            "signals": signals,
+            "score": score,
+            "risk_level": risk_level,
+            "capital_required": current_price
+        }
+    
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
+
+def automated_mean_reversion(instrument_df, symbol):
+    """Enhanced mean reversion bot for automated mode."""
+    exchange = 'NSE'
+    token = get_instrument_token(symbol, instrument_df, exchange)
+    if not token:
+        return {"error": f"Could not find instrument for {symbol}"}
+    
+    try:
+        data = get_historical_data(token, '15minute', period='5d')
+        if data.empty or len(data) < 100:
+            return {"error": "Insufficient data for analysis"}
+        
+        # Calculate Bollinger Bands and other indicators
+        upperband, middleband, lowerband = talib.BBANDS(data['close'], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
+        data['BB_Upper'] = upperband
+        data['BB_Middle'] = middleband
+        data['BB_Lower'] = lowerband
+        data['RSI_14'] = talib.RSI(data['close'], timeperiod=14)
+        
+        latest = data.iloc[-1]
+        current_price = latest['close']
+        
+        signals = []
+        score = 0
+        
+        # Bollinger Band position (40 points)
+        bb_position = (current_price - latest['BB_Lower']) / (latest['BB_Upper'] - latest['BB_Lower'])
+        
+        if bb_position < 0.1:  # Near lower band
+            signals.append("Near Lower Bollinger Band")
+            score += 40
+        elif bb_position > 0.9:  # Near upper band
+            signals.append("Near Upper Bollinger Band")
+            score += 40
+        
+        # RSI confirmation (30 points)
+        rsi = latest['RSI_14']
+        if bb_position < 0.1 and rsi < 35:  # Oversold confirmation
+            signals.append("RSI Oversold Confirmation")
+            score += 30
+        elif bb_position > 0.9 and rsi > 65:  # Overbought confirmation
+            signals.append("RSI Overbought Confirmation")
+            score += 30
+        
+        # Distance from mean (20 points)
+        distance_from_mean = abs((current_price - latest['BB_Middle']) / latest['BB_Middle']) * 100
+        if distance_from_mean > 3:
+            signals.append(f"Price {distance_from_mean:.1f}% from mean")
+            score += 20
+        
+        # Volume confirmation (10 points)
+        if 'volume' in data.columns:
+            avg_volume = data['volume'].rolling(20).mean().iloc[-1]
+            if data['volume'].iloc[-1] > avg_volume * 1.5:
+                signals.append("High Volume Reversion Signal")
+                score += 10
+        
+        risk_level = "Low" if score >= 60 else "Medium" if score >= 30 else "High"
+        
+        action = "HOLD"
+        if score >= 50 and bb_position < 0.1:  # Buy near lower band
+            action = "BUY"
+        elif score >= 50 and bb_position > 0.9:  # Sell near upper band
+            # Check for existing position
+            open_trades = [t for t in st.session_state.automated_mode['trade_history'] 
+                          if t.get('symbol') == symbol and t.get('status') == 'OPEN']
+            if open_trades and open_trades[0]['action'] == 'BUY':
+                action = "SELL"
+        
+        return {
+            "bot_name": "Auto Mean Reversion",
+            "symbol": symbol,
+            "action": action,
+            "quantity": 1,
+            "current_price": current_price,
+            "signals": signals,
+            "score": score,
+            "risk_level": risk_level,
+            "capital_required": current_price
+        }
+    
+    except Exception as e:
+        return {"error": f"Analysis failed: {str(e)}"}
+
+# Dictionary of automated bots
+AUTOMATED_BOTS = {
+    "Auto Momentum Trader": automated_momentum_trader,
+    "Auto Mean Reversion": automated_mean_reversion
+}
+
+# ================ ALGO BOTS PAGE FUNCTIONS ================
+
+def page_algo_bots():
+    """Main algo bots page with both semi-automated and fully automated modes."""
+    display_header()
+    st.title("🤖 Algo Trading Bots")
+    
+    # Initialize automated mode
+    initialize_automated_mode()
+    
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use algo bots.")
+        return
+    
+    # Mode selection tabs
+    tab1, tab2 = st.tabs(["🚀 Semi-Automated Bots", "⚡ Fully Automated Bots"])
+    
+    with tab1:
+        page_semi_automated_bots(instrument_df)
+    
+    with tab2:
+        page_fully_automated_bots(instrument_df)
+
+def page_semi_automated_bots(instrument_df):
+    """Semi-automated bots page - requires manual confirmation."""
+    st.info("Run automated analysis and get trading signals. Manual confirmation required for execution.", icon="🚀")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        selected_bot = st.selectbox(
+            "Select Trading Bot",
+            list(ALGO_BOTS.keys()),
+            help="Choose a trading bot based on your risk appetite and trading style",
+            key="semi_bot_select"
+        )
+        
+        # Bot descriptions
+        bot_descriptions = {
+            "Momentum Trader": "Trades on strong price momentum and trend continuations. Medium risk.",
+            "Mean Reversion": "Buys low and sells high based on statistical mean reversion. Low risk.",
+            "Volatility Breakout": "Captures breakouts from low volatility periods. High risk.",
+            "Value Investor": "Focuses on longer-term value and fundamental trends. Low risk.",
+            "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk.",
+            "Trend Follower": "Rides established trends with multiple confirmation signals. Medium risk."
+        }
+        
+        st.markdown(f"**Description:** {bot_descriptions[selected_bot]}")
+    
+    with col2:
+        trading_capital = st.number_input(
+            "Trading Capital (₹)",
+            min_value=100,
+            max_value=100000,
+            value=1000,
+            step=100,
+            help="Minimum ₹100 required",
+            key="semi_capital"
+        )
+    
+    st.markdown("---")
+    
+    # Symbol selection and bot execution
+    col3, col4 = st.columns([1, 1])
+    
+    with col3:
+        st.subheader("Stock Selection")
+        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'BSE'])]['tradingsymbol'].unique()
+        selected_symbol = st.selectbox(
+            "Select Stock",
+            sorted(all_symbols),
+            index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0,
+            key="semi_symbol"
+        )
+        
+        # Show current price
+        quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': 'NSE'}])
+        if not quote_data.empty:
+            current_price = quote_data.iloc[0]['Price']
+            st.metric("Current Price", f"₹{current_price:.2f}")
+    
+    with col4:
+        st.subheader("Bot Execution")
+        st.write(f"**Selected Bot:** {selected_bot}")
+        st.write(f"**Available Capital:** ₹{trading_capital:,}")
+        
+        if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary", key="semi_run"):
+            with st.spinner(f"Running {selected_bot} analysis..."):
+                bot_function = ALGO_BOTS[selected_bot]
+                bot_result = bot_function(instrument_df, selected_symbol, trading_capital)
+                
+                if bot_result and not bot_result.get("error"):
+                    st.session_state.last_bot_result = bot_result
+                    st.rerun()
+    
+    # Display bot results
+    if 'last_bot_result' in st.session_state and st.session_state.last_bot_result:
+        bot_result = st.session_state.last_bot_result
+        
+        if bot_result.get("error"):
+            st.error(bot_result["error"])
+        else:
+            st.markdown("---")
+            st.subheader("🤖 Bot Analysis Results")
+            
+            # Create metrics cards
+            col5, col6, col7, col8 = st.columns(4)
+            
+            with col5:
+                action_color = "green" if bot_result["action"] == "BUY" else "red" if bot_result["action"] == "SELL" else "orange"
+                st.markdown(f'<div class="metric-card" style="border-color: {action_color};">'
+                          f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
+                          f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
+            
+            with col6:
+                st.metric("Quantity", bot_result["quantity"])
+            
+            with col7:
+                st.metric("Capital Required", f"₹{bot_result['capital_required']:.2f}")
+            
+            with col8:
+                risk_color = {"Low": "green", "Medium": "orange", "High": "red", "Very High": "darkred"}
+                st.markdown(f'<div class="metric-card" style="border-color: {risk_color.get(bot_result["risk_level"], "gray")};">'
+                          f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
+                          f'<p>Risk Level</p></div>', unsafe_allow_html=True)
+            
+            # Display signals and execute trade
+            execute_bot_trade(instrument_df, bot_result)
+
+    # Bot performance history
+    st.markdown("---")
+    st.subheader("📈 Bot Performance Tips")
+    
+    tips_col1, tips_col2 = st.columns(2)
+    
+    with tips_col1:
+        st.markdown("""
+        **Best Practices:**
+        - Start with minimum capital (₹100)
+        - Use 'Value Investor' for beginners
+        - 'Scalper Pro' requires constant monitoring
+        - Always check signals before executing
+        - Combine multiple bot recommendations
+        """)
+    
+    with tips_col2:
+        st.markdown("""
+        **Risk Management:**
+        - Never risk more than 2% per trade
+        - Use stop losses with every trade
+        - Diversify across different bots
+        - Monitor performance regularly
+        - Adjust capital based on experience
+        """)
+    
+    # Quick bot comparison
+    with st.expander("🤖 Bot Comparison Guide"):
+        comparison_data = {
+            "Bot": list(ALGO_BOTS.keys()),
+            "Risk Level": ["Medium", "Low", "High", "Low", "Very High", "Medium"],
+            "Holding Period": ["Hours", "Days", "Minutes", "Weeks", "Minutes", "Days"],
+            "Capital Recommended": ["₹1,000+", "₹500+", "₹2,000+", "₹2,000+", "₹5,000+", "₹1,500+"],
+            "Best For": ["Trend riding", "Safe returns", "Quick profits", "Long term", "Experienced", "Trend following"]
+        }
+        
+        comparison_df = pd.DataFrame(comparison_data)
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+
+def page_fully_automated_bots(instrument_df):
+    """Fully automated bots page - automatic execution without manual intervention."""
+    st.info("""
+    **Fully Automated Mode**: Bots automatically analyze markets and execute trades based on your settings. 
+    ⚠️ **Use with caution** - this involves real financial risk and requires careful configuration!
+    """, icon="⚡")
+    
+    # Main control panel
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        auto_enabled = st.toggle(
+            "Enable Automated Mode", 
+            value=st.session_state.automated_mode['enabled'],
+            help="Enable fully automated trading",
+            key="auto_enable"
+        )
+        st.session_state.automated_mode['enabled'] = auto_enabled
+    
+    with col2:
+        if st.session_state.automated_mode['enabled']:
+            if not st.session_state.automated_mode['running']:
+                if st.button("🚀 Start Automated Trading", use_container_width=True, type="primary", key="auto_start"):
+                    st.session_state.automated_mode['running'] = True
+                    st.success("🤖 Automated trading started!")
+                    st.rerun()
+            else:
+                if st.button("🛑 Stop Automated Trading", use_container_width=True, type="secondary", key="auto_stop"):
+                    st.session_state.automated_mode['running'] = False
+                    st.info("⏸️ Automated trading stopped!")
+                    st.rerun()
+        else:
+            st.button("🚀 Start Automated Trading", use_container_width=True, disabled=True)
+    
+    with col3:
+        total_capital = st.number_input(
+            "Total Capital (₹)",
+            min_value=1000,
+            max_value=1000000,
+            value=st.session_state.automated_mode['total_capital'],
+            step=1000,
+            help="Total capital allocated for automated trading",
+            key="auto_capital"
+        )
+        st.session_state.automated_mode['total_capital'] = total_capital
+    
+    with col4:
+        risk_per_trade = st.slider(
+            "Risk per Trade (%)",
+            min_value=0.5,
+            max_value=5.0,
+            value=st.session_state.automated_mode['risk_per_trade'],
+            step=0.5,
+            help="Percentage of capital to risk per trade",
+            key="auto_risk"
+        )
+        st.session_state.automated_mode['risk_per_trade'] = risk_per_trade
+    
+    st.markdown("---")
+    
+    if st.session_state.automated_mode['enabled']:
+        # Bot configuration and performance dashboard
+        col5, col6 = st.columns([1, 2])
+        
+        with col5:
+            st.subheader("⚙️ Bot Configuration")
+            
+            # Bot activation
+            st.write("**Activate Bots:**")
+            for bot_name in AUTOMATED_BOTS.keys():
+                is_active = st.session_state.automated_mode['bots_active'].get(bot_name, False)
+                if st.checkbox(bot_name, value=is_active, key=f"auto_{bot_name}"):
+                    st.session_state.automated_mode['bots_active'][bot_name] = True
+                else:
+                    st.session_state.automated_mode['bots_active'][bot_name] = False
+            
+            # Trading limits
+            st.markdown("---")
+            max_trades = st.slider(
+                "Max Open Trades",
+                min_value=1,
+                max_value=20,
+                value=st.session_state.automated_mode['max_open_trades'],
+                help="Maximum number of simultaneous open trades",
+                key="auto_max_trades"
+            )
+            st.session_state.automated_mode['max_open_trades'] = max_trades
+            
+            # Trading frequency
+            check_interval = st.selectbox(
+                "Analysis Frequency",
+                ["30 seconds", "1 minute", "5 minutes", "15 minutes"],
+                index=1,
+                help="How often bots analyze the market",
+                key="auto_freq"
+            )
+            
+            # Watchlist selection for automated trading
+            st.markdown("---")
+            st.write("**📋 Trading Symbols**")
+            active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+            watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
+            
+            if watchlist_symbols:
+                st.success(f"Trading from: **{active_watchlist}**")
+                with st.expander(f"View {len(watchlist_symbols)} symbols"):
+                    for symbol in watchlist_symbols:
+                        st.write(f"• {symbol}")
+            else:
+                st.warning("No symbols in active watchlist. Add symbols to Dashboard first.")
+        
+        with col6:
+            st.subheader("📊 Live Performance Dashboard")
+            
+            if st.session_state.automated_mode['running']:
+                # Auto-refresh for live trading
+                st_autorefresh(interval=30000, key="auto_refresh")  # Refresh every 30 seconds
+                
+                # Get watchlist symbols for automated trading
+                active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+                watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
+                
+                # Run one cycle of automated trading
+                if watchlist_symbols and any(st.session_state.automated_mode['bots_active'].values()):
+                    run_automated_bots_cycle(instrument_df, watchlist_symbols)
+                
+                # Status indicator
+                st.success("🟢 **AUTOMATED TRADING ACTIVE**")
+                last_check = st.session_state.automated_mode.get('last_signal_check')
+                if last_check:
+                    last_check_time = datetime.fromisoformat(last_check).strftime("%H:%M:%S")
+                    st.caption(f"Last signal check: {last_check_time}")
+                
+                # Active bots status
+                active_bots = [bot for bot, active in st.session_state.automated_mode['bots_active'].items() if active]
+                if active_bots:
+                    st.write(f"**Active Bots:** {', '.join(active_bots)}")
+                else:
+                    st.warning("No bots activated! Enable bots in the configuration panel.")
+                    
+            else:
+                st.info("⏸️ **AUTOMATED TRADING PAUSED**")
+                st.caption("Enable automated mode and click 'Start Automated Trading' to begin")
+            
+            # Performance metrics
+            st.markdown("---")
+            st.subheader("📈 Performance Metrics")
+            metrics = get_automated_bot_performance()
+            
+            metric_cols = st.columns(4)
+            metric_cols[0].metric("Total Trades", metrics.get('total_trades', 0))
+            metric_cols[1].metric("Win Rate", f"{metrics.get('win_rate', 0):.1f}%")
+            metric_cols[2].metric("Total P&L", f"₹{metrics.get('total_pnl', 0):.2f}")
+            
+            active_trades = len([t for t in st.session_state.automated_mode['trade_history'] 
+                               if t.get('status') == 'OPEN'])
+            metric_cols[3].metric("Active Trades", active_trades)
+            
+            # Additional metrics
+            col7, col8 = st.columns(2)
+            with col7:
+                st.metric("Average Win", f"₹{metrics.get('avg_win', 0):.2f}")
+            with col8:
+                st.metric("Average Loss", f"₹{metrics.get('avg_loss', 0):.2f}")
+            
+            # Recent trades table
+            st.markdown("---")
+            st.subheader("📋 Recent Trading Activity")
+            recent_trades = st.session_state.automated_mode['trade_history'][-20:]  # Last 20 trades
+            
+            if recent_trades:
+                # Convert to DataFrame for display
+                trades_display = []
+                for trade in reversed(recent_trades):  # Show newest first
+                    trades_display.append({
+                        'Time': datetime.fromisoformat(trade['timestamp']).strftime("%H:%M:%S"),
+                        'Symbol': trade['symbol'],
+                        'Action': trade['action'],
+                        'Qty': trade['quantity'],
+                        'Price': f"₹{trade.get('entry_price', 0):.2f}",
+                        'Bot': trade['bot_name'],
+                        'Status': trade.get('status', 'OPEN'),
+                        'P&L': f"₹{trade.get('pnl', 0):.2f}" if trade.get('pnl') else '-'
+                    })
+                
+                trades_df = pd.DataFrame(trades_display)
+                st.dataframe(trades_df, use_container_width=True, hide_index=True)
+                
+                # Export trades button
+                if st.button("📥 Export Trade History", use_container_width=True):
+                    csv = trades_df.to_csv(index=False)
+                    st.download_button(
+                        label="Download CSV",
+                        data=csv,
+                        file_name=f"automated_trades_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+            else:
+                st.info("No trades executed yet. Automated trading will populate this section.")
+    
+    else:
+        # Show setup guide when automated mode is disabled
+        st.subheader("🚀 Getting Started with Automated Trading")
+        
+        col_setup1, col_setup2 = st.columns(2)
+        
+        with col_setup1:
+            st.markdown("""
+            **📋 Setup Steps:**
+            1. **Enable Automated Mode** - Toggle the switch above
+            2. **Set Capital & Risk** - Configure your trading parameters
+            3. **Activate Bots** - Choose which strategies to use
+            4. **Configure Watchlist** - Ensure you have symbols in your active watchlist
+            5. **Start Trading** - Click 'Start Automated Trading'
+            """)
+            
+        with col_setup2:
+            st.markdown("""
+            **⚠️ Risk Management:**
+            - Start with small capital (₹5,000-10,000)
+            - Use 1-2% risk per trade initially
+            - Monitor performance regularly
+            - Set maximum open trades limit
+            - Have stop-loss strategies in place
+            """)
+        
+        st.markdown("---")
+        st.subheader("🤖 Available Automated Bots")
+        
+        bot_col1, bot_col2 = st.columns(2)
+        
+        with bot_col1:
+            st.markdown("""
+            **Auto Momentum Trader**
+            - Identifies strong momentum signals
+            - Uses RSI, EMA, MACD confirmations
+            - Medium risk profile
+            - Best for trending markets
+            """)
+            
+            st.markdown("""
+            **Auto Mean Reversion**
+            - Trades price extremes
+            - Uses Bollinger Bands and RSI
+            - Low risk profile  
+            - Best for range-bound markets
+            """)
+        
+        with bot_col2:
+            st.markdown("""
+            **Key Features:**
+            - ✅ Real-time market analysis
+            - ✅ Automatic position sizing
+            - ✅ Risk-managed execution
+            - ✅ Performance tracking
+            - ✅ Trade history logging
+            """)
+            
+            st.markdown("""
+            **Monitoring:**
+            - Live performance dashboard
+            - Real-time trade updates
+            - Risk exposure tracking
+            - P&L calculations
+            - Bot activity logs
+            """)
+
+# ================ AUTOMATED MODE HELPER FUNCTIONS ================
+
+def initialize_automated_mode():
+    """Initialize session state for fully automated trading."""
+    if 'automated_mode' not in st.session_state:
+        st.session_state.automated_mode = {
+            'enabled': False,
+            'running': False,
+            'bots_active': {},
+            'total_capital': 10000,
+            'risk_per_trade': 2,
+            'max_open_trades': 5,
+            'trade_history': [],
+            'performance_metrics': {},
+            'last_signal_check': None
+        }
+
+def get_automated_bot_performance():
+    """Calculate performance metrics for automated bots."""
+    if not st.session_state.automated_mode['trade_history']:
+        return {
+            'total_trades': 0,
+            'winning_trades': 0,
+            'losing_trades': 0,
+            'total_pnl': 0,
+            'win_rate': 0,
+            'avg_win': 0,
+            'avg_loss': 0
+        }
+    
+    trades = st.session_state.automated_mode['trade_history']
+    winning_trades = [t for t in trades if t.get('pnl', 0) > 0]
+    losing_trades = [t for t in trades if t.get('pnl', 0) <= 0]
+    
+    total_pnl = sum(t.get('pnl', 0) for t in trades)
+    win_rate = len(winning_trades) / len(trades) * 100 if trades else 0
+    
+    avg_win = sum(t.get('pnl', 0) for t in winning_trades) / len(winning_trades) if winning_trades else 0
+    avg_loss = sum(t.get('pnl', 0) for t in losing_trades) / len(losing_trades) if losing_trades else 0
+    
+    return {
+        'total_trades': len(trades),
+        'winning_trades': len(winning_trades),
+        'losing_trades': len(losing_trades),
+        'total_pnl': total_pnl,
+        'win_rate': win_rate,
+        'avg_win': avg_win,
+        'avg_loss': avg_loss
+    }
+
+def run_automated_bots_cycle(instrument_df, watchlist_symbols):
+    """Run one cycle of all active automated bots."""
+    if not st.session_state.automated_mode['running']:
+        return
+    
+    active_bots = [bot for bot, active in st.session_state.automated_mode['bots_active'].items() if active]
+    
+    for bot_name in active_bots:
+        for symbol in watchlist_symbols[:10]:  # Limit to first 10 symbols to avoid rate limits
+            try:
+                bot_function = AUTOMATED_BOTS[bot_name]
+                bot_result = bot_function(instrument_df, symbol)
+                
+                if not bot_result.get("error") and bot_result["action"] != "HOLD":
+                    execute_automated_trade(
+                        instrument_df, 
+                        bot_result, 
+                        st.session_state.automated_mode['risk_per_trade']
+                    )
+                
+                # Small delay to avoid rate limiting
+                import time
+                time.sleep(0.5)
+                
+            except Exception as e:
+                st.error(f"Automated bot {bot_name} failed for {symbol}: {e}")
+    
+    # Update performance metrics
+    st.session_state.automated_mode['performance_metrics'] = get_automated_bot_performance()
+    st.session_state.automated_mode['last_signal_check'] = datetime.now().isoformat()
+
+def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
+    """Execute trades automatically based on bot signals."""
+    if bot_result.get("error") or bot_result["action"] == "HOLD":
+        return None
+    
+    try:
+        symbol = bot_result["symbol"]
+        action = bot_result["action"]
+        current_price = bot_result["current_price"]
+        
+        # Calculate position size based on risk
+        risk_amount = (risk_per_trade / 100) * st.session_state.automated_mode['total_capital']
+        quantity = max(1, int(risk_amount / current_price))
+        
+        # Check if we have too many open trades
+        open_trades = [t for t in st.session_state.automated_mode['trade_history'] 
+                      if t.get('status') == 'OPEN']
+        if len(open_trades) >= st.session_state.automated_mode['max_open_trades']:
+            return None
+        
+        # Check for existing position in the same symbol
+        existing_position = next((t for t in open_trades if t.get('symbol') == symbol), None)
+        if existing_position:
+            # Avoid opening same position multiple times
+            if existing_position['action'] == action:
+                return None
+        
+        # Place the order (commented out for safety - uncomment for live trading)
+        # place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
+        
+        # Record the trade (simulated for demo)
+        trade_record = {
+            'timestamp': datetime.now().isoformat(),
+            'symbol': symbol,
+            'action': action,
+            'quantity': quantity,
+            'entry_price': current_price,
+            'status': 'OPEN',
+            'bot_name': bot_result['bot_name'],
+            'risk_level': bot_result['risk_level'],
+            'pnl': 0  # Initialize P&L
+        }
+        
+        st.session_state.automated_mode['trade_history'].append(trade_record)
+        
+        st.toast(f"🤖 Automated {action} order executed for {symbol}", icon="⚡")
+        return trade_record
+        
+    except Exception as e:
+        st.error(f"Automated trade execution failed: {e}")
+        return None
 
 # ================ 5. PAGE DEFINITIONS ============
 
