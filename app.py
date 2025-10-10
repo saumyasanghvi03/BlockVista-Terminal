@@ -1990,13 +1990,17 @@ def page_fully_automated_bots(instrument_df):
     ⚠️ **Use with caution** - this involves real financial risk and requires careful configuration!
     """, icon="⚡")
     
+    # Initialize automated mode if not exists
+    if 'automated_mode' not in st.session_state:
+        initialize_automated_mode()
+    
     # Main control panel
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         auto_enabled = st.toggle(
             "Enable Automated Mode", 
-            value=st.session_state.automated_mode['enabled'],
+            value=st.session_state.automated_mode.get('enabled', False),
             help="Enable fully automated trading",
             key="auto_enable"
         )
@@ -2004,7 +2008,7 @@ def page_fully_automated_bots(instrument_df):
     
     with col2:
         if st.session_state.automated_mode['enabled']:
-            if not st.session_state.automated_mode['running']:
+            if not st.session_state.automated_mode.get('running', False):
                 if st.button("🚀 Start Automated Trading", use_container_width=True, type="primary", key="auto_start"):
                     st.session_state.automated_mode['running'] = True
                     st.success("🤖 Automated trading started!")
@@ -2022,7 +2026,7 @@ def page_fully_automated_bots(instrument_df):
             "Total Capital (₹)",
             min_value=1000,
             max_value=1000000,
-            value=st.session_state.automated_mode['total_capital'],
+            value=st.session_state.automated_mode.get('total_capital', 10000),
             step=1000,
             help="Total capital allocated for automated trading",
             key="auto_capital"
@@ -2030,16 +2034,23 @@ def page_fully_automated_bots(instrument_df):
         st.session_state.automated_mode['total_capital'] = total_capital
     
     with col4:
+        # Fix the slider issue - ensure value is within range
+        current_risk = st.session_state.automated_mode.get('risk_per_trade', 2.0)
+        # Ensure the value is within slider range
+        current_risk = max(0.5, min(5.0, current_risk))
+        
         risk_per_trade = st.slider(
             "Risk per Trade (%)",
             min_value=0.5,
             max_value=5.0,
-            value=st.session_state.automated_mode['risk_per_trade'],
+            value=current_risk,
             step=0.5,
             help="Percentage of capital to risk per trade",
             key="auto_risk"
         )
         st.session_state.automated_mode['risk_per_trade'] = risk_per_trade
+    
+    # Rest of the function remains the same...
     
     st.markdown("---")
     
