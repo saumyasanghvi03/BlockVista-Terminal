@@ -1992,9 +1992,9 @@ def page_fully_automated_bots(instrument_df):
         initialize_automated_mode()
     
     # Fix the total_capital value if it's below minimum
-    current_capital = st.session_state.automated_mode.get('total_capital', 10000)
-    if current_capital < 1000:
-        st.session_state.automated_mode['total_capital'] = 10000
+    current_capital = st.session_state.automated_mode.get('total_capital', 10000.0)  # Ensure float
+    if current_capital < 1000.0:
+        st.session_state.automated_mode['total_capital'] = 10000.0
     
     # Add live trading confirmation
     if st.session_state.automated_mode.get('running', False) and st.session_state.automated_mode.get('live_trading', False):
@@ -2045,36 +2045,36 @@ def page_fully_automated_bots(instrument_df):
             st.button("🚀 Start Automated Trading", use_container_width=True, disabled=True)
     
     with col4:
-        # Get and validate current capital value
-        current_capital = st.session_state.automated_mode.get('total_capital', 10000)
-        current_capital = max(1000, current_capital)  # Ensure it's at least 1000
+        # Get and validate current capital value - ensure all values are floats
+        current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
+        current_capital = max(1000.0, current_capital)  # Ensure it's at least 1000.0
         
         total_capital = st.number_input(
             "Total Capital (₹)",
-            min_value=1000,
-            max_value=1000000,
-            value=current_capital,  # Use validated value
-            step=1000,
+            min_value=1000.0,  # Use float
+            max_value=1000000.0,  # Use float
+            value=current_capital,  # Use validated float value
+            step=1000.0,  # Use float
             help="Total capital allocated for automated trading",
             key="auto_capital"
         )
-        st.session_state.automated_mode['total_capital'] = total_capital
+        st.session_state.automated_mode['total_capital'] = float(total_capital)  # Ensure float
     
     with col5:
-        # Get and validate current risk value
-        current_risk = st.session_state.automated_mode.get('risk_per_trade', 2.0)
+        # Get and validate current risk value - ensure all values are floats
+        current_risk = float(st.session_state.automated_mode.get('risk_per_trade', 2.0))
         current_risk = max(0.5, min(5.0, current_risk))  # Ensure it's within range
         
         risk_per_trade = st.number_input(
             "Risk per Trade (%)",
-            min_value=0.5,
-            max_value=5.0,
-            value=current_risk,  # Use validated value
-            step=0.5,
+            min_value=0.5,  # Already float
+            max_value=5.0,  # Already float
+            value=current_risk,  # Use validated float value
+            step=0.5,  # Already float
             help="Percentage of capital to risk per trade",
             key="auto_risk"
         )
-        st.session_state.automated_mode['risk_per_trade'] = risk_per_trade
+        st.session_state.automated_mode['risk_per_trade'] = float(risk_per_trade)  # Ensure float
     
     # Live trading confirmation dialog
     if st.session_state.get('need_live_confirmation', False):
