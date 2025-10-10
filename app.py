@@ -2363,8 +2363,8 @@ def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
             if existing_position['action'] == action:
                 return None
         
-        # Place the order (commented out for safety - uncomment for live trading)
-        # place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
+        Place the order (commented out for safety - uncomment for live trading)
+          place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
         
         # Record the trade (simulated for demo)
         trade_record = {
