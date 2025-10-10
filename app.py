@@ -1363,10 +1363,9 @@ def page_algo_bots():
             "Mean Reversion": "Buys low and sells high based on statistical mean reversion. Low risk.",
             "Volatility Breakout": "Captures breakouts from low volatility periods. High risk.",
             "Value Investor": "Focuses on longer-term value and fundamental trends. Low risk.",
-            "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk.".
+            "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk."
         }
-        
-        st.markdown(f"**Description:** {bot_descriptions[selected_bot]}")
+            st.markdown(f"**Description:** {bot_descriptions[selected_bot]}")
     
     with col2:
         trading_capital = st.number_input(
