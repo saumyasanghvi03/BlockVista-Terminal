@@ -2034,26 +2034,21 @@ def page_fully_automated_bots(instrument_df):
         st.session_state.automated_mode['total_capital'] = total_capital
     
     with col4:
-        # Fix the slider issue - ensure value is within range
-        current_risk = st.session_state.automated_mode.get('risk_per_trade', 2.0)
-        # Ensure the value is within slider range
-        current_risk = max(0.5, min(5.0, current_risk))
-        
-        risk_per_trade = st.slider(
+        # Replace slider with number input to avoid the error
+        risk_per_trade = st.number_input(
             "Risk per Trade (%)",
             min_value=0.5,
             max_value=5.0,
-            value=current_risk,
+            value=2.0,
             step=0.5,
             help="Percentage of capital to risk per trade",
             key="auto_risk"
         )
         st.session_state.automated_mode['risk_per_trade'] = risk_per_trade
     
-    # Rest of the function remains the same...
-    
     st.markdown("---")
     
+    # Rest of the function continues normally...
     if st.session_state.automated_mode['enabled']:
         # Bot configuration and performance dashboard
         col5, col6 = st.columns([1, 2])
@@ -2076,7 +2071,7 @@ def page_fully_automated_bots(instrument_df):
                 "Max Open Trades",
                 min_value=1,
                 max_value=20,
-                value=st.session_state.automated_mode['max_open_trades'],
+                value=st.session_state.automated_mode.get('max_open_trades', 5),
                 help="Maximum number of simultaneous open trades",
                 key="auto_max_trades"
             )
@@ -2110,7 +2105,7 @@ def page_fully_automated_bots(instrument_df):
             
             if st.session_state.automated_mode['running']:
                 # Auto-refresh for live trading
-                st_autorefresh(interval=30000, key="auto_refresh")  # Refresh every 30 seconds
+                st_autorefresh(interval=30000, key="auto_refresh")
                 
                 # Get watchlist symbols for automated trading
                 active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
@@ -2162,12 +2157,11 @@ def page_fully_automated_bots(instrument_df):
             # Recent trades table
             st.markdown("---")
             st.subheader("📋 Recent Trading Activity")
-            recent_trades = st.session_state.automated_mode['trade_history'][-20:]  # Last 20 trades
+            recent_trades = st.session_state.automated_mode['trade_history'][-20:]
             
             if recent_trades:
-                # Convert to DataFrame for display
                 trades_display = []
-                for trade in reversed(recent_trades):  # Show newest first
+                for trade in reversed(recent_trades):
                     trades_display.append({
                         'Time': datetime.fromisoformat(trade['timestamp']).strftime("%H:%M:%S"),
                         'Symbol': trade['symbol'],
@@ -2182,7 +2176,6 @@ def page_fully_automated_bots(instrument_df):
                 trades_df = pd.DataFrame(trades_display)
                 st.dataframe(trades_df, use_container_width=True, hide_index=True)
                 
-                # Export trades button
                 if st.button("📥 Export Trade History", use_container_width=True):
                     csv = trades_df.to_csv(index=False)
                     st.download_button(
