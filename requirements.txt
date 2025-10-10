@@ -14,5 +14,4 @@ pyotp==2.9.0
 qrcode==7.4.2
 Pillow==10.3.0
 requests==2.32.3
-pandas-ta==0.4.71b0
 streamlit-autorefresh
