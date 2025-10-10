@@ -2014,6 +2014,303 @@ def initialize_automated_mode():
                 'total_value': st.session_state.automated_mode.get('total_capital', 10000.0)
             }
 
+def update_paper_portfolio_values(instrument_df):
+    """Update paper portfolio values with current market prices."""
+    paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+    if not paper_portfolio:
+        return
+    
+    positions = paper_portfolio.get('positions', {})
+    if not positions:
+        paper_portfolio['total_value'] = paper_portfolio.get('cash_balance', 0.0)
+        return
+    
+    # Get current prices for all positions
+    symbols_with_exchange = []
+    for symbol in positions.keys():
+        symbols_with_exchange.append({'symbol': symbol, 'exchange': 'NSE'})
+    
+    if symbols_with_exchange:
+        live_data = get_watchlist_data(symbols_with_exchange)
+        
+        if not live_data.empty:
+            total_position_value = 0.0
+            
+            for symbol, position in positions.items():
+                symbol_data = live_data[live_data['Ticker'] == symbol]
+                if not symbol_data.empty:
+                    current_price = symbol_data.iloc[0]['Price']
+                    position_value = position['quantity'] * current_price
+                    total_position_value += position_value
+                    
+                    # Update unrealized P&L for open trades
+                    open_trades = [t for t in st.session_state.automated_mode.get('trade_history', []) 
+                                  if t.get('symbol') == symbol and t.get('status') == 'OPEN']
+                    for trade in open_trades:
+                        if trade.get('action') == 'BUY':
+                            trade['pnl'] = (current_price - trade.get('entry_price', 0)) * trade.get('quantity', 0)
+                        else:  # SELL (short)
+                            trade['pnl'] = (trade.get('entry_price', 0) - current_price) * trade.get('quantity', 0)
+            
+            paper_portfolio['total_value'] = paper_portfolio.get('cash_balance', 0.0) + total_position_value
+
+# Also add the missing close_paper_position function
+def close_paper_position(symbol, quantity=None):
+    """Close a paper trading position."""
+    paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+    
+    if not paper_portfolio or symbol not in paper_portfolio.get('positions', {}):
+        st.error(f"No position found for {symbol}")
+        return False
+    
+    position = paper_portfolio['positions'][symbol]
+    close_quantity = quantity if quantity else position['quantity']
+    
+    if close_quantity > position['quantity']:
+        st.error(f"Cannot close more than current position: {position['quantity']}")
+        return False
+    
+    # Get current price
+    live_data = get_watchlist_data([{'symbol': symbol, 'exchange': 'NSE'}])
+    if live_data.empty:
+        st.error(f"Could not get current price for {symbol}")
+        return False
+    
+    current_price = live_data.iloc[0]['Price']
+    
+    # Calculate P&L
+    pnl = (current_price - position['avg_price']) * close_quantity
+    if position.get('action') == 'SELL':  # For short positions, reverse the P&L
+        pnl = -pnl
+    
+    # Update cash and position
+    paper_portfolio['cash_balance'] += close_quantity * current_price
+    paper_portfolio['positions'][symbol]['quantity'] -= close_quantity
+    
+    # Remove position if fully closed
+    if paper_portfolio['positions'][symbol]['quantity'] == 0:
+        del paper_portfolio['positions'][symbol]
+    
+    # Update trade history
+    open_trades = [t for t in st.session_state.automated_mode.get('trade_history', []) 
+                  if t.get('symbol') == symbol and t.get('status') == 'OPEN']
+    for trade in open_trades:
+        if trade.get('action') == position.get('action'):  # Find matching trade
+            # Close the trade
+            trade['status'] = 'CLOSED'
+            trade['exit_price'] = current_price
+            trade['exit_time'] = datetime.now().isoformat()
+            trade['pnl'] = pnl
+    
+    st.success(f"✅ Closed {close_quantity} shares of {symbol} at ₹{current_price:.2f} | P&L: ₹{pnl:.2f}")
+    return True
+
+
+def get_automated_bot_performance():
+    """Calculate performance metrics for automated bots with paper trading support."""
+    trade_history = st.session_state.automated_mode.get('trade_history', [])
+    if not trade_history:
+        paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+        current_value = paper_portfolio.get('total_value', paper_portfolio.get('cash_balance', 0.0))
+        initial_capital = paper_portfolio.get('initial_capital', current_value)
+        paper_return_pct = ((current_value - initial_capital) / initial_capital) * 100 if initial_capital > 0 else 0.0
+        
+        return {
+            'total_trades': 0,
+            'winning_trades': 0,
+            'losing_trades': 0,
+            'total_pnl': 0.0,
+            'win_rate': 0.0,
+            'avg_win': 0.0,
+            'avg_loss': 0.0,
+            'open_trades': 0,
+            'paper_portfolio_value': current_value,
+            'paper_return_pct': paper_return_pct,
+            'unrealized_pnl': 0.0
+        }
+    
+    closed_trades = [t for t in trade_history if t.get('status') == 'CLOSED']
+    open_trades = [t for t in trade_history if t.get('status') == 'OPEN']
+    
+    # Calculate metrics for closed trades
+    winning_trades = [t for t in closed_trades if t.get('pnl', 0) > 0]
+    losing_trades = [t for t in closed_trades if t.get('pnl', 0) <= 0]
+    
+    total_pnl = sum(t.get('pnl', 0) for t in closed_trades)
+    win_rate = len(winning_trades) / len(closed_trades) * 100 if closed_trades else 0.0
+    
+    avg_win = sum(t.get('pnl', 0) for t in winning_trades) / len(winning_trades) if winning_trades else 0.0
+    avg_loss = sum(t.get('pnl', 0) for t in losing_trades) / len(losing_trades) if losing_trades else 0.0
+    
+    # Paper trading metrics
+    paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+    initial_capital = paper_portfolio.get('initial_capital', 10000.0)
+    current_value = paper_portfolio.get('total_value', paper_portfolio.get('cash_balance', initial_capital))
+    paper_return_pct = ((current_value - initial_capital) / initial_capital) * 100 if initial_capital > 0 else 0.0
+    
+    return {
+        'total_trades': len(closed_trades),
+        'winning_trades': len(winning_trades),
+        'losing_trades': len(losing_trades),
+        'total_pnl': total_pnl,
+        'win_rate': win_rate,
+        'avg_win': avg_win,
+        'avg_loss': avg_loss,
+        'open_trades': len(open_trades),
+        'paper_portfolio_value': current_value,
+        'paper_return_pct': paper_return_pct,
+        'unrealized_pnl': sum(t.get('pnl', 0) for t in open_trades)
+    }
+
+def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
+    """Execute trades automatically based on bot signals - with paper trading support."""
+    if bot_result.get("error") or bot_result["action"] == "HOLD":
+        return None
+    
+    try:
+        symbol = bot_result["symbol"]
+        action = bot_result["action"]
+        current_price = bot_result["current_price"]
+        
+        # Calculate position size based on risk
+        risk_amount = (risk_per_trade / 100.0) * st.session_state.automated_mode['total_capital']
+        quantity = max(1, int(risk_amount / current_price))
+        
+        # Check if we have too many open trades
+        open_trades = [t for t in st.session_state.automated_mode.get('trade_history', []) 
+                      if t.get('status') == 'OPEN']
+        if len(open_trades) >= st.session_state.automated_mode.get('max_open_trades', 5):
+            return None
+        
+        # Check for existing position in the same symbol
+        existing_position = next((t for t in open_trades if t.get('symbol') == symbol), None)
+        if existing_position:
+            # Avoid opening same position multiple times
+            if existing_position['action'] == action:
+                return None
+        
+        # PLACE REAL ORDER if live trading is enabled
+        order_type = "PAPER"
+        if st.session_state.automated_mode.get('live_trading', False):
+            try:
+                # Place the real order
+                place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
+                order_type = "LIVE"
+            except Exception as e:
+                st.error(f"❌ Failed to place LIVE order for {symbol}: {e}")
+                return None
+        else:
+            # PAPER TRADING - Simulate the trade
+            paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+            trade_value = quantity * current_price
+            
+            if action == "BUY":
+                if paper_portfolio.get('cash_balance', 0) >= trade_value:
+                    # Deduct from cash, add to positions
+                    paper_portfolio['cash_balance'] -= trade_value
+                    if symbol in paper_portfolio.get('positions', {}):
+                        paper_portfolio['positions'][symbol]['quantity'] += quantity
+                        paper_portfolio['positions'][symbol]['avg_price'] = (
+                            (paper_portfolio['positions'][symbol]['avg_price'] * 
+                             paper_portfolio['positions'][symbol]['quantity'] + 
+                             trade_value) / (paper_portfolio['positions'][symbol]['quantity'] + quantity)
+                        )
+                    else:
+                        if 'positions' not in paper_portfolio:
+                            paper_portfolio['positions'] = {}
+                        paper_portfolio['positions'][symbol] = {
+                            'quantity': quantity,
+                            'avg_price': current_price,
+                            'action': 'BUY'
+                        }
+                else:
+                    st.error(f"❌ Paper trading: Insufficient cash for {symbol} buy order")
+                    return None
+            else:  # SELL action
+                positions = paper_portfolio.get('positions', {})
+                if symbol in positions and positions[symbol]['quantity'] >= quantity:
+                    # Remove from positions, add to cash
+                    position = positions[symbol]
+                    paper_portfolio['cash_balance'] += quantity * current_price
+                    
+                    # Calculate P&L for the trade
+                    pnl = (current_price - position['avg_price']) * quantity
+                    if position.get('action') == 'SELL':  # For short positions, reverse the P&L
+                        pnl = -pnl
+                    
+                    # Update position
+                    paper_portfolio['positions'][symbol]['quantity'] -= quantity
+                    if paper_portfolio['positions'][symbol]['quantity'] == 0:
+                        del paper_portfolio['positions'][symbol]
+                else:
+                    st.error(f"❌ Paper trading: No position to sell for {symbol}")
+                    return None
+        
+        # Record the trade
+        trade_record = {
+            'timestamp': datetime.now().isoformat(),
+            'symbol': symbol,
+            'action': action,
+            'quantity': quantity,
+            'entry_price': current_price,
+            'status': 'OPEN',
+            'bot_name': bot_result['bot_name'],
+            'risk_level': bot_result['risk_level'],
+            'order_type': order_type,
+            'pnl': 0.0,  # Initialize P&L
+            'exit_price': None,
+            'exit_time': None
+        }
+        
+        if 'trade_history' not in st.session_state.automated_mode:
+            st.session_state.automated_mode['trade_history'] = []
+        st.session_state.automated_mode['trade_history'].append(trade_record)
+        
+        if order_type == "LIVE":
+            st.toast(f"🤖 LIVE {action} order executed for {symbol} (Qty: {quantity})", icon="⚡")
+        else:
+            st.toast(f"🤖 PAPER {action} order simulated for {symbol} (Qty: {quantity})", icon="📄")
+            
+        return trade_record
+        
+    except Exception as e:
+        st.error(f"Automated trade execution failed: {e}")
+        return None
+
+def run_automated_bots_cycle(instrument_df, watchlist_symbols):
+    """Run one cycle of all active automated bots with paper trading updates."""
+    if not st.session_state.automated_mode.get('running', False):
+        return
+    
+    # Update paper portfolio values first
+    update_paper_portfolio_values(instrument_df)
+    
+    active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
+    
+    for bot_name in active_bots:
+        for symbol in watchlist_symbols[:10]:  # Limit to first 10 symbols to avoid rate limits
+            try:
+                bot_function = AUTOMATED_BOTS[bot_name]
+                bot_result = bot_function(instrument_df, symbol)
+                
+                if not bot_result.get("error") and bot_result["action"] != "HOLD":
+                    execute_automated_trade(
+                        instrument_df, 
+                        bot_result, 
+                        st.session_state.automated_mode.get('risk_per_trade', 2.0)
+                    )
+                
+                # Small delay to avoid rate limiting
+                a_time.sleep(0.5)
+                
+            except Exception as e:
+                st.error(f"Automated bot {bot_name} failed for {symbol}: {e}")
+    
+    # Update performance metrics
+    st.session_state.automated_mode['performance_metrics'] = get_automated_bot_performance()
+    st.session_state.automated_mode['last_signal_check'] = datetime.now().isoformat()
+
+# Now define the page_fully_automated_bots function
 def page_fully_automated_bots(instrument_df):
     """Fully automated bots page with comprehensive paper trading simulation."""
     st.warning("🚨 **LIVE TRADING WARNING**: Automated bots will execute real trades with real money! Use at your own risk.", icon="⚠️")
@@ -2181,10 +2478,14 @@ def page_fully_automated_bots(instrument_df):
             # Bot activation
             st.write("**Activate Bots:**")
             for bot_name in AUTOMATED_BOTS.keys():
-                is_active = st.session_state.automated_mode['bots_active'].get(bot_name, False)
+                is_active = st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False)
                 if st.checkbox(bot_name, value=is_active, key=f"auto_{bot_name}"):
+                    if 'bots_active' not in st.session_state.automated_mode:
+                        st.session_state.automated_mode['bots_active'] = {}
                     st.session_state.automated_mode['bots_active'][bot_name] = True
                 else:
+                    if 'bots_active' not in st.session_state.automated_mode:
+                        st.session_state.automated_mode['bots_active'] = {}
                     st.session_state.automated_mode['bots_active'][bot_name] = False
             
             # Trading limits
@@ -2231,9 +2532,10 @@ def page_fully_automated_bots(instrument_df):
                 st.success("Portfolio values updated!")
             
             paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
-            if paper_portfolio and paper_portfolio.get('positions'):
+            positions = paper_portfolio.get('positions', {})
+            if positions:
                 st.write("**Current Positions:**")
-                for symbol, position in paper_portfolio['positions'].items():
+                for symbol, position in positions.items():
                     col_pos1, col_pos2, col_pos3 = st.columns([2, 1, 1])
                     col_pos1.write(f"{symbol}")
                     col_pos2.write(f"{position.get('quantity', 0)} shares")
@@ -2244,7 +2546,7 @@ def page_fully_automated_bots(instrument_df):
         with col6:
             st.subheader("📊 Live Performance Dashboard")
             
-            if st.session_state.automated_mode['running']:
+            if st.session_state.automated_mode.get('running', False):
                 # Auto-refresh for live trading
                 st_autorefresh(interval=30000, key="auto_refresh")
                 
@@ -2253,7 +2555,7 @@ def page_fully_automated_bots(instrument_df):
                 watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
                 
                 # Run one cycle of automated trading
-                if watchlist_symbols and any(st.session_state.automated_mode['bots_active'].values()):
+                if watchlist_symbols and any(st.session_state.automated_mode.get('bots_active', {}).values()):
                     run_automated_bots_cycle(instrument_df, watchlist_symbols)
                 
                 # Status indicator
@@ -2268,7 +2570,7 @@ def page_fully_automated_bots(instrument_df):
                     st.caption(f"Last signal check: {last_check_time}")
                 
                 # Active bots status
-                active_bots = [bot for bot, active in st.session_state.automated_mode['bots_active'].items() if active]
+                active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
                 if active_bots:
                     st.write(f"**Active Bots:** {', '.join(active_bots)}")
                 else:
