@@ -36,7 +36,7 @@ import random
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
 
 def apply_custom_styling():
-    """Applies a comprehensive CSS stylesheet for professional theming with proper light mode support."""
+    """Applies a comprehensive CSS stylesheet for professional theming."""
     theme_css = """
     <style>
         :root {
@@ -48,21 +48,15 @@ def apply_custom_styling():
             --dark-text-light: #8b949e;
             --dark-green: #28a745;
             --dark-red: #da3633;
-            --dark-orange: #d29922;
-            --dark-blue: #58a6ff;
-            --dark-purple: #bc8cff;
 
             --light-bg: #FFFFFF;
-            --light-secondary-bg: #F8F9FA;
-            --light-widget-bg: #F0F2F6;
+            --light-secondary-bg: #F0F2F6;
+            --light-widget-bg: #F8F9FA;
             --light-border: #dee2e6;
             --light-text: #212529;
             --light-text-light: #6c757d;
             --light-green: #198754;
             --light-red: #dc3545;
-            --light-orange: #fd7e14;
-            --light-blue: #0d6efd;
-            --light-purple: #6f42c1;
         }
 
         body.dark-theme {
@@ -74,9 +68,6 @@ def apply_custom_styling():
             --text-light: var(--dark-text-light);
             --green: var(--dark-green);
             --red: var(--dark-red);
-            --orange: var(--dark-orange);
-            --blue: var(--dark-blue);
-            --purple: var(--dark-purple);
         }
 
         body.light-theme {
@@ -88,66 +79,40 @@ def apply_custom_styling():
             --text-light: var(--light-text-light);
             --green: var(--light-green);
             --red: var(--light-red);
-            --orange: var(--light-orange);
-            --blue: var(--light-blue);
-            --purple: var(--light-purple);
         }
 
         body {
             background-color: var(--primary-bg);
             color: var(--text-color);
-            transition: all 0.3s ease;
         }
         
         .main .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
-            background-color: var(--primary-bg);
         }
         
-        h1, h2, h3, h4, h5, h6 {
+        h1, h2, h3, h4, h5 {
             color: var(--text-color) !important;
-        }
-        
-        p, div, span {
-            color: var(--text-color);
         }
         
         hr {
             background: var(--border-color);
-            margin: 1rem 0;
         }
 
-        /* Streamlit component styling */
         .stButton>button {
-            border: 1px solid var(--border-color);
+            border-color: var(--border-color);
             background-color: var(--widget-bg);
             color: var(--text-color);
-            transition: all 0.2s ease;
         }
         .stButton>button:hover {
             border-color: var(--green);
             color: var(--green);
-            background-color: var(--secondary-bg);
         }
-        
-        .stTextInput>div>div>input, 
-        .stNumberInput>div>div>input, 
-        .stSelectbox>div>div>select,
-        .stTextArea>div>div>textarea {
+        .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
             background-color: var(--widget-bg);
-            border: 1px solid var(--border-color);
+            border-color: var(--border-color);
             color: var(--text-color);
-            border-radius: 4px;
         }
-        
-        .stTextInput>div>div>input:focus, 
-        .stNumberInput>div>div>input:focus, 
-        .stSelectbox>div>div>select:focus {
-            border-color: var(--blue);
-            box-shadow: 0 0 0 1px var(--blue);
-        }
-        
         .stRadio>div {
             background-color: var(--widget-bg);
             border: 1px solid var(--border-color);
@@ -155,49 +120,12 @@ def apply_custom_styling():
             border-radius: 8px;
         }
         
-        .stCheckbox>div {
-            color: var(--text-color);
-        }
-        
-        .stCheckbox>div>label>div:first-child {
-            background-color: var(--widget-bg);
-            border: 1px solid var(--border-color);
-        }
-        
-        .stSlider>div>div>div {
-            background-color: var(--border-color);
-        }
-        
-        .stSlider>div>div>div>div {
-            background-color: var(--green);
-        }
-        
-        /* Dataframe styling */
-        .dataframe {
-            background-color: var(--widget-bg) !important;
-            color: var(--text-color) !important;
-        }
-        
-        .dataframe th {
-            background-color: var(--secondary-bg) !important;
-            color: var(--text-color) !important;
-            border-color: var(--border-color) !important;
-        }
-        
-        .dataframe td {
-            background-color: var(--widget-bg) !important;
-            color: var(--text-color) !important;
-            border-color: var(--border-color) !important;
-        }
-        
-        /* Metric cards */
         .metric-card {
             background-color: var(--secondary-bg);
             border: 1px solid var(--border-color);
             padding: 1.5rem;
             border-radius: 10px;
             border-left-width: 5px;
-            color: var(--text-color);
         }
         
         .trade-card {
@@ -206,10 +134,8 @@ def apply_custom_styling():
             padding: 1.5rem;
             border-radius: 10px;
             border-left-width: 5px;
-            color: var(--text-color);
         }
 
-        /* Notification bar */
         .notification-bar {
             position: sticky;
             top: 0;
@@ -232,18 +158,13 @@ def apply_custom_styling():
             white-space: nowrap;
         }
         
-        /* HFT Terminal */
         .hft-depth-bid {
             background: linear-gradient(to left, rgba(0, 128, 0, 0.3), rgba(0, 128, 0, 0.05));
             padding: 2px 5px;
-            border-radius: 3px;
-            margin: 2px 0;
         }
         .hft-depth-ask {
             background: linear-gradient(to right, rgba(255, 0, 0, 0.3), rgba(255, 0, 0, 0.05));
             padding: 2px 5px;
-            border-radius: 3px;
-            margin: 2px 0;
         }
         .tick-up {
             color: var(--green);
@@ -254,129 +175,25 @@ def apply_custom_styling():
             animation: flash-red 0.5s;
         }
         @keyframes flash-green {
-            0% { background-color: rgba(40, 167, 69, 0.3); }
+            0% { background-color: rgba(40, 167, 69, 0.5); }
             100% { background-color: transparent; }
         }
         @keyframes flash-red {
-            0% { background-color: rgba(218, 54, 51, 0.3); }
+            0% { background-color: rgba(218, 54, 51, 0.5); }
             100% { background-color: transparent; }
         }
-        
-        /* Plotly chart containers */
-        .js-plotly-plot .plotly, 
-        .js-plotly-plot .plotly div {
-            background-color: var(--widget-bg) !important;
-        }
-        
-        /* Streamlit expander */
-        .streamlit-expanderHeader {
-            background-color: var(--secondary-bg);
-            color: var(--text-color);
-            border: 1px solid var(--border-color);
-        }
-        
-        .streamlit-expanderContent {
-            background-color: var(--widget-bg);
-            border: 1px solid var(--border-color);
-            border-top: none;
-        }
-        
-        /* Tabs */
-        .stTabs [data-baseweb="tab-list"] {
-            background-color: var(--secondary-bg);
-            border-bottom: 1px solid var(--border-color);
-        }
-        
-        .stTabs [data-baseweb="tab"] {
-            background-color: var(--secondary-bg);
-            color: var(--text-color);
-            border: 1px solid var(--border-color);
-            border-bottom: none;
-            border-radius: 4px 4px 0 0;
-        }
-        
-        .stTabs [aria-selected="true"] {
-            background-color: var(--widget-bg) !important;
-            color: var(--text-color) !important;
-            border-bottom: 2px solid var(--green) !important;
-        }
-        
-        /* Sidebar */
-        [data-testid="stSidebar"] {
-            background-color: var(--secondary-bg) !important;
-            border-right: 1px solid var(--border-color);
-        }
-        
-        [data-testid="stSidebar"] .css-1d391kg {
-            background-color: var(--secondary-bg);
-        }
-        
-        /* Alerts and status messages */
-        .stAlert {
-            background-color: var(--secondary-bg);
-            border: 1px solid var(--border-color);
-            color: var(--text-color);
-        }
-        
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-            background: var(--secondary-bg);
-        }
-        
-        ::-webkit-scrollbar-thumb {
-            background: var(--border-color);
-            border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--text-light);
-        }
-        
-        /* Code blocks */
-        .stCodeBlock {
-            background-color: var(--widget-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-        }
-        
-        /* Data editor */
-        [data-testid="stDataFrame"] {
-            background-color: var(--widget-bg);
-        }
-        
-        /* Chat messages */
-        .stChatMessage {
-            background-color: var(--secondary-bg);
-            border: 1px solid var(--border-color);
-            padding: 1rem;
-            border-radius: 8px;
-            margin: 0.5rem 0;
-        }
-        
     </style>
     """
     st.markdown(theme_css, unsafe_allow_html=True)
     
-    # Apply theme class to body
     js_theme = f"""
     <script>
-        // Remove existing theme classes
         document.body.classList.remove('light-theme', 'dark-theme');
-        // Add current theme class
         document.body.classList.add('{st.session_state.theme.lower()}-theme');
-        
-        // Also set Plotly chart theme
-        const plotlyThemes = document.querySelectorAll('.js-plotly-plot');
-        plotlyThemes.forEach(plot => {{
-            plot.style.backgroundColor = getComputedStyle(document.body).getPropertyValue('--widget-bg');
-        }});
     </script>
     """
     st.components.v1.html(js_theme, height=0)
+
 # Centralized data source configuration
 ML_DATA_SOURCES = {
     "NIFTY 50": {
@@ -419,7 +236,7 @@ ML_DATA_SOURCES = {
 # ================ 1.5 INITIALIZATION ========================
 
 def initialize_session_state():
-    """Initializes all necessary session state variables with proper default watchlist."""
+    """Initializes all necessary session state variables."""
     if 'broker' not in st.session_state: st.session_state.broker = None
     if 'kite' not in st.session_state: st.session_state.kite = None
     if 'profile' not in st.session_state: st.session_state.profile = None
@@ -428,31 +245,12 @@ def initialize_session_state():
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
     if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
-    
-    # Improved default watchlists with popular stocks (no bonds)
     if 'watchlists' not in st.session_state:
         st.session_state.watchlists = {
-            "Watchlist 1": [
-                {'symbol': 'RELIANCE', 'exchange': 'NSE'},
-                {'symbol': 'TCS', 'exchange': 'NSE'},
-                {'symbol': 'HDFCBANK', 'exchange': 'NSE'},
-                {'symbol': 'INFY', 'exchange': 'NSE'},
-                {'symbol': 'HINDUNILVR', 'exchange': 'NSE'}
-            ],
-            "Watchlist 2": [
-                {'symbol': 'ICICIBANK', 'exchange': 'NSE'},
-                {'symbol': 'SBIN', 'exchange': 'NSE'},
-                {'symbol': 'BAJFINANCE', 'exchange': 'NSE'},
-                {'symbol': 'KOTAKBANK', 'exchange': 'NSE'},
-                {'symbol': 'ITC', 'exchange': 'NSE'}
-            ],
-            "Watchlist 3": [
-                {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
-                {'symbol': 'BANKNIFTY', 'exchange': 'NSE'},
-                {'symbol': 'SENSEX', 'exchange': 'BSE'}
-            ]
+            "Watchlist 1": [{'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'}],
+            "Watchlist 2": [{'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'INFY', 'exchange': 'NSE'}],
+            "Watchlist 3": [{'symbol': 'SENSEX', 'exchange': 'BSE'}]
         }
-    
     if 'active_watchlist' not in st.session_state: st.session_state.active_watchlist = "Watchlist 1"
     if 'order_history' not in st.session_state: st.session_state.order_history = []
     if 'basket' not in st.session_state: st.session_state.basket = []
@@ -605,7 +403,7 @@ def display_overnight_changes_bar():
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_int_df=None):
-    """Generates a Plotly chart with proper theme adaptation."""
+    """Generates a Plotly chart with various chart types and overlays."""
     fig = go.Figure()
     if df.empty: return fig
     chart_df = df.copy()
@@ -620,130 +418,36 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
         st.error(f"Charting error for {ticker}: Dataframe is missing required columns (open, high, low, close).")
         return go.Figure()
 
-    # Get theme colors
-def get_theme_colors():
-    """Returns color scheme based on current theme."""
-    is_dark = st.session_state.get('theme') == 'Dark'
-    return {
-        'primary': '#28a745' if is_dark else '#198754',
-        'secondary': '#161B22' if is_dark else '#F8F9FA',
-        'accent': '#58a6ff' if is_dark else '#0d6efd',
-        'text': '#c9d1d9' if is_dark else '#212529',
-        'text_light': '#8b949e' if is_dark else '#6c757d',
-        'border': '#30363D' if is_dark else '#dee2e6',
-        'success': '#28a745' if is_dark else '#198754',
-        'danger': '#da3633' if is_dark else '#dc3545',
-        'warning': '#d29922' if is_dark else '#fd7e14',
-        'info': '#58a6ff' if is_dark else '#0dcaf0'
-    }
-    
     if chart_type == 'Heikin-Ashi':
+        # Manual Heikin-Ashi calculation
         ha_close = (chart_df['open'] + chart_df['high'] + chart_df['low'] + chart_df['close']) / 4
         ha_open = (chart_df['open'].shift(1) + chart_df['close'].shift(1)) / 2
         ha_open.iloc[0] = (chart_df['open'].iloc[0] + chart_df['close'].iloc[0]) / 2
         ha_high = chart_df[['high', 'open', 'close']].max(axis=1)
         ha_low = chart_df[['low', 'open', 'close']].min(axis=1)
         
-        fig.add_trace(go.Candlestick(
-            x=chart_df.index, 
-            open=ha_open, 
-            high=ha_high, 
-            low=ha_low, 
-            close=ha_close, 
-            name='Heikin-Ashi'
-        ))
+        fig.add_trace(go.Candlestick(x=chart_df.index, open=ha_open, high=ha_high, low=ha_low, close=ha_close, name='Heikin-Ashi'))
     elif chart_type == 'Line':
-        fig.add_trace(go.Scatter(
-            x=chart_df.index, 
-            y=chart_df['close'], 
-            mode='lines', 
-            name='Line',
-            line=dict(color='#1f77b4')
-        ))
+        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['close'], mode='lines', name='Line'))
     elif chart_type == 'Bar':
-        fig.add_trace(go.Ohlc(
-            x=chart_df.index, 
-            open=chart_df['open'], 
-            high=chart_df['high'], 
-            low=chart_df['low'], 
-            close=chart_df['close'], 
-            name='Bar'
-        ))
+        fig.add_trace(go.Ohlc(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Bar'))
     else:
-        fig.add_trace(go.Candlestick(
-            x=chart_df.index, 
-            open=chart_df['open'], 
-            high=chart_df['high'], 
-            low=chart_df['low'], 
-            close=chart_df['close'], 
-            name='Candlestick'
-        ))
+        fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Candlestick'))
         
     # Bollinger Bands using TA-Lib
     if 'close' in chart_df.columns:
         upperband, middleband, lowerband = talib.BBANDS(chart_df['close'], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
-        fig.add_trace(go.Scatter(
-            x=chart_df.index, 
-            y=lowerband, 
-            line=dict(color='rgba(135,206,250,0.5)', width=1), 
-            name='Lower Band'
-        ))
-        fig.add_trace(go.Scatter(
-            x=chart_df.index, 
-            y=upperband, 
-            line=dict(color='rgba(135,206,250,0.5)', width=1), 
-            fill='tonexty', 
-            fillcolor='rgba(135,206,250,0.1)', 
-            name='Upper Band'
-        ))
+        fig.add_trace(go.Scatter(x=chart_df.index, y=lowerband, line=dict(color='rgba(135,206,250,0.5)', width=1), name='Lower Band'))
+        fig.add_trace(go.Scatter(x=chart_df.index, y=upperband, line=dict(color='rgba(135,206,250,0.5)', width=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
         
     if forecast_df is not None:
-        fig.add_trace(go.Scatter(
-            x=forecast_df.index, 
-            y=forecast_df['Predicted'], 
-            mode='lines', 
-            line=dict(color='orange', dash='dash'), 
-            name='Forecast'
-        ))
+        fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
         if conf_int_df is not None:
-            fig.add_trace(go.Scatter(
-                x=conf_int_df.index, 
-                y=conf_int_df['lower'], 
-                line=dict(color='rgba(255,165,0,0.2)', width=1), 
-                name='Lower CI', 
-                showlegend=False
-            ))
-            fig.add_trace(go.Scatter(
-                x=conf_int_df.index, 
-                y=conf_int_df['upper'], 
-                line=dict(color='rgba(255,165,0,0.2)', width=1), 
-                fill='tonexty', 
-                fillcolor='rgba(255,165,0,0.2)', 
-                name='Confidence Interval'
-            ))
-    
-    # Use proper template based on theme
-    template = 'plotly_dark' if is_dark else 'plotly_white'
-    
-    fig.update_layout(
-        title=f'{ticker} Price Chart ({chart_type})',
-        yaxis_title='Price (INR)',
-        xaxis_rangeslider_visible=False,
-        template=template,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            bgcolor='rgba(0,0,0,0)'  # Transparent background
-        ),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color=text_color),
-        xaxis=dict(gridcolor=grid_color),
-        yaxis=dict(gridcolor=grid_color)
-    )
+            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['lower'], line=dict(color='rgba(255,255,0,0.2)', width=1), name='Lower CI', showlegend=False))
+            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['upper'], line=dict(color='rgba(255,255,0,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,0,0.2)', name='Confidence Interval'))
+        
+    template = 'plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
+    fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
 
 @st.cache_resource(ttl=3600)
@@ -2135,7 +1839,7 @@ def page_algo_bots():
         page_fully_automated_bots(instrument_df)
 
 def page_semi_automated_bots(instrument_df):
-    """Semi-automated bots page with comprehensive symbol selection including all stocks and commodities."""
+    """Semi-automated bots page - requires manual confirmation."""
     st.info("Run automated analysis and get trading signals. Manual confirmation required for execution.", icon="🚀")
     
     col1, col2 = st.columns([2, 1])
@@ -2173,122 +1877,32 @@ def page_semi_automated_bots(instrument_df):
     
     st.markdown("---")
     
-    # Symbol selection and bot execution - ENHANCED WITH ALL SYMBOLS
+    # Symbol selection and bot execution
     col3, col4 = st.columns([1, 1])
     
     with col3:
-        st.subheader("Stock & Commodity Selection")
+        st.subheader("Stock Selection")
+        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'BSE'])]['tradingsymbol'].unique()
+        selected_symbol = st.selectbox(
+            "Select Stock",
+            sorted(all_symbols),
+            index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0,
+            key="semi_symbol"
+        )
         
-        # Get all available symbols from instrument_df (stocks, commodities, indices)
-        if not instrument_df.empty:
-            # Filter for common segments
-            available_instruments = instrument_df[
-                instrument_df['exchange'].isin(['NSE', 'BSE', 'MCX', 'NFO'])
-            ].copy()
-            
-            # Create display names with exchange info
-            available_instruments['display_name'] = available_instruments.apply(
-                lambda x: f"{x['tradingsymbol']} ({x['exchange']})", 
-                axis=1
-            )
-            
-            # Sort by trading symbol
-            available_instruments = available_instruments.sort_values('tradingsymbol')
-            
-            # Get unique symbols (avoid duplicates)
-            unique_symbols = available_instruments.drop_duplicates('tradingsymbol')
-            
-            # Create selection options
-            symbol_options = unique_symbols['tradingsymbol'].tolist()
-            display_options = unique_symbols['display_name'].tolist()
-            
-            # Create mapping for display
-            symbol_to_display = dict(zip(symbol_options, display_options))
-            display_to_symbol = {v: k for k, v in symbol_to_display.items()}
-            
-            # Add popular stocks at the top for easy access
-            popular_symbols = [
-                'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'HINDUNILVR', 
-                'ICICIBANK', 'SBIN', 'BHARTIARTL', 'KOTAKBANK', 'ITC',
-                'BAJFINANCE', 'ASIANPAINT', 'MARUTI', 'TITAN', 'DMART'
-            ]
-            
-            # Reorder options: popular first, then alphabetical
-            ordered_symbols = []
-            ordered_displays = []
-            
-            # Add popular symbols first
-            for symbol in popular_symbols:
-                if symbol in symbol_to_display:
-                    ordered_symbols.append(symbol)
-                    ordered_displays.append(symbol_to_display[symbol])
-            
-            # Add remaining symbols alphabetically
-            remaining_symbols = [s for s in symbol_options if s not in popular_symbols]
-            for symbol in sorted(remaining_symbols):
-                ordered_symbols.append(symbol)
-                ordered_displays.append(symbol_to_display[symbol])
-            
-            # Commodities section - add specific commodities
-            commodities = ['GOLDM', 'SILVERM', 'CRUDEOIL', 'NATURALGAS', 'COPPER', 'ZINC', 'ALUMINIUM']
-            for commodity in commodities:
-                if commodity in symbol_to_display and commodity not in ordered_symbols:
-                    ordered_symbols.append(commodity)
-                    ordered_displays.append(symbol_to_display[commodity])
-            
-            # Use selectbox with search functionality
-            selected_display = st.selectbox(
-                "Select Stock/Commodity",
-                options=ordered_displays,
-                index=0,  # Default to first popular symbol (RELIANCE)
-                help="Search and select from all available stocks and commodities",
-                key="semi_symbol_select"
-            )
-            
-            # Extract symbol from display name
-            selected_symbol = display_to_symbol.get(selected_display, ordered_symbols[0])
-            
-            # Get exchange for the selected symbol
-            selected_instrument = available_instruments[
-                available_instruments['tradingsymbol'] == selected_symbol
-            ].iloc[0]
-            selected_exchange = selected_instrument['exchange']
-            
-            # Show current price
-            quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': selected_exchange}])
-            if not quote_data.empty:
-                current_price = quote_data.iloc[0]['Price']
-                change = quote_data.iloc[0]['Change']
-                change_pct = quote_data.iloc[0]['% Change']
-                
-                st.metric(
-                    "Current Price", 
-                    f"₹{current_price:.2f}",
-                    delta=f"{change:.2f} ({change_pct:.2f}%)",
-                    delta_color="normal"
-                )
-                
-                # Show additional info for commodities
-                if selected_exchange == 'MCX':
-                    st.caption(f"Commodity - {selected_exchange}")
-                else:
-                    st.caption(f"Equity - {selected_exchange}")
-            else:
-                st.info("Price data loading...")
-                
-        else:
-            st.error("Instrument data not available. Please check broker connection.")
-            selected_symbol = None
+        # Show current price
+        quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': 'NSE'}])
+        if not quote_data.empty:
+            current_price = quote_data.iloc[0]['Price']
+            st.metric("Current Price", f"₹{current_price:.2f}")
     
     with col4:
         st.subheader("Bot Execution")
         st.write(f"**Selected Bot:** {selected_bot}")
         st.write(f"**Available Capital:** ₹{trading_capital:,}")
-        if selected_symbol:
-            st.write(f"**Selected Symbol:** {selected_symbol}")
         
-        if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary", key="semi_run", disabled=not selected_symbol):
-            with st.spinner(f"Running {selected_bot} analysis on {selected_symbol}..."):
+        if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary", key="semi_run"):
+            with st.spinner(f"Running {selected_bot} analysis..."):
                 bot_function = ALGO_BOTS[selected_bot]
                 bot_result = bot_function(instrument_df, selected_symbol, trading_capital)
                 
@@ -2330,7 +1944,7 @@ def page_semi_automated_bots(instrument_df):
             # Display signals and execute trade
             execute_bot_trade(instrument_df, bot_result)
 
-    # Bot performance tips
+    # Bot performance history
     st.markdown("---")
     st.subheader("📈 Bot Performance Tips")
     
@@ -2344,55 +1958,17 @@ def page_semi_automated_bots(instrument_df):
         - 'Scalper Pro' requires constant monitoring
         - Always check signals before executing
         - Combine multiple bot recommendations
-        - Test on paper trading first
         """)
     
     with tips_col2:
         st.markdown("""
-        **Symbol Selection Guide:**
-        - **Large Caps**: RELIANCE, TCS, HDFCBANK (Stable, lower risk)
-        - **Mid Caps**: TATACONSUM, ADANIPORTS (Higher volatility)
-        - **Commodities**: GOLDM, SILVERM (Different risk profile)
-        - **Banking**: HDFCBANK, ICICIBANK, SBIN (Sector-specific)
-        - **IT**: TCS, INFY, HCLTECH (Tech sector exposure)
+        **Risk Management:**
+        - Never risk more than 2% per trade
+        - Use stop losses with every trade
+        - Diversify across different bots
+        - Monitor performance regularly
+        - Adjust capital based on experience
         """)
-
-# ================ ADDITIONAL HELPER FOR SYMBOL CATEGORIES ================
-
-def get_symbol_categories(instrument_df):
-    """Categorize symbols for better organization in dropdown."""
-    if instrument_df.empty:
-        return {}
-    
-    categories = {
-        'Large Cap Stocks': [
-            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'HINDUNILVR', 'ICICIBANK',
-            'SBIN', 'BHARTIARTL', 'KOTAKBANK', 'ITC', 'BAJFINANCE', 'ASIANPAINT',
-            'MARUTI', 'TITAN', 'DMART', 'LT', 'HCLTECH', 'WIPRO', 'ULTRACEMCO'
-        ],
-        'Mid Cap Stocks': [
-            'ADANIPORTS', 'POWERGRID', 'NTPC', 'M&M', 'TATASTEEL', 'TECHM',
-            'INDUSINDBK', 'SUNPHARMA', 'AXISBANK', 'ONGC', 'COALINDIA', 'IOC',
-            'GRASIM', 'JSWSTEEL', 'BAJAJFINSV', 'HDFCLIFE', 'SBILIFE', 'DIVISLAB'
-        ],
-        'Commodities': [
-            'GOLDM', 'SILVERM', 'CRUDEOIL', 'NATURALGAS', 'COPPER', 'ZINC',
-            'ALUMINIUM', 'LEAD', 'NICKEL'
-        ],
-        'Indices': [
-            'NIFTY 50', 'BANKNIFTY', 'SENSEX', 'NIFTY IT', 'NIFTY AUTO'
-        ],
-        'FMCG': [
-            'ITC', 'HINDUNILVR', 'NESTLEIND', 'BRITANNIA', 'DABUR', 'GODREJCP',
-            'MARICO', 'COLPAL', 'EMAMILTD'
-        ],
-        'Pharmaceuticals': [
-            'SUNPHARMA', 'DRREDDY', 'CIPLA', 'DIVISLAB', 'LUPIN', 'AUROPHARMA',
-            'BIOCON', 'TORNTPHARM'
-        ]
-    }
-    
-    return categories
     
     # Quick bot comparison
     with st.expander("🤖 Bot Comparison Guide"):
@@ -2407,10 +1983,8 @@ def get_symbol_categories(instrument_df):
         comparison_df = pd.DataFrame(comparison_data)
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
-# ================ PAPER TRADING FIXES ================
-
 def initialize_automated_mode():
-    """Initialize session state for fully automated trading with proper paper trading."""
+    """Initialize session state for fully automated trading with paper trading."""
     if 'automated_mode' not in st.session_state:
         st.session_state.automated_mode = {
             'enabled': False,
@@ -2426,16 +2000,22 @@ def initialize_automated_mode():
             'paper_portfolio': {
                 'cash_balance': 10000.0,
                 'positions': {},
-                'initial_capital': 10000.0,
+                'initial_capital': 1000.0,
                 'total_value': 10000.0
             }
         }
+    else:
+        # Migration: Ensure paper_portfolio exists for existing users
+        if 'paper_portfolio' not in st.session_state.automated_mode:
+            st.session_state.automated_mode['paper_portfolio'] = {
+                'cash_balance': st.session_state.automated_mode.get('total_capital', 10000.0),
+                'positions': {},
+                'initial_capital': st.session_state.automated_mode.get('total_capital', 10000.0),
+                'total_value': st.session_state.automated_mode.get('total_capital', 10000.0)
+            }
 
 def update_paper_portfolio_values(instrument_df):
     """Update paper portfolio values with current market prices."""
-    if 'automated_mode' not in st.session_state:
-        return
-    
     paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
     if not paper_portfolio:
         return
@@ -2447,7 +2027,7 @@ def update_paper_portfolio_values(instrument_df):
     
     # Get current prices for all positions
     symbols_with_exchange = []
-    for symbol, position in positions.items():
+    for symbol in positions.keys():
         symbols_with_exchange.append({'symbol': symbol, 'exchange': 'NSE'})
     
     if symbols_with_exchange:
@@ -2474,12 +2054,9 @@ def update_paper_portfolio_values(instrument_df):
             
             paper_portfolio['total_value'] = paper_portfolio.get('cash_balance', 0.0) + total_position_value
 
+# Also add the missing close_paper_position function
 def close_paper_position(symbol, quantity=None):
-    """Close a paper trading position with proper error handling."""
-    if 'automated_mode' not in st.session_state:
-        st.error("Automated mode not initialized")
-        return False
-    
+    """Close a paper trading position."""
     paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
     
     if not paper_portfolio or symbol not in paper_portfolio.get('positions', {}):
@@ -2514,25 +2091,79 @@ def close_paper_position(symbol, quantity=None):
     if paper_portfolio['positions'][symbol]['quantity'] == 0:
         del paper_portfolio['positions'][symbol]
     
-    # Update trade history - find matching open trade and close it
-    trade_history = st.session_state.automated_mode.get('trade_history', [])
-    for trade in trade_history:
-        if (trade.get('symbol') == symbol and 
-            trade.get('status') == 'OPEN' and 
-            trade.get('action') == position.get('action')):
-            
+    # Update trade history
+    open_trades = [t for t in st.session_state.automated_mode.get('trade_history', []) 
+                  if t.get('symbol') == symbol and t.get('status') == 'OPEN']
+    for trade in open_trades:
+        if trade.get('action') == position.get('action'):  # Find matching trade
             # Close the trade
             trade['status'] = 'CLOSED'
             trade['exit_price'] = current_price
             trade['exit_time'] = datetime.now().isoformat()
             trade['pnl'] = pnl
-            break
     
     st.success(f"✅ Closed {close_quantity} shares of {symbol} at ₹{current_price:.2f} | P&L: ₹{pnl:.2f}")
     return True
 
+
+def get_automated_bot_performance():
+    """Calculate performance metrics for automated bots with paper trading support."""
+    trade_history = st.session_state.automated_mode.get('trade_history', [])
+    if not trade_history:
+        paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+        current_value = paper_portfolio.get('total_value', paper_portfolio.get('cash_balance', 0.0))
+        initial_capital = paper_portfolio.get('initial_capital', current_value)
+        paper_return_pct = ((current_value - initial_capital) / initial_capital) * 100 if initial_capital > 0 else 0.0
+        
+        return {
+            'total_trades': 0,
+            'winning_trades': 0,
+            'losing_trades': 0,
+            'total_pnl': 0.0,
+            'win_rate': 0.0,
+            'avg_win': 0.0,
+            'avg_loss': 0.0,
+            'open_trades': 0,
+            'paper_portfolio_value': current_value,
+            'paper_return_pct': paper_return_pct,
+            'unrealized_pnl': 0.0
+        }
+    
+    closed_trades = [t for t in trade_history if t.get('status') == 'CLOSED']
+    open_trades = [t for t in trade_history if t.get('status') == 'OPEN']
+    
+    # Calculate metrics for closed trades
+    winning_trades = [t for t in closed_trades if t.get('pnl', 0) > 0]
+    losing_trades = [t for t in closed_trades if t.get('pnl', 0) <= 0]
+    
+    total_pnl = sum(t.get('pnl', 0) for t in closed_trades)
+    win_rate = len(winning_trades) / len(closed_trades) * 100 if closed_trades else 0.0
+    
+    avg_win = sum(t.get('pnl', 0) for t in winning_trades) / len(winning_trades) if winning_trades else 0.0
+    avg_loss = sum(t.get('pnl', 0) for t in losing_trades) / len(losing_trades) if losing_trades else 0.0
+    
+    # Paper trading metrics
+    paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+    initial_capital = paper_portfolio.get('initial_capital', 10000.0)
+    current_value = paper_portfolio.get('total_value', paper_portfolio.get('cash_balance', initial_capital))
+    paper_return_pct = ((current_value - initial_capital) / initial_capital) * 100 if initial_capital > 0 else 0.0
+    
+    return {
+        'total_trades': len(closed_trades),
+        'winning_trades': len(winning_trades),
+        'losing_trades': len(losing_trades),
+        'total_pnl': total_pnl,
+        'win_rate': win_rate,
+        'avg_win': avg_win,
+        'avg_loss': avg_loss,
+        'open_trades': len(open_trades),
+        'paper_portfolio_value': current_value,
+        'paper_return_pct': paper_return_pct,
+        'unrealized_pnl': sum(t.get('pnl', 0) for t in open_trades)
+    }
+
 def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
-    """Execute trades automatically based on bot signals - with robust paper trading."""
+    """Execute trades automatically based on bot signals - with paper trading support."""
     if bot_result.get("error") or bot_result["action"] == "HOLD":
         return None
     
@@ -2558,60 +2189,62 @@ def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
             if existing_position['action'] == action:
                 return None
         
-        # PAPER TRADING - Simulate the trade
-        paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
-        trade_value = quantity * current_price
-        
-        if action == "BUY":
-            if paper_portfolio.get('cash_balance', 0) >= trade_value:
-                # Deduct from cash, add to positions
-                paper_portfolio['cash_balance'] -= trade_value
-                
-                if symbol in paper_portfolio.get('positions', {}):
-                    # Average the position
-                    old_position = paper_portfolio['positions'][symbol]
-                    total_quantity = old_position['quantity'] + quantity
-                    total_cost = (old_position['avg_price'] * old_position['quantity']) + trade_value
-                    paper_portfolio['positions'][symbol]['avg_price'] = total_cost / total_quantity
-                    paper_portfolio['positions'][symbol]['quantity'] = total_quantity
-                else:
-                    if 'positions' not in paper_portfolio:
-                        paper_portfolio['positions'] = {}
-                    paper_portfolio['positions'][symbol] = {
-                        'quantity': quantity,
-                        'avg_price': current_price,
-                        'action': 'BUY'
-                    }
-            else:
-                st.error(f"❌ Paper trading: Insufficient cash for {symbol} buy order. Need: ₹{trade_value:.2f}, Have: ₹{paper_portfolio.get('cash_balance', 0):.2f}")
+        # PLACE REAL ORDER if live trading is enabled
+        order_type = "PAPER"
+        if st.session_state.automated_mode.get('live_trading', False):
+            try:
+                # Place the real order
+                place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
+                order_type = "LIVE"
+            except Exception as e:
+                st.error(f"❌ Failed to place LIVE order for {symbol}: {e}")
                 return None
-                
-        else:  # SELL action (short selling in paper trading)
-            # For paper trading, we'll allow short selling by tracking it separately
-            if symbol in paper_portfolio.get('positions', {}):
-                position = paper_portfolio['positions'][symbol]
-                if position['action'] == 'BUY':
-                    # This is closing a long position
+        else:
+            # PAPER TRADING - Simulate the trade
+            paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+            trade_value = quantity * current_price
+            
+            if action == "BUY":
+                if paper_portfolio.get('cash_balance', 0) >= trade_value:
+                    # Deduct from cash, add to positions
+                    paper_portfolio['cash_balance'] -= trade_value
+                    if symbol in paper_portfolio.get('positions', {}):
+                        paper_portfolio['positions'][symbol]['quantity'] += quantity
+                        paper_portfolio['positions'][symbol]['avg_price'] = (
+                            (paper_portfolio['positions'][symbol]['avg_price'] * 
+                             paper_portfolio['positions'][symbol]['quantity'] + 
+                             trade_value) / (paper_portfolio['positions'][symbol]['quantity'] + quantity)
+                        )
+                    else:
+                        if 'positions' not in paper_portfolio:
+                            paper_portfolio['positions'] = {}
+                        paper_portfolio['positions'][symbol] = {
+                            'quantity': quantity,
+                            'avg_price': current_price,
+                            'action': 'BUY'
+                        }
+                else:
+                    st.error(f"❌ Paper trading: Insufficient cash for {symbol} buy order")
+                    return None
+            else:  # SELL action
+                positions = paper_portfolio.get('positions', {})
+                if symbol in positions and positions[symbol]['quantity'] >= quantity:
+                    # Remove from positions, add to cash
+                    position = positions[symbol]
                     paper_portfolio['cash_balance'] += quantity * current_price
-                    paper_portfolio['positions'][symbol]['quantity'] -= quantity
                     
-                    # Remove position if fully closed
+                    # Calculate P&L for the trade
+                    pnl = (current_price - position['avg_price']) * quantity
+                    if position.get('action') == 'SELL':  # For short positions, reverse the P&L
+                        pnl = -pnl
+                    
+                    # Update position
+                    paper_portfolio['positions'][symbol]['quantity'] -= quantity
                     if paper_portfolio['positions'][symbol]['quantity'] == 0:
                         del paper_portfolio['positions'][symbol]
                 else:
-                    # Increasing short position
-                    paper_portfolio['cash_balance'] += trade_value  # Short sale adds cash
-                    paper_portfolio['positions'][symbol]['quantity'] += quantity
-            else:
-                # New short position
-                if 'positions' not in paper_portfolio:
-                    paper_portfolio['positions'] = {}
-                paper_portfolio['positions'][symbol] = {
-                    'quantity': quantity,
-                    'avg_price': current_price,
-                    'action': 'SELL'
-                }
-                paper_portfolio['cash_balance'] += trade_value
+                    st.error(f"❌ Paper trading: No position to sell for {symbol}")
+                    return None
         
         # Record the trade
         trade_record = {
@@ -2623,8 +2256,8 @@ def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
             'status': 'OPEN',
             'bot_name': bot_result['bot_name'],
             'risk_level': bot_result['risk_level'],
-            'order_type': 'PAPER',
-            'pnl': 0.0,
+            'order_type': order_type,
+            'pnl': 0.0,  # Initialize P&L
             'exit_price': None,
             'exit_time': None
         }
@@ -2633,94 +2266,74 @@ def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
             st.session_state.automated_mode['trade_history'] = []
         st.session_state.automated_mode['trade_history'].append(trade_record)
         
-        st.toast(f"🤖 PAPER {action} order simulated for {symbol} (Qty: {quantity})", icon="📄")
+        if order_type == "LIVE":
+            st.toast(f"🤖 LIVE {action} order executed for {symbol} (Qty: {quantity})", icon="⚡")
+        else:
+            st.toast(f"🤖 PAPER {action} order simulated for {symbol} (Qty: {quantity})", icon="📄")
+            
         return trade_record
         
     except Exception as e:
-        st.error(f"Paper trade execution failed: {e}")
+        st.error(f"Automated trade execution failed: {e}")
         return None
 
-def get_automated_bot_performance():
-    """Calculate performance metrics for automated bots with paper trading."""
-    if 'automated_mode' not in st.session_state:
-        return {
-            'total_trades': 0, 'winning_trades': 0, 'losing_trades': 0,
-            'total_pnl': 0.0, 'win_rate': 0.0, 'avg_win': 0.0, 'avg_loss': 0.0,
-            'open_trades': 0, 'paper_portfolio_value': 0.0, 'paper_return_pct': 0.0,
-            'unrealized_pnl': 0.0
-        }
+def run_automated_bots_cycle(instrument_df, watchlist_symbols):
+    """Run one cycle of all active automated bots with paper trading updates."""
+    if not st.session_state.automated_mode.get('running', False):
+        return
     
-    trade_history = st.session_state.automated_mode.get('trade_history', [])
-    paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+    # Update paper portfolio values first
+    update_paper_portfolio_values(instrument_df)
     
-    # Paper portfolio metrics
-    current_value = paper_portfolio.get('total_value', paper_portfolio.get('cash_balance', 0.0))
-    initial_capital = paper_portfolio.get('initial_capital', current_value)
-    paper_return_pct = ((current_value - initial_capital) / initial_capital) * 100 if initial_capital > 0 else 0.0
+    active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
     
-    if not trade_history:
-        return {
-            'total_trades': 0, 'winning_trades': 0, 'losing_trades': 0,
-            'total_pnl': 0.0, 'win_rate': 0.0, 'avg_win': 0.0, 'avg_loss': 0.0,
-            'open_trades': 0, 'paper_portfolio_value': current_value,
-            'paper_return_pct': paper_return_pct, 'unrealized_pnl': 0.0
-        }
+    for bot_name in active_bots:
+        for symbol in watchlist_symbols[:10]:  # Limit to first 10 symbols to avoid rate limits
+            try:
+                bot_function = AUTOMATED_BOTS[bot_name]
+                bot_result = bot_function(instrument_df, symbol)
+                
+                if not bot_result.get("error") and bot_result["action"] != "HOLD":
+                    execute_automated_trade(
+                        instrument_df, 
+                        bot_result, 
+                        st.session_state.automated_mode.get('risk_per_trade', 2.0)
+                    )
+                
+                # Small delay to avoid rate limiting
+                a_time.sleep(0.5)
+                
+            except Exception as e:
+                st.error(f"Automated bot {bot_name} failed for {symbol}: {e}")
     
-    closed_trades = [t for t in trade_history if t.get('status') == 'CLOSED']
-    open_trades = [t for t in trade_history if t.get('status') == 'OPEN']
-    
-    # Calculate metrics for closed trades
-    winning_trades = [t for t in closed_trades if t.get('pnl', 0) > 0]
-    losing_trades = [t for t in closed_trades if t.get('pnl', 0) <= 0]
-    
-    total_pnl = sum(t.get('pnl', 0) for t in closed_trades)
-    win_rate = len(winning_trades) / len(closed_trades) * 100 if closed_trades else 0.0
-    
-    avg_win = sum(t.get('pnl', 0) for t in winning_trades) / len(winning_trades) if winning_trades else 0.0
-    avg_loss = sum(t.get('pnl', 0) for t in losing_trades) / len(losing_trades) if losing_trades else 0.0
-    
-    return {
-        'total_trades': len(closed_trades),
-        'winning_trades': len(winning_trades),
-        'losing_trades': len(losing_trades),
-        'total_pnl': total_pnl,
-        'win_rate': win_rate,
-        'avg_win': avg_win,
-        'avg_loss': avg_loss,
-        'open_trades': len(open_trades),
-        'paper_portfolio_value': current_value,
-        'paper_return_pct': paper_return_pct,
-        'unrealized_pnl': sum(t.get('pnl', 0) for t in open_trades)
-    }
+    # Update performance metrics
+    st.session_state.automated_mode['performance_metrics'] = get_automated_bot_performance()
+    st.session_state.automated_mode['last_signal_check'] = datetime.now().isoformat()
 
-def reset_paper_portfolio():
-    """Reset paper portfolio to initial state."""
-    if 'automated_mode' in st.session_state:
-        initial_capital = st.session_state.automated_mode['total_capital']
-        st.session_state.automated_mode['paper_portfolio'] = {
-            'cash_balance': initial_capital,
-            'positions': {},
-            'initial_capital': initial_capital,
-            'total_value': initial_capital
-        }
-        st.session_state.automated_mode['trade_history'] = []
-        st.success("✅ Paper portfolio reset successfully!")
-
-# ================ UPDATED PAGE FUNCTION ================
-
+# Now define the page_fully_automated_bots function
 def page_fully_automated_bots(instrument_df):
-    """Fully automated bots page with fixed paper trading controls and analysis intervals."""
+    """Fully automated bots page with comprehensive paper trading simulation."""
     st.warning("🚨 **LIVE TRADING WARNING**: Automated bots will execute real trades with real money! Use at your own risk.", icon="⚠️")
     
-    # Initialize automated mode
-    initialize_automated_mode()
+    # Initialize automated mode if not exists - with migration support
+    if 'automated_mode' not in st.session_state:
+        initialize_automated_mode()
+    else:
+        # Ensure paper_portfolio exists (migration for existing sessions)
+        if 'paper_portfolio' not in st.session_state.automated_mode:
+            st.session_state.automated_mode['paper_portfolio'] = {
+                'cash_balance': st.session_state.automated_mode.get('total_capital', 10000.0),
+                'positions': {},
+                'initial_capital': st.session_state.automated_mode.get('total_capital', 10000.0),
+                'total_value': st.session_state.automated_mode.get('total_capital', 10000.0)
+            }
     
-    # Fix total_capital value if needed
+    # Fix the total_capital value if it's below minimum
     current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
     if current_capital < 1000.0:
         st.session_state.automated_mode['total_capital'] = 10000.0
     
-    # Live trading status
+    # Add live trading confirmation
     if st.session_state.automated_mode.get('running', False) and st.session_state.automated_mode.get('live_trading', False):
         st.error("**🚀 LIVE TRADING ACTIVE** - Real orders are being placed with your broker!")
     elif st.session_state.automated_mode.get('running', False):
@@ -2739,20 +2352,21 @@ def page_fully_automated_bots(instrument_df):
         st.session_state.automated_mode['enabled'] = auto_enabled
     
     with col2:
+        # Add live trading toggle
         live_trading = st.toggle(
             "Live Trading",
             value=st.session_state.automated_mode.get('live_trading', False),
             help="WARNING: This will place REAL orders with REAL money!",
-            key="live_trading",
-            disabled=st.session_state.automated_mode.get('running', False)
+            key="live_trading"
         )
         st.session_state.automated_mode['live_trading'] = live_trading
     
     with col3:
         if st.session_state.automated_mode['enabled']:
             if not st.session_state.automated_mode.get('running', False):
-                if st.button("🚀 Start Trading", use_container_width=True, type="primary", key="auto_start"):
+                if st.button("🚀 Start Automated Trading", use_container_width=True, type="primary", key="auto_start"):
                     if live_trading:
+                        # Double confirmation for live trading
                         st.session_state.need_live_confirmation = True
                         st.rerun()
                     else:
@@ -2760,46 +2374,63 @@ def page_fully_automated_bots(instrument_df):
                         st.success("🤖 Paper trading started!")
                         st.rerun()
             else:
-                if st.button("🛑 Stop Trading", use_container_width=True, type="secondary", key="auto_stop"):
+                if st.button("🛑 Stop Automated Trading", use_container_width=True, type="secondary", key="auto_stop"):
                     st.session_state.automated_mode['running'] = False
                     st.info("⏸️ Automated trading stopped!")
                     st.rerun()
         else:
-            st.button("🚀 Start Trading", use_container_width=True, disabled=True)
+            st.button("🚀 Start Automated Trading", use_container_width=True, disabled=True)
     
     with col4:
+        # Get and validate current capital value
+        current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
+        current_capital = max(1000.0, current_capital)
+        
         total_capital = st.number_input(
             "Total Capital (₹)",
             min_value=1000.0,
             max_value=1000000.0,
-            value=float(st.session_state.automated_mode.get('total_capital', 10000.0)),
+            value=current_capital,
             step=1000.0,
             help="Total capital allocated for automated trading",
             key="auto_capital"
         )
         st.session_state.automated_mode['total_capital'] = float(total_capital)
         
-        # Update paper portfolio if not running
+        # Also update paper portfolio initial capital if not running
         if not st.session_state.automated_mode.get('running', False):
+            # Safe access to paper_portfolio with fallback
             paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
-            if paper_portfolio:
-                paper_portfolio['initial_capital'] = float(total_capital)
-                paper_portfolio['cash_balance'] = float(total_capital)
-                paper_portfolio['total_value'] = float(total_capital)
+            if not paper_portfolio:
+                # Initialize if missing
+                st.session_state.automated_mode['paper_portfolio'] = {
+                    'cash_balance': float(total_capital),
+                    'positions': {},
+                    'initial_capital': float(total_capital),
+                    'total_value': float(total_capital)
+                }
+            else:
+                st.session_state.automated_mode['paper_portfolio']['initial_capital'] = float(total_capital)
+                st.session_state.automated_mode['paper_portfolio']['cash_balance'] = float(total_capital)
+                st.session_state.automated_mode['paper_portfolio']['total_value'] = float(total_capital)
     
     with col5:
+        # Get and validate current risk value
+        current_risk = float(st.session_state.automated_mode.get('risk_per_trade', 2.0))
+        current_risk = max(0.5, min(5.0, current_risk))
+        
         risk_per_trade = st.number_input(
             "Risk per Trade (%)",
             min_value=0.5,
             max_value=5.0,
-            value=float(st.session_state.automated_mode.get('risk_per_trade', 2.0)),
+            value=current_risk,
             step=0.5,
             help="Percentage of capital to risk per trade",
             key="auto_risk"
         )
         st.session_state.automated_mode['risk_per_trade'] = float(risk_per_trade)
     
-    # Live trading confirmation
+    # Live trading confirmation dialog
     if st.session_state.get('need_live_confirmation', False):
         st.markdown("---")
         st.error("""
@@ -2814,14 +2445,14 @@ def page_fully_automated_bots(instrument_df):
         """)
         
         col_confirm1, col_confirm2, col_confirm3 = st.columns([2, 1, 1])
-        if col_confirm1.button("✅ START LIVE TRADING", type="primary", use_container_width=True):
+        if col_confirm1.button("✅ I UNDERSTAND - START LIVE TRADING", type="primary", use_container_width=True):
             st.session_state.automated_mode['running'] = True
             st.session_state.automated_mode['live_trading'] = True
             st.session_state.need_live_confirmation = False
             st.success("🚀 LIVE TRADING ACTIVATED! Real orders will be placed.")
             st.rerun()
         
-        if col_confirm2.button("📄 PAPER TRADING", use_container_width=True):
+        if col_confirm2.button("📄 PAPER TRADING ONLY", use_container_width=True):
             st.session_state.automated_mode['running'] = True
             st.session_state.automated_mode['live_trading'] = False
             st.session_state.need_live_confirmation = False
@@ -2869,47 +2500,37 @@ def page_fully_automated_bots(instrument_df):
             )
             st.session_state.automated_mode['max_open_trades'] = max_trades
             
-            # ANALYSIS FREQUENCY OPTIONS - RESTORED
-            st.markdown("---")
-            st.subheader("📊 Analysis Frequency")
-            analysis_frequency = st.selectbox(
-                "Analysis Interval",
+            # Trading frequency
+            check_interval = st.selectbox(
+                "Analysis Frequency",
                 ["30 seconds", "1 minute", "5 minutes", "15 minutes"],
-                index=1,  # Default to "1 minute"
-                help="How often bots analyze the market and check for signals",
-                key="auto_analysis_freq"
+                index=1,
+                help="How often bots analyze the market",
+                key="auto_freq"
             )
             
-            # Store the selected frequency in session state
-            freq_mapping = {
-                "30 seconds": 30,
-                "1 minute": 60,
-                "5 minutes": 300,
-                "15 minutes": 900
-            }
-            st.session_state.automated_mode['analysis_frequency_seconds'] = freq_mapping.get(analysis_frequency, 60)
+            # Watchlist selection for automated trading
+            st.markdown("---")
+            st.write("**📋 Trading Symbols**")
+            active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+            watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
             
-            # Show next analysis time if running
-            if st.session_state.automated_mode.get('running', False):
-                last_check = st.session_state.automated_mode.get('last_signal_check')
-                if last_check:
-                    last_check_time = datetime.fromisoformat(last_check)
-                    next_check = last_check_time + timedelta(seconds=st.session_state.automated_mode['analysis_frequency_seconds'])
-                    st.caption(f"Next analysis: {next_check.strftime('%H:%M:%S')}")
+            if watchlist_symbols:
+                st.success(f"Trading from: **{active_watchlist}**")
+                with st.expander(f"View {len(watchlist_symbols)} symbols"):
+                    for symbol in watchlist_symbols:
+                        st.write(f"• {symbol}")
+            else:
+                st.warning("No symbols in active watchlist. Add symbols to Dashboard first.")
             
-            # Paper trading controls
+            # Paper trading controls - with safe access
             st.markdown("---")
             st.subheader("📊 Paper Trading Controls")
             
-            if st.button("🔄 Update Portfolio", use_container_width=True):
+            if st.button("🔄 Update Portfolio Values", use_container_width=True):
                 update_paper_portfolio_values(instrument_df)
                 st.success("Portfolio values updated!")
             
-            if st.button("🔄 Reset Portfolio", use_container_width=True, type="secondary"):
-                reset_paper_portfolio()
-                st.rerun()
-            
-            # Current positions
             paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
             positions = paper_portfolio.get('positions', {})
             if positions:
@@ -2926,9 +2547,8 @@ def page_fully_automated_bots(instrument_df):
             st.subheader("📊 Live Performance Dashboard")
             
             if st.session_state.automated_mode.get('running', False):
-                # Auto-refresh based on analysis frequency
-                refresh_interval = st.session_state.automated_mode.get('analysis_frequency_seconds', 60) * 1000
-                st_autorefresh(interval=refresh_interval, key="auto_refresh")
+                # Auto-refresh for live trading
+                st_autorefresh(interval=30000, key="auto_refresh")
                 
                 # Get watchlist symbols for automated trading
                 active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
@@ -2949,16 +2569,6 @@ def page_fully_automated_bots(instrument_df):
                     last_check_time = datetime.fromisoformat(last_check).strftime("%H:%M:%S")
                     st.caption(f"Last signal check: {last_check_time}")
                 
-                # Show analysis frequency
-                current_freq = st.session_state.automated_mode.get('analysis_frequency_seconds', 60)
-                freq_display = {
-                    30: "30 seconds",
-                    60: "1 minute", 
-                    300: "5 minutes",
-                    900: "15 minutes"
-                }.get(current_freq, "1 minute")
-                st.caption(f"Analysis frequency: {freq_display}")
-                
                 # Active bots status
                 active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
                 if active_bots:
@@ -2968,21 +2578,21 @@ def page_fully_automated_bots(instrument_df):
                     
             else:
                 st.info("⏸️ **AUTOMATED TRADING PAUSED**")
-                st.caption("Enable automated mode and click 'Start Trading' to begin")
+                st.caption("Enable automated mode and click 'Start Automated Trading' to begin")
             
-            # Performance metrics
+            # Performance metrics with safe access
             st.markdown("---")
             st.subheader("📈 Performance Metrics")
             metrics = get_automated_bot_performance()
             
-            # Paper trading portfolio overview
+            # Paper trading portfolio overview with safe access
             paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
             cash_balance = paper_portfolio.get('cash_balance', 0.0)
             portfolio_value = paper_portfolio.get('total_value', cash_balance)
             
             metric_cols = st.columns(3)
-            metric_cols[0].metric("Portfolio Value", f"₹{portfolio_value:,.2f}")
-            metric_cols[1].metric("Total Return", f"{metrics.get('paper_return_pct', 0):.2f}%")
+            metric_cols[0].metric("Paper Portfolio Value", f"₹{portfolio_value:,.2f}")
+            metric_cols[1].metric("Paper Return", f"{metrics.get('paper_return_pct', 0):.2f}%")
             metric_cols[2].metric("Cash Balance", f"₹{cash_balance:,.2f}")
             
             metric_cols2 = st.columns(4)
@@ -3027,7 +2637,6 @@ def page_fully_automated_bots(instrument_df):
                     order_type = trade.get('order_type', 'PAPER')
                     type_color = '🔴' if order_type == 'LIVE' else '🔵'
                     status_color = '🟢' if trade.get('pnl', 0) > 0 else '🔴' if trade.get('pnl', 0) < 0 else '⚪'
-                    status_icon = '🟢' if trade.get('status') == 'OPEN' else '🔴' if trade.get('status') == 'CLOSED' else '⚪'
                     
                     trades_display.append({
                         'Time': datetime.fromisoformat(trade['timestamp']).strftime("%H:%M:%S"),
@@ -3036,7 +2645,8 @@ def page_fully_automated_bots(instrument_df):
                         'Action': trade['action'],
                         'Qty': trade['quantity'],
                         'Price': f"₹{trade.get('entry_price', 0):.2f}",
-                        'Status': f"{status_icon} {trade.get('status', 'OPEN')}",
+                        'Bot': trade['bot_name'],
+                        'Status': trade.get('status', 'OPEN'),
                         'P&L': f"{status_color} ₹{trade.get('pnl', 0):.2f}"
                     })
                 
@@ -3074,16 +2684,56 @@ def page_fully_automated_bots(instrument_df):
             
         with col_setup2:
             st.markdown("""
-            **📊 Analysis Frequency Options:**
-            - **30 seconds**: High-frequency analysis (HFT mode)
-            - **1 minute**: Active trading frequency  
-            - **5 minutes**: Balanced analysis frequency
-            - **15 minutes**: Conservative analysis frequency
+            **📊 Paper Trading Features:**
+            - Realistic portfolio simulation
+            - Live P&L tracking
+            - Position management
+            - Performance analytics
+            - Risk-free strategy testing
+            - Exportable trade history
+            """)
+        
+        st.markdown("---")
+        st.subheader("🤖 Available Automated Bots")
+        
+        bot_col1, bot_col2 = st.columns(2)
+        
+        with bot_col1:
+            st.markdown("""
+            **Auto Momentum Trader**
+            - Identifies strong momentum signals
+            - Uses RSI, EMA, MACD confirmations
+            - Medium risk profile
+            - Best for trending markets
+            """)
             
-            **Choose based on your strategy:**
-            - Shorter intervals for momentum/volatility strategies
-            - Longer intervals for trend-following strategies
-            - Adjust based on market conditions
+            st.markdown("""
+            **Auto Mean Reversion**
+            - Trades price extremes
+            - Uses Bollinger Bands and RSI
+            - Low risk profile  
+            - Best for range-bound markets
+            """)
+        
+        with bot_col2:
+            st.markdown("""
+            **Key Features:**
+            - ✅ Real-time market analysis
+            - ✅ Automatic position sizing
+            - ✅ Risk-managed execution
+            - ✅ Performance tracking
+            - ✅ Trade history logging
+            - ✅ Paper trading simulation
+            """)
+            
+            st.markdown("""
+            **Monitoring:**
+            - Live performance dashboard
+            - Real-time trade updates
+            - Risk exposure tracking
+            - P&L calculations
+            - Bot activity logs
+            - Portfolio valuation
             """)
 
 # ================ AUTOMATED MODE HELPER FUNCTIONS ================
@@ -3634,48 +3284,26 @@ def render_chart_controls(i, instrument_df):
                 place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
 
 def page_premarket_pulse():
-    """Global market overview and premarket indicators with improved API handling."""
+    """Global market overview and premarket indicators with a trader-focused UI."""
     display_header()
     st.title("Premarket & Global Cues")
     st.markdown("---")
 
     st.subheader("Global Market Snapshot")
-    
-    # Enhanced ticker list with more reliable symbols
-    global_tickers = {
-        "S&P 500": "^GSPC", 
-        "Dow Jones": "^DJI", 
-        "NASDAQ": "^IXIC", 
-        "FTSE 100": "^FTSE", 
-        "Nikkei 225": "^N225", 
-        "Hang Seng": "^HSI",
-        "DAX": "^GDAXI",
-        "CAC 40": "^FCHI"
-    }
-    
-    global_data = get_global_indices_data_enhanced(global_tickers)
+    global_tickers = {"S&P 500": "^GSPC", "Dow Jones": "^DJI", "NASDAQ": "^IXIC", "FTSE 100": "^FTSE", "Nikkei 225": "^N225", "Hang Seng": "^HSI"}
+    global_data = get_global_indices_data(global_tickers)
     
     if not global_data.empty:
-        # Display in two rows for better layout
-        cols1 = st.columns(4)
-        cols2 = st.columns(4)
-        all_cols = cols1 + cols2
-        
+        cols = st.columns(len(global_tickers))
         for i, (name, ticker_symbol) in enumerate(global_tickers.items()):
-            if i < len(all_cols):
-                data_row = global_data[global_data['Ticker'] == name]
-                if not data_row.empty:
-                    price = data_row.iloc[0]['Price']
-                    change = data_row.iloc[0]['% Change']
-                    if not np.isnan(price):
-                        all_cols[i].metric(
-                            label=name, 
-                            value=f"{price:,.0f}", 
-                            delta=f"{change:.2f}%",
-                            delta_color="normal"
-                        )
-                    else:
-                        all_cols[i].metric(label=name, value="N/A", delta="--")
+            data_row = global_data[global_data['Ticker'] == name]
+            if not data_row.empty:
+                price = data_row.iloc[0]['Price']
+                change = data_row.iloc[0]['% Change']
+                if not np.isnan(price):
+                    cols[i].metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
+                else:
+                    cols[i].metric(label=name, value="N/A", delta="--")
     else:
         st.info("Loading global market data...")
 
@@ -3687,46 +3315,22 @@ def page_premarket_pulse():
         st.subheader("NIFTY 50 Futures (Live Proxy)")
         gift_data = get_gift_nifty_data()
         if not gift_data.empty:
-            # Create a simple line chart if candlestick fails
-            try:
-                fig = create_chart(gift_data, "NIFTY 50 Futures (Proxy)")
-                st.plotly_chart(fig, use_container_width=True)
-            except Exception as e:
-                # Fallback to line chart
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=gift_data.index, 
-                    y=gift_data['Close' if 'Close' in gift_data.columns else gift_data.iloc[:, 3]],
-                    mode='lines',
-                    name='NIFTY Futures'
-                ))
-                fig.update_layout(title="NIFTY 50 Futures (Live)", template='plotly_dark')
-                st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(create_chart(gift_data, "NIFTY 50 Futures (Proxy)"), use_container_width=True)
         else:
             st.warning("Could not load NIFTY 50 Futures chart data.")
             
     with col2:
         st.subheader("Key Asian Markets")
-        asian_tickers = {
-            "Nikkei 225": "^N225", 
-            "Hang Seng": "^HSI",
-            "Shanghai": "000001.SS",
-            "KOSPI": "^KS11"
-        }
-        asian_data = get_global_indices_data_enhanced(asian_tickers)
+        asian_tickers = {"Nikkei 225": "^N225", "Hang Seng": "^HSI"}
+        asian_data = get_global_indices_data(asian_tickers)
         if not asian_data.empty:
-            for name in asian_tickers.keys():
+            for name, ticker_symbol in asian_tickers.items():
                 data_row = asian_data[asian_data['Ticker'] == name]
                 if not data_row.empty:
                     price = data_row.iloc[0]['Price']
                     change = data_row.iloc[0]['% Change']
                     if not np.isnan(price):
-                        st.metric(
-                            label=name, 
-                            value=f"{price:,.0f}", 
-                            delta=f"{change:.2f}%",
-                            delta_color="normal"
-                        )
+                        st.metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
                     else:
                         st.metric(label=name, value="N/A", delta="--")
         else:
@@ -3737,23 +3341,15 @@ def page_premarket_pulse():
     st.subheader("Latest Market News")
     news_df = fetch_and_analyze_news()
     if not news_df.empty:
-        for _, news in news_df.head(8).iterrows():  # Show more news items
+        for _, news in news_df.head(10).iterrows():
             sentiment_score = news['sentiment']
             if sentiment_score > 0.2:
                 icon = "🔼"
-                color = "green"
             elif sentiment_score < -0.2:
                 icon = "🔽"
-                color = "red"
             else:
                 icon = "▶️"
-                color = "gray"
-            
-            st.markdown(
-                f"<span style='color:{color}; font-weight:bold;'>{icon}</span> "
-                f"**[{news['title']}]({news['link']})** - *{news['source']}*",
-                unsafe_allow_html=True
-            )
+            st.markdown(f"**{icon} [{news['title']}]({news['link']})** - *{news['source']}*")
     else:
         st.info("News data is loading...")
 
