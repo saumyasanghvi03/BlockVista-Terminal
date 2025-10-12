@@ -2292,7 +2292,7 @@ def reset_paper_portfolio():
 # ================ UPDATED PAGE FUNCTION ================
 
 def page_fully_automated_bots(instrument_df):
-    """Fully automated bots page with fixed paper trading controls."""
+    """Fully automated bots page with fixed paper trading controls and analysis intervals."""
     st.warning("🚨 **LIVE TRADING WARNING**: Automated bots will execute real trades with real money! Use at your own risk.", icon="⚠️")
     
     # Initialize automated mode
@@ -2452,6 +2452,34 @@ def page_fully_automated_bots(instrument_df):
             )
             st.session_state.automated_mode['max_open_trades'] = max_trades
             
+            # ANALYSIS FREQUENCY OPTIONS - RESTORED
+            st.markdown("---")
+            st.subheader("📊 Analysis Frequency")
+            analysis_frequency = st.selectbox(
+                "Analysis Interval",
+                ["30 seconds", "1 minute", "5 minutes", "15 minutes"],
+                index=1,  # Default to "1 minute"
+                help="How often bots analyze the market and check for signals",
+                key="auto_analysis_freq"
+            )
+            
+            # Store the selected frequency in session state
+            freq_mapping = {
+                "30 seconds": 30,
+                "1 minute": 60,
+                "5 minutes": 300,
+                "15 minutes": 900
+            }
+            st.session_state.automated_mode['analysis_frequency_seconds'] = freq_mapping.get(analysis_frequency, 60)
+            
+            # Show next analysis time if running
+            if st.session_state.automated_mode.get('running', False):
+                last_check = st.session_state.automated_mode.get('last_signal_check')
+                if last_check:
+                    last_check_time = datetime.fromisoformat(last_check)
+                    next_check = last_check_time + timedelta(seconds=st.session_state.automated_mode['analysis_frequency_seconds'])
+                    st.caption(f"Next analysis: {next_check.strftime('%H:%M:%S')}")
+            
             # Paper trading controls
             st.markdown("---")
             st.subheader("📊 Paper Trading Controls")
@@ -2481,8 +2509,9 @@ def page_fully_automated_bots(instrument_df):
             st.subheader("📊 Live Performance Dashboard")
             
             if st.session_state.automated_mode.get('running', False):
-                # Auto-refresh for live trading
-                st_autorefresh(interval=30000, key="auto_refresh")
+                # Auto-refresh based on analysis frequency
+                refresh_interval = st.session_state.automated_mode.get('analysis_frequency_seconds', 60) * 1000
+                st_autorefresh(interval=refresh_interval, key="auto_refresh")
                 
                 # Get watchlist symbols for automated trading
                 active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
@@ -2502,6 +2531,16 @@ def page_fully_automated_bots(instrument_df):
                 if last_check:
                     last_check_time = datetime.fromisoformat(last_check).strftime("%H:%M:%S")
                     st.caption(f"Last signal check: {last_check_time}")
+                
+                # Show analysis frequency
+                current_freq = st.session_state.automated_mode.get('analysis_frequency_seconds', 60)
+                freq_display = {
+                    30: "30 seconds",
+                    60: "1 minute", 
+                    300: "5 minutes",
+                    900: "15 minutes"
+                }.get(current_freq, "1 minute")
+                st.caption(f"Analysis frequency: {freq_display}")
                 
                 # Active bots status
                 active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
@@ -2618,15 +2657,16 @@ def page_fully_automated_bots(instrument_df):
             
         with col_setup2:
             st.markdown("""
-            **📊 Paper Trading Features:**
-            - Realistic portfolio simulation
-            - Live P&L tracking
-            - Position management
-            - Performance analytics
-            - Risk-free strategy testing
-            - Exportable trade history
-            - Manual position closing
-            - Portfolio reset capability
+            **📊 Analysis Frequency Options:**
+            - **30 seconds**: High-frequency analysis (HFT mode)
+            - **1 minute**: Active trading frequency  
+            - **5 minutes**: Balanced analysis frequency
+            - **15 minutes**: Conservative analysis frequency
+            
+            **Choose based on your strategy:**
+            - Shorter intervals for momentum/volatility strategies
+            - Longer intervals for trend-following strategies
+            - Adjust based on market conditions
             """)
 
 # ================ AUTOMATED MODE HELPER FUNCTIONS ================
