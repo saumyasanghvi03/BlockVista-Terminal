@@ -2709,24 +2709,41 @@ def reset_paper_portfolio():
 # ================ UPDATED PAGE FUNCTION ================
 
 def page_fully_automated_bots(instrument_df):
-    """Fully automated bots page with fixed paper trading controls and analysis intervals."""
-    st.warning("🚨 **LIVE TRADING WARNING**: Automated bots will execute real trades with real money! Use at your own risk.", icon="⚠️")
+    """Fully automated bots page with smart trading mode switching based on market hours."""
+    
+    # Get current market status
+    market_status = get_market_status()
+    is_market_open = market_status["status"] == "OPEN"
+    
+    # Enhanced warning with market status context
+    if is_market_open:
+        st.warning("🚨 **MARKET IS OPEN** - Live trading available during market hours", icon="⚠️")
+    else:
+        st.info("📄 **MARKET IS CLOSED** - Paper trading mode active (auto-switches to live when market opens)", icon="ℹ️")
     
     # Initialize automated mode
     initialize_automated_mode()
+    
+    # Auto-switch to paper trading if market is closed
+    if not is_market_open and st.session_state.automated_mode.get('live_trading', False):
+        st.session_state.automated_mode['live_trading'] = False
+        st.toast("🔁 Auto-switched to Paper Trading (market is closed)", icon="📄")
     
     # Fix total_capital value if needed
     current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
     if current_capital < 1000.0:
         st.session_state.automated_mode['total_capital'] = 10000.0
     
-    # Live trading status
-    if st.session_state.automated_mode.get('running', False) and st.session_state.automated_mode.get('live_trading', False):
-        st.error("**🚀 LIVE TRADING ACTIVE** - Real orders are being placed with your broker!")
-    elif st.session_state.automated_mode.get('running', False):
-        st.info("**📄 PAPER TRADING ACTIVE** - Orders are being simulated (no real trades)")
+    # Enhanced status display with market context
+    if st.session_state.automated_mode.get('running', False):
+        if st.session_state.automated_mode.get('live_trading', False) and is_market_open:
+            st.error("**🚀 LIVE TRADING ACTIVE** - Real orders being placed during market hours!")
+        elif st.session_state.automated_mode.get('live_trading', False) and not is_market_open:
+            st.warning("**⏸️ LIVE TRADING PAUSED** - Market closed, will auto-resume when market opens")
+        else:
+            st.info("**📄 PAPER TRADING ACTIVE** - Orders simulated (no real trades)")
     
-    # Main control panel
+    # Smart trading mode controls
     col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
@@ -2739,30 +2756,53 @@ def page_fully_automated_bots(instrument_df):
         st.session_state.automated_mode['enabled'] = auto_enabled
     
     with col2:
+        # Smart live trading toggle - disabled when market is closed
+        live_trading_disabled = not is_market_open
+        live_trading_help = "WARNING: Real orders with real money!" if is_market_open else "Live trading only available during market hours (9:15 AM - 3:30 PM IST)"
+        
         live_trading = st.toggle(
             "Live Trading",
-            value=st.session_state.automated_mode.get('live_trading', False),
-            help="WARNING: This will place REAL orders with REAL money!",
+            value=st.session_state.automated_mode.get('live_trading', False) and is_market_open,
+            help=live_trading_help,
             key="live_trading",
-            disabled=st.session_state.automated_mode.get('running', False)
+            disabled=live_trading_disabled or st.session_state.automated_mode.get('running', False)
         )
-        st.session_state.automated_mode['live_trading'] = live_trading
+        
+        # Only update if market is open and toggle is enabled
+        if is_market_open:
+            st.session_state.automated_mode['live_trading'] = live_trading
+        else:
+            st.session_state.automated_mode['live_trading'] = False
+            
+        # Show market status indicator
+        status_color = "🟢" if is_market_open else "🔴"
+        st.caption(f"{status_color} Market: {market_status['status']}")
     
     with col3:
         if st.session_state.automated_mode['enabled']:
             if not st.session_state.automated_mode.get('running', False):
-                if st.button("🚀 Start Trading", use_container_width=True, type="primary", key="auto_start"):
-                    if live_trading:
+                start_disabled = st.session_state.automated_mode.get('live_trading', False) and not is_market_open
+                start_help = "Start automated trading" if not start_disabled else "Cannot start live trading when market is closed"
+                
+                if st.button("🚀 Start Trading", 
+                           use_container_width=True, 
+                           type="primary" if not start_disabled else "secondary",
+                           key="auto_start",
+                           disabled=start_disabled):
+                    
+                    if st.session_state.automated_mode.get('live_trading', False) and is_market_open:
                         st.session_state.need_live_confirmation = True
                         st.rerun()
                     else:
                         st.session_state.automated_mode['running'] = True
-                        st.success("🤖 Paper trading started!")
+                        trading_mode = "LIVE" if st.session_state.automated_mode.get('live_trading', False) else "PAPER"
+                        st.success(f"🤖 {trading_mode} trading started!")
                         st.rerun()
             else:
                 if st.button("🛑 Stop Trading", use_container_width=True, type="secondary", key="auto_stop"):
                     st.session_state.automated_mode['running'] = False
-                    st.info("⏸️ Automated trading stopped!")
+                    trading_mode = "LIVE" if st.session_state.automated_mode.get('live_trading', False) else "PAPER"
+                    st.info(f"⏸️ {trading_mode} trading stopped!")
                     st.rerun()
         else:
             st.button("🚀 Start Trading", use_container_width=True, disabled=True)
@@ -2799,6 +2839,16 @@ def page_fully_automated_bots(instrument_df):
         )
         st.session_state.automated_mode['risk_per_trade'] = float(risk_per_trade)
     
+    # Smart trading mode information
+    if not is_market_open and st.session_state.automated_mode.get('live_trading', False):
+        st.info("""
+        **📊 Smart Trading Mode Active:**
+        - Live trading is enabled but paused (market closed)
+        - Paper trading will run until market opens
+        - Will auto-switch to live trading at 9:15 AM IST
+        - Monitor performance in paper mode first
+        """)
+    
     # Live trading confirmation
     if st.session_state.get('need_live_confirmation', False):
         st.markdown("---")
@@ -2807,10 +2857,19 @@ def page_fully_automated_bots(instrument_df):
         
         You are about to enable **LIVE TRADING** with real money!
         
+        **Current Market Status:** OPEN 🟢
+        **Trading Hours:** 9:15 AM - 3:30 PM IST
+        
+        ⚠️ **WARNING:**
         - Real orders will be placed with your broker
-        - Real money will be used for trades
+        - Real money will be used for trades  
         - You are solely responsible for any losses
         - Use at your own risk!
+        
+        ✅ **Safety Features:**
+        - Auto-switches to paper trading when market closes
+        - Risk limits enforced per trade
+        - Maximum open trades limit
         """)
         
         col_confirm1, col_confirm2, col_confirm3 = st.columns([2, 1, 1])
@@ -2818,7 +2877,7 @@ def page_fully_automated_bots(instrument_df):
             st.session_state.automated_mode['running'] = True
             st.session_state.automated_mode['live_trading'] = True
             st.session_state.need_live_confirmation = False
-            st.success("🚀 LIVE TRADING ACTIVATED! Real orders will be placed.")
+            st.success("🚀 LIVE TRADING ACTIVATED! Real orders will be placed during market hours.")
             st.rerun()
         
         if col_confirm2.button("📄 PAPER TRADING", use_container_width=True):
@@ -2869,14 +2928,22 @@ def page_fully_automated_bots(instrument_df):
             )
             st.session_state.automated_mode['max_open_trades'] = max_trades
             
-            # ANALYSIS FREQUENCY OPTIONS - RESTORED
+            # Smart analysis frequency based on trading mode
             st.markdown("---")
             st.subheader("📊 Analysis Frequency")
+            
+            if st.session_state.automated_mode.get('live_trading', False) and is_market_open:
+                default_freq_index = 1  # 1 minute for live trading
+                freq_help = "High-frequency analysis for live trading"
+            else:
+                default_freq_index = 2  # 5 minutes for paper trading
+                freq_help = "Balanced analysis frequency for paper trading"
+                
             analysis_frequency = st.selectbox(
                 "Analysis Interval",
                 ["30 seconds", "1 minute", "5 minutes", "15 minutes"],
-                index=1,  # Default to "1 minute"
-                help="How often bots analyze the market and check for signals",
+                index=default_freq_index,
+                help=freq_help,
                 key="auto_analysis_freq"
             )
             
@@ -2899,7 +2966,7 @@ def page_fully_automated_bots(instrument_df):
             
             # Paper trading controls
             st.markdown("---")
-            st.subheader("📊 Paper Trading Controls")
+            st.subheader("📊 Portfolio Controls")
             
             if st.button("🔄 Update Portfolio", use_container_width=True):
                 update_paper_portfolio_values(instrument_df)
@@ -2925,6 +2992,12 @@ def page_fully_automated_bots(instrument_df):
         with col6:
             st.subheader("📊 Live Performance Dashboard")
             
+            # Smart mode indicator
+            current_mode = "LIVE" if (st.session_state.automated_mode.get('live_trading', False) and is_market_open) else "PAPER"
+            mode_color = "red" if current_mode == "LIVE" else "blue"
+            
+            st.markdown(f"### <span style='color:{mode_color};'>🔵 {current_mode} MODE ACTIVE</span>", unsafe_allow_html=True)
+            
             if st.session_state.automated_mode.get('running', False):
                 # Auto-refresh based on analysis frequency
                 refresh_interval = st.session_state.automated_mode.get('analysis_frequency_seconds', 60) * 1000
@@ -2938,11 +3011,14 @@ def page_fully_automated_bots(instrument_df):
                 if watchlist_symbols and any(st.session_state.automated_mode.get('bots_active', {}).values()):
                     run_automated_bots_cycle(instrument_df, watchlist_symbols)
                 
-                # Status indicator
-                if st.session_state.automated_mode.get('live_trading', False):
+                # Enhanced status display
+                if current_mode == "LIVE":
                     st.success("🟢 **LIVE TRADING ACTIVE** - Real orders being placed!")
+                    st.caption("⏰ Market hours: 9:15 AM - 3:30 PM IST")
                 else:
                     st.info("🔵 **PAPER TRADING ACTIVE** - Orders simulated only")
+                    if not is_market_open:
+                        st.caption("⏰ Market closed - Live trading auto-paused")
                     
                 last_check = st.session_state.automated_mode.get('last_signal_check')
                 if last_check:
@@ -2998,14 +3074,15 @@ def page_fully_automated_bots(instrument_df):
             with col8:
                 st.metric("Average Loss", f"₹{metrics.get('avg_loss', 0):.2f}")
             
-            # Mode indicator
+            # Smart mode explanation
             st.markdown("---")
-            if st.session_state.automated_mode.get('live_trading', False):
+            if current_mode == "LIVE":
                 st.error("""
                 **🔴 LIVE TRADING MODE**
                 - Real orders are being placed
                 - Real money is at risk
                 - Monitor your positions carefully
+                - Auto-pauses when market closes
                 """)
             else:
                 st.info("""
@@ -3013,7 +3090,7 @@ def page_fully_automated_bots(instrument_df):
                 - Orders are simulated only
                 - No real money is being used
                 - Perfect for testing strategies
-                - Portfolio: Cash + Positions = Total Value
+                - Auto-switches to live during market hours (if enabled)
                 """)
             
             # Recent trades table
@@ -3057,34 +3134,62 @@ def page_fully_automated_bots(instrument_df):
                 st.info("No trades executed yet. Automated trading will populate this section.")
     
     else:
-        # Show setup guide when automated mode is disabled
-        st.subheader("🚀 Getting Started with Automated Trading")
+        # Enhanced setup guide with market context
+        st.subheader("🚀 Smart Automated Trading")
         
         col_setup1, col_setup2 = st.columns(2)
         
         with col_setup1:
             st.markdown("""
-            **📋 Setup Steps:**
-            1. **Enable Automated Mode** - Toggle the switch above
-            2. **Set Capital & Risk** - Configure your trading parameters
-            3. **Activate Bots** - Choose which strategies to use
-            4. **Configure Watchlist** - Ensure you have symbols in your active watchlist
-            5. **Start Trading** - Click 'Start Automated Trading'
+            **📋 Smart Trading Features:**
+            
+            **🟢 Market Hours (9:15 AM - 3:30 PM IST):**
+            - Live trading available
+            - Real orders with real money
+            - High-frequency analysis
+            
+            **🔴 Outside Market Hours:**
+            - Auto paper trading mode
+            - Perfect for strategy testing
+            - No real money risk
+            
+            **⚡ Auto-Switching:**
+            - Paper → Live when market opens
+            - Live → Paper when market closes
+            - Seamless mode transitions
             """)
             
         with col_setup2:
             st.markdown("""
-            **📊 Analysis Frequency Options:**
-            - **30 seconds**: High-frequency analysis (HFT mode)
-            - **1 minute**: Active trading frequency  
-            - **5 minutes**: Balanced analysis frequency
-            - **15 minutes**: Conservative analysis frequency
+            **📊 Setup Steps:**
+            1. **Enable Automated Mode** - Toggle above
+            2. **Set Capital & Risk** - Configure parameters
+            3. **Activate Bots** - Choose strategies
+            4. **Configure Watchlist** - Add symbols to scan
+            5. **Start Trading** - Click 'Start Automated Trading'
             
-            **Choose based on your strategy:**
-            - Shorter intervals for momentum/volatility strategies
-            - Longer intervals for trend-following strategies
-            - Adjust based on market conditions
+            **🛡️ Safety Features:**
+            - Risk limits per trade
+            - Maximum open trades limit
+            - Market hours protection
+            - Paper trading fallback
             """)
+        
+        # Market status card
+        st.markdown("---")
+        status_col1, status_col2, status_col3 = st.columns(3)
+        with status_col1:
+            status_icon = "🟢" if is_market_open else "🔴"
+            st.metric("Market Status", f"{status_icon} {market_status['status']}")
+        with status_col2:
+            ist = pytz.timezone('Asia/Kolkata')
+            current_time = datetime.now(ist).strftime("%H:%M:%S IST")
+            st.metric("Current Time", current_time)
+        with status_col3:
+            if is_market_open:
+                st.metric("Trading Mode", "LIVE Available")
+            else:
+                st.metric("Trading Mode", "PAPER Active")
 
 # ================ AUTOMATED MODE HELPER FUNCTIONS ================
 
