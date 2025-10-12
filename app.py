@@ -1858,7 +1858,7 @@ def page_algo_bots():
         page_fully_automated_bots(instrument_df)
 
 def page_semi_automated_bots(instrument_df):
-    """Semi-automated bots page with watchlist-based symbol dropdown."""
+    """Semi-automated bots page with comprehensive symbol selection including all stocks and commodities."""
     st.info("Run automated analysis and get trading signals. Manual confirmation required for execution.", icon="🚀")
     
     col1, col2 = st.columns([2, 1])
@@ -1896,42 +1896,122 @@ def page_semi_automated_bots(instrument_df):
     
     st.markdown("---")
     
-    # Symbol selection and bot execution - FIXED WITH DROPDOWN
+    # Symbol selection and bot execution - ENHANCED WITH ALL SYMBOLS
     col3, col4 = st.columns([1, 1])
     
     with col3:
-        st.subheader("Stock Selection")
+        st.subheader("Stock & Commodity Selection")
         
-        # Get symbols from active watchlist
-        active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-        watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
-        
-        if watchlist_symbols:
-            # Use watchlist symbols for dropdown
-            selected_symbol = st.selectbox(
-                "Select Stock",
-                options=watchlist_symbols,
-                index=watchlist_symbols.index('RELIANCE') if 'RELIANCE' in watchlist_symbols else 0,
-                help="Select from your active watchlist",
-                key="semi_symbol"
+        # Get all available symbols from instrument_df (stocks, commodities, indices)
+        if not instrument_df.empty:
+            # Filter for common segments
+            available_instruments = instrument_df[
+                instrument_df['exchange'].isin(['NSE', 'BSE', 'MCX', 'NFO'])
+            ].copy()
+            
+            # Create display names with exchange info
+            available_instruments['display_name'] = available_instruments.apply(
+                lambda x: f"{x['tradingsymbol']} ({x['exchange']})", 
+                axis=1
             )
             
+            # Sort by trading symbol
+            available_instruments = available_instruments.sort_values('tradingsymbol')
+            
+            # Get unique symbols (avoid duplicates)
+            unique_symbols = available_instruments.drop_duplicates('tradingsymbol')
+            
+            # Create selection options
+            symbol_options = unique_symbols['tradingsymbol'].tolist()
+            display_options = unique_symbols['display_name'].tolist()
+            
+            # Create mapping for display
+            symbol_to_display = dict(zip(symbol_options, display_options))
+            display_to_symbol = {v: k for k, v in symbol_to_display.items()}
+            
+            # Add popular stocks at the top for easy access
+            popular_symbols = [
+                'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'HINDUNILVR', 
+                'ICICIBANK', 'SBIN', 'BHARTIARTL', 'KOTAKBANK', 'ITC',
+                'BAJFINANCE', 'ASIANPAINT', 'MARUTI', 'TITAN', 'DMART'
+            ]
+            
+            # Reorder options: popular first, then alphabetical
+            ordered_symbols = []
+            ordered_displays = []
+            
+            # Add popular symbols first
+            for symbol in popular_symbols:
+                if symbol in symbol_to_display:
+                    ordered_symbols.append(symbol)
+                    ordered_displays.append(symbol_to_display[symbol])
+            
+            # Add remaining symbols alphabetically
+            remaining_symbols = [s for s in symbol_options if s not in popular_symbols]
+            for symbol in sorted(remaining_symbols):
+                ordered_symbols.append(symbol)
+                ordered_displays.append(symbol_to_display[symbol])
+            
+            # Commodities section - add specific commodities
+            commodities = ['GOLDM', 'SILVERM', 'CRUDEOIL', 'NATURALGAS', 'COPPER', 'ZINC', 'ALUMINIUM']
+            for commodity in commodities:
+                if commodity in symbol_to_display and commodity not in ordered_symbols:
+                    ordered_symbols.append(commodity)
+                    ordered_displays.append(symbol_to_display[commodity])
+            
+            # Use selectbox with search functionality
+            selected_display = st.selectbox(
+                "Select Stock/Commodity",
+                options=ordered_displays,
+                index=0,  # Default to first popular symbol (RELIANCE)
+                help="Search and select from all available stocks and commodities",
+                key="semi_symbol_select"
+            )
+            
+            # Extract symbol from display name
+            selected_symbol = display_to_symbol.get(selected_display, ordered_symbols[0])
+            
+            # Get exchange for the selected symbol
+            selected_instrument = available_instruments[
+                available_instruments['tradingsymbol'] == selected_symbol
+            ].iloc[0]
+            selected_exchange = selected_instrument['exchange']
+            
             # Show current price
-            quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': 'NSE'}])
+            quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': selected_exchange}])
             if not quote_data.empty:
                 current_price = quote_data.iloc[0]['Price']
-                st.metric("Current Price", f"₹{current_price:.2f}")
+                change = quote_data.iloc[0]['Change']
+                change_pct = quote_data.iloc[0]['% Change']
+                
+                st.metric(
+                    "Current Price", 
+                    f"₹{current_price:.2f}",
+                    delta=f"{change:.2f} ({change_pct:.2f}%)",
+                    delta_color="normal"
+                )
+                
+                # Show additional info for commodities
+                if selected_exchange == 'MCX':
+                    st.caption(f"Commodity - {selected_exchange}")
+                else:
+                    st.caption(f"Equity - {selected_exchange}")
+            else:
+                st.info("Price data loading...")
+                
         else:
-            st.warning("No stocks in watchlist. Please add stocks to your watchlist on the Dashboard first.")
+            st.error("Instrument data not available. Please check broker connection.")
             selected_symbol = None
     
     with col4:
         st.subheader("Bot Execution")
         st.write(f"**Selected Bot:** {selected_bot}")
         st.write(f"**Available Capital:** ₹{trading_capital:,}")
+        if selected_symbol:
+            st.write(f"**Selected Symbol:** {selected_symbol}")
         
         if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary", key="semi_run", disabled=not selected_symbol):
-            with st.spinner(f"Running {selected_bot} analysis..."):
+            with st.spinner(f"Running {selected_bot} analysis on {selected_symbol}..."):
                 bot_function = ALGO_BOTS[selected_bot]
                 bot_result = bot_function(instrument_df, selected_symbol, trading_capital)
                 
@@ -1973,7 +2053,7 @@ def page_semi_automated_bots(instrument_df):
             # Display signals and execute trade
             execute_bot_trade(instrument_df, bot_result)
 
-    # Bot performance history
+    # Bot performance tips
     st.markdown("---")
     st.subheader("📈 Bot Performance Tips")
     
@@ -1987,17 +2067,55 @@ def page_semi_automated_bots(instrument_df):
         - 'Scalper Pro' requires constant monitoring
         - Always check signals before executing
         - Combine multiple bot recommendations
+        - Test on paper trading first
         """)
     
     with tips_col2:
         st.markdown("""
-        **Risk Management:**
-        - Never risk more than 2% per trade
-        - Use stop losses with every trade
-        - Diversify across different bots
-        - Monitor performance regularly
-        - Adjust capital based on experience
+        **Symbol Selection Guide:**
+        - **Large Caps**: RELIANCE, TCS, HDFCBANK (Stable, lower risk)
+        - **Mid Caps**: TATACONSUM, ADANIPORTS (Higher volatility)
+        - **Commodities**: GOLDM, SILVERM (Different risk profile)
+        - **Banking**: HDFCBANK, ICICIBANK, SBIN (Sector-specific)
+        - **IT**: TCS, INFY, HCLTECH (Tech sector exposure)
         """)
+
+# ================ ADDITIONAL HELPER FOR SYMBOL CATEGORIES ================
+
+def get_symbol_categories(instrument_df):
+    """Categorize symbols for better organization in dropdown."""
+    if instrument_df.empty:
+        return {}
+    
+    categories = {
+        'Large Cap Stocks': [
+            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'HINDUNILVR', 'ICICIBANK',
+            'SBIN', 'BHARTIARTL', 'KOTAKBANK', 'ITC', 'BAJFINANCE', 'ASIANPAINT',
+            'MARUTI', 'TITAN', 'DMART', 'LT', 'HCLTECH', 'WIPRO', 'ULTRACEMCO'
+        ],
+        'Mid Cap Stocks': [
+            'ADANIPORTS', 'POWERGRID', 'NTPC', 'M&M', 'TATASTEEL', 'TECHM',
+            'INDUSINDBK', 'SUNPHARMA', 'AXISBANK', 'ONGC', 'COALINDIA', 'IOC',
+            'GRASIM', 'JSWSTEEL', 'BAJAJFINSV', 'HDFCLIFE', 'SBILIFE', 'DIVISLAB'
+        ],
+        'Commodities': [
+            'GOLDM', 'SILVERM', 'CRUDEOIL', 'NATURALGAS', 'COPPER', 'ZINC',
+            'ALUMINIUM', 'LEAD', 'NICKEL'
+        ],
+        'Indices': [
+            'NIFTY 50', 'BANKNIFTY', 'SENSEX', 'NIFTY IT', 'NIFTY AUTO'
+        ],
+        'FMCG': [
+            'ITC', 'HINDUNILVR', 'NESTLEIND', 'BRITANNIA', 'DABUR', 'GODREJCP',
+            'MARICO', 'COLPAL', 'EMAMILTD'
+        ],
+        'Pharmaceuticals': [
+            'SUNPHARMA', 'DRREDDY', 'CIPLA', 'DIVISLAB', 'LUPIN', 'AUROPHARMA',
+            'BIOCON', 'TORNTPHARM'
+        ]
+    }
+    
+    return categories
     
     # Quick bot comparison
     with st.expander("🤖 Bot Comparison Guide"):
