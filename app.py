@@ -236,7 +236,7 @@ ML_DATA_SOURCES = {
 # ================ 1.5 INITIALIZATION ========================
 
 def initialize_session_state():
-    """Initializes all necessary session state variables."""
+    """Initializes all necessary session state variables with proper default watchlist."""
     if 'broker' not in st.session_state: st.session_state.broker = None
     if 'kite' not in st.session_state: st.session_state.kite = None
     if 'profile' not in st.session_state: st.session_state.profile = None
@@ -245,12 +245,31 @@ def initialize_session_state():
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
     if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
+    
+    # Improved default watchlists with popular stocks (no bonds)
     if 'watchlists' not in st.session_state:
         st.session_state.watchlists = {
-            "Watchlist 1": [{'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'}],
-            "Watchlist 2": [{'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'INFY', 'exchange': 'NSE'}],
-            "Watchlist 3": [{'symbol': 'SENSEX', 'exchange': 'BSE'}]
+            "Watchlist 1": [
+                {'symbol': 'RELIANCE', 'exchange': 'NSE'},
+                {'symbol': 'TCS', 'exchange': 'NSE'},
+                {'symbol': 'HDFCBANK', 'exchange': 'NSE'},
+                {'symbol': 'INFY', 'exchange': 'NSE'},
+                {'symbol': 'HINDUNILVR', 'exchange': 'NSE'}
+            ],
+            "Watchlist 2": [
+                {'symbol': 'ICICIBANK', 'exchange': 'NSE'},
+                {'symbol': 'SBIN', 'exchange': 'NSE'},
+                {'symbol': 'BAJFINANCE', 'exchange': 'NSE'},
+                {'symbol': 'KOTAKBANK', 'exchange': 'NSE'},
+                {'symbol': 'ITC', 'exchange': 'NSE'}
+            ],
+            "Watchlist 3": [
+                {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
+                {'symbol': 'BANKNIFTY', 'exchange': 'NSE'},
+                {'symbol': 'SENSEX', 'exchange': 'BSE'}
+            ]
         }
+    
     if 'active_watchlist' not in st.session_state: st.session_state.active_watchlist = "Watchlist 1"
     if 'order_history' not in st.session_state: st.session_state.order_history = []
     if 'basket' not in st.session_state: st.session_state.basket = []
@@ -277,20 +296,13 @@ def initialize_session_state():
         st.session_state.automated_mode = {
             'enabled': False,
             'running': False,
-            'live_trading': False,
             'bots_active': {},
-            'total_capital': 10000.0,
-            'risk_per_trade': 2.0,
+            'total_capital': 10000,
+            'risk_per_trade': 2,
             'max_open_trades': 5,
             'trade_history': [],
             'performance_metrics': {},
-            'last_signal_check': None,
-            'paper_portfolio': {
-                'cash_balance': 10000.0,
-                'positions': {},
-                'initial_capital': 10000.0,
-                'total_value': 10000.0
-            }
+            'last_signal_check': None
         }
 
 # ================ 2. HELPER FUNCTIONS ================
@@ -1846,7 +1858,7 @@ def page_algo_bots():
         page_fully_automated_bots(instrument_df)
 
 def page_semi_automated_bots(instrument_df):
-    """Semi-automated bots page - requires manual confirmation."""
+    """Semi-automated bots page with watchlist-based symbol dropdown."""
     st.info("Run automated analysis and get trading signals. Manual confirmation required for execution.", icon="🚀")
     
     col1, col2 = st.columns([2, 1])
@@ -1884,31 +1896,41 @@ def page_semi_automated_bots(instrument_df):
     
     st.markdown("---")
     
-    # Symbol selection and bot execution
+    # Symbol selection and bot execution - FIXED WITH DROPDOWN
     col3, col4 = st.columns([1, 1])
     
     with col3:
         st.subheader("Stock Selection")
-        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'BSE'])]['tradingsymbol'].unique()
-        selected_symbol = st.selectbox(
-            "Select Stock",
-            sorted(all_symbols),
-            index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0,
-            key="semi_symbol"
-        )
         
-        # Show current price
-        quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': 'NSE'}])
-        if not quote_data.empty:
-            current_price = quote_data.iloc[0]['Price']
-            st.metric("Current Price", f"₹{current_price:.2f}")
+        # Get symbols from active watchlist
+        active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+        watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
+        
+        if watchlist_symbols:
+            # Use watchlist symbols for dropdown
+            selected_symbol = st.selectbox(
+                "Select Stock",
+                options=watchlist_symbols,
+                index=watchlist_symbols.index('RELIANCE') if 'RELIANCE' in watchlist_symbols else 0,
+                help="Select from your active watchlist",
+                key="semi_symbol"
+            )
+            
+            # Show current price
+            quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': 'NSE'}])
+            if not quote_data.empty:
+                current_price = quote_data.iloc[0]['Price']
+                st.metric("Current Price", f"₹{current_price:.2f}")
+        else:
+            st.warning("No stocks in watchlist. Please add stocks to your watchlist on the Dashboard first.")
+            selected_symbol = None
     
     with col4:
         st.subheader("Bot Execution")
         st.write(f"**Selected Bot:** {selected_bot}")
         st.write(f"**Available Capital:** ₹{trading_capital:,}")
         
-        if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary", key="semi_run"):
+        if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary", key="semi_run", disabled=not selected_symbol):
             with st.spinner(f"Running {selected_bot} analysis..."):
                 bot_function = ALGO_BOTS[selected_bot]
                 bot_result = bot_function(instrument_df, selected_symbol, trading_capital)
@@ -3217,26 +3239,48 @@ def render_chart_controls(i, instrument_df):
                 place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
 
 def page_premarket_pulse():
-    """Global market overview and premarket indicators with a trader-focused UI."""
+    """Global market overview and premarket indicators with improved API handling."""
     display_header()
     st.title("Premarket & Global Cues")
     st.markdown("---")
 
     st.subheader("Global Market Snapshot")
-    global_tickers = {"S&P 500": "^GSPC", "Dow Jones": "^DJI", "NASDAQ": "^IXIC", "FTSE 100": "^FTSE", "Nikkei 225": "^N225", "Hang Seng": "^HSI"}
-    global_data = get_global_indices_data(global_tickers)
+    
+    # Enhanced ticker list with more reliable symbols
+    global_tickers = {
+        "S&P 500": "^GSPC", 
+        "Dow Jones": "^DJI", 
+        "NASDAQ": "^IXIC", 
+        "FTSE 100": "^FTSE", 
+        "Nikkei 225": "^N225", 
+        "Hang Seng": "^HSI",
+        "DAX": "^GDAXI",
+        "CAC 40": "^FCHI"
+    }
+    
+    global_data = get_global_indices_data_enhanced(global_tickers)
     
     if not global_data.empty:
-        cols = st.columns(len(global_tickers))
+        # Display in two rows for better layout
+        cols1 = st.columns(4)
+        cols2 = st.columns(4)
+        all_cols = cols1 + cols2
+        
         for i, (name, ticker_symbol) in enumerate(global_tickers.items()):
-            data_row = global_data[global_data['Ticker'] == name]
-            if not data_row.empty:
-                price = data_row.iloc[0]['Price']
-                change = data_row.iloc[0]['% Change']
-                if not np.isnan(price):
-                    cols[i].metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
-                else:
-                    cols[i].metric(label=name, value="N/A", delta="--")
+            if i < len(all_cols):
+                data_row = global_data[global_data['Ticker'] == name]
+                if not data_row.empty:
+                    price = data_row.iloc[0]['Price']
+                    change = data_row.iloc[0]['% Change']
+                    if not np.isnan(price):
+                        all_cols[i].metric(
+                            label=name, 
+                            value=f"{price:,.0f}", 
+                            delta=f"{change:.2f}%",
+                            delta_color="normal"
+                        )
+                    else:
+                        all_cols[i].metric(label=name, value="N/A", delta="--")
     else:
         st.info("Loading global market data...")
 
@@ -3248,22 +3292,46 @@ def page_premarket_pulse():
         st.subheader("NIFTY 50 Futures (Live Proxy)")
         gift_data = get_gift_nifty_data()
         if not gift_data.empty:
-            st.plotly_chart(create_chart(gift_data, "NIFTY 50 Futures (Proxy)"), use_container_width=True)
+            # Create a simple line chart if candlestick fails
+            try:
+                fig = create_chart(gift_data, "NIFTY 50 Futures (Proxy)")
+                st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                # Fallback to line chart
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=gift_data.index, 
+                    y=gift_data['Close' if 'Close' in gift_data.columns else gift_data.iloc[:, 3]],
+                    mode='lines',
+                    name='NIFTY Futures'
+                ))
+                fig.update_layout(title="NIFTY 50 Futures (Live)", template='plotly_dark')
+                st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("Could not load NIFTY 50 Futures chart data.")
             
     with col2:
         st.subheader("Key Asian Markets")
-        asian_tickers = {"Nikkei 225": "^N225", "Hang Seng": "^HSI"}
-        asian_data = get_global_indices_data(asian_tickers)
+        asian_tickers = {
+            "Nikkei 225": "^N225", 
+            "Hang Seng": "^HSI",
+            "Shanghai": "000001.SS",
+            "KOSPI": "^KS11"
+        }
+        asian_data = get_global_indices_data_enhanced(asian_tickers)
         if not asian_data.empty:
-            for name, ticker_symbol in asian_tickers.items():
+            for name in asian_tickers.keys():
                 data_row = asian_data[asian_data['Ticker'] == name]
                 if not data_row.empty:
                     price = data_row.iloc[0]['Price']
                     change = data_row.iloc[0]['% Change']
                     if not np.isnan(price):
-                        st.metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
+                        st.metric(
+                            label=name, 
+                            value=f"{price:,.0f}", 
+                            delta=f"{change:.2f}%",
+                            delta_color="normal"
+                        )
                     else:
                         st.metric(label=name, value="N/A", delta="--")
         else:
@@ -3274,15 +3342,23 @@ def page_premarket_pulse():
     st.subheader("Latest Market News")
     news_df = fetch_and_analyze_news()
     if not news_df.empty:
-        for _, news in news_df.head(10).iterrows():
+        for _, news in news_df.head(8).iterrows():  # Show more news items
             sentiment_score = news['sentiment']
             if sentiment_score > 0.2:
                 icon = "🔼"
+                color = "green"
             elif sentiment_score < -0.2:
                 icon = "🔽"
+                color = "red"
             else:
                 icon = "▶️"
-            st.markdown(f"**{icon} [{news['title']}]({news['link']})** - *{news['source']}*")
+                color = "gray"
+            
+            st.markdown(
+                f"<span style='color:{color}; font-weight:bold;'>{icon}</span> "
+                f"**[{news['title']}]({news['link']})** - *{news['source']}*",
+                unsafe_allow_html=True
+            )
     else:
         st.info("News data is loading...")
 
