@@ -36,7 +36,7 @@ import random
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
 
 def apply_custom_styling():
-    """Applies a comprehensive CSS stylesheet for professional theming."""
+    """Applies a comprehensive CSS stylesheet for professional theming with proper light mode support."""
     theme_css = """
     <style>
         :root {
@@ -48,15 +48,21 @@ def apply_custom_styling():
             --dark-text-light: #8b949e;
             --dark-green: #28a745;
             --dark-red: #da3633;
+            --dark-orange: #d29922;
+            --dark-blue: #58a6ff;
+            --dark-purple: #bc8cff;
 
             --light-bg: #FFFFFF;
-            --light-secondary-bg: #F0F2F6;
-            --light-widget-bg: #F8F9FA;
+            --light-secondary-bg: #F8F9FA;
+            --light-widget-bg: #F0F2F6;
             --light-border: #dee2e6;
             --light-text: #212529;
             --light-text-light: #6c757d;
             --light-green: #198754;
             --light-red: #dc3545;
+            --light-orange: #fd7e14;
+            --light-blue: #0d6efd;
+            --light-purple: #6f42c1;
         }
 
         body.dark-theme {
@@ -68,6 +74,9 @@ def apply_custom_styling():
             --text-light: var(--dark-text-light);
             --green: var(--dark-green);
             --red: var(--dark-red);
+            --orange: var(--dark-orange);
+            --blue: var(--dark-blue);
+            --purple: var(--dark-purple);
         }
 
         body.light-theme {
@@ -79,40 +88,66 @@ def apply_custom_styling():
             --text-light: var(--light-text-light);
             --green: var(--light-green);
             --red: var(--light-red);
+            --orange: var(--light-orange);
+            --blue: var(--light-blue);
+            --purple: var(--light-purple);
         }
 
         body {
             background-color: var(--primary-bg);
             color: var(--text-color);
+            transition: all 0.3s ease;
         }
         
         .main .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
+            background-color: var(--primary-bg);
         }
         
-        h1, h2, h3, h4, h5 {
+        h1, h2, h3, h4, h5, h6 {
             color: var(--text-color) !important;
+        }
+        
+        p, div, span {
+            color: var(--text-color);
         }
         
         hr {
             background: var(--border-color);
+            margin: 1rem 0;
         }
 
+        /* Streamlit component styling */
         .stButton>button {
-            border-color: var(--border-color);
+            border: 1px solid var(--border-color);
             background-color: var(--widget-bg);
             color: var(--text-color);
+            transition: all 0.2s ease;
         }
         .stButton>button:hover {
             border-color: var(--green);
             color: var(--green);
+            background-color: var(--secondary-bg);
         }
-        .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
+        
+        .stTextInput>div>div>input, 
+        .stNumberInput>div>div>input, 
+        .stSelectbox>div>div>select,
+        .stTextArea>div>div>textarea {
             background-color: var(--widget-bg);
-            border-color: var(--border-color);
+            border: 1px solid var(--border-color);
             color: var(--text-color);
+            border-radius: 4px;
         }
+        
+        .stTextInput>div>div>input:focus, 
+        .stNumberInput>div>div>input:focus, 
+        .stSelectbox>div>div>select:focus {
+            border-color: var(--blue);
+            box-shadow: 0 0 0 1px var(--blue);
+        }
+        
         .stRadio>div {
             background-color: var(--widget-bg);
             border: 1px solid var(--border-color);
@@ -120,12 +155,49 @@ def apply_custom_styling():
             border-radius: 8px;
         }
         
+        .stCheckbox>div {
+            color: var(--text-color);
+        }
+        
+        .stCheckbox>div>label>div:first-child {
+            background-color: var(--widget-bg);
+            border: 1px solid var(--border-color);
+        }
+        
+        .stSlider>div>div>div {
+            background-color: var(--border-color);
+        }
+        
+        .stSlider>div>div>div>div {
+            background-color: var(--green);
+        }
+        
+        /* Dataframe styling */
+        .dataframe {
+            background-color: var(--widget-bg) !important;
+            color: var(--text-color) !important;
+        }
+        
+        .dataframe th {
+            background-color: var(--secondary-bg) !important;
+            color: var(--text-color) !important;
+            border-color: var(--border-color) !important;
+        }
+        
+        .dataframe td {
+            background-color: var(--widget-bg) !important;
+            color: var(--text-color) !important;
+            border-color: var(--border-color) !important;
+        }
+        
+        /* Metric cards */
         .metric-card {
             background-color: var(--secondary-bg);
             border: 1px solid var(--border-color);
             padding: 1.5rem;
             border-radius: 10px;
             border-left-width: 5px;
+            color: var(--text-color);
         }
         
         .trade-card {
@@ -134,8 +206,10 @@ def apply_custom_styling():
             padding: 1.5rem;
             border-radius: 10px;
             border-left-width: 5px;
+            color: var(--text-color);
         }
 
+        /* Notification bar */
         .notification-bar {
             position: sticky;
             top: 0;
@@ -158,13 +232,18 @@ def apply_custom_styling():
             white-space: nowrap;
         }
         
+        /* HFT Terminal */
         .hft-depth-bid {
             background: linear-gradient(to left, rgba(0, 128, 0, 0.3), rgba(0, 128, 0, 0.05));
             padding: 2px 5px;
+            border-radius: 3px;
+            margin: 2px 0;
         }
         .hft-depth-ask {
             background: linear-gradient(to right, rgba(255, 0, 0, 0.3), rgba(255, 0, 0, 0.05));
             padding: 2px 5px;
+            border-radius: 3px;
+            margin: 2px 0;
         }
         .tick-up {
             color: var(--green);
@@ -175,25 +254,129 @@ def apply_custom_styling():
             animation: flash-red 0.5s;
         }
         @keyframes flash-green {
-            0% { background-color: rgba(40, 167, 69, 0.5); }
+            0% { background-color: rgba(40, 167, 69, 0.3); }
             100% { background-color: transparent; }
         }
         @keyframes flash-red {
-            0% { background-color: rgba(218, 54, 51, 0.5); }
+            0% { background-color: rgba(218, 54, 51, 0.3); }
             100% { background-color: transparent; }
         }
+        
+        /* Plotly chart containers */
+        .js-plotly-plot .plotly, 
+        .js-plotly-plot .plotly div {
+            background-color: var(--widget-bg) !important;
+        }
+        
+        /* Streamlit expander */
+        .streamlit-expanderHeader {
+            background-color: var(--secondary-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+        }
+        
+        .streamlit-expanderContent {
+            background-color: var(--widget-bg);
+            border: 1px solid var(--border-color);
+            border-top: none;
+        }
+        
+        /* Tabs */
+        .stTabs [data-baseweb="tab-list"] {
+            background-color: var(--secondary-bg);
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            background-color: var(--secondary-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+            border-radius: 4px 4px 0 0;
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background-color: var(--widget-bg) !important;
+            color: var(--text-color) !important;
+            border-bottom: 2px solid var(--green) !important;
+        }
+        
+        /* Sidebar */
+        [data-testid="stSidebar"] {
+            background-color: var(--secondary-bg) !important;
+            border-right: 1px solid var(--border-color);
+        }
+        
+        [data-testid="stSidebar"] .css-1d391kg {
+            background-color: var(--secondary-bg);
+        }
+        
+        /* Alerts and status messages */
+        .stAlert {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--secondary-bg);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-light);
+        }
+        
+        /* Code blocks */
+        .stCodeBlock {
+            background-color: var(--widget-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+        
+        /* Data editor */
+        [data-testid="stDataFrame"] {
+            background-color: var(--widget-bg);
+        }
+        
+        /* Chat messages */
+        .stChatMessage {
+            background-color: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 0.5rem 0;
+        }
+        
     </style>
     """
     st.markdown(theme_css, unsafe_allow_html=True)
     
+    # Apply theme class to body
     js_theme = f"""
     <script>
+        // Remove existing theme classes
         document.body.classList.remove('light-theme', 'dark-theme');
+        // Add current theme class
         document.body.classList.add('{st.session_state.theme.lower()}-theme');
+        
+        // Also set Plotly chart theme
+        const plotlyThemes = document.querySelectorAll('.js-plotly-plot');
+        plotlyThemes.forEach(plot => {{
+            plot.style.backgroundColor = getComputedStyle(document.body).getPropertyValue('--widget-bg');
+        }});
     </script>
     """
     st.components.v1.html(js_theme, height=0)
-
 # Centralized data source configuration
 ML_DATA_SOURCES = {
     "NIFTY 50": {
@@ -422,7 +605,7 @@ def display_overnight_changes_bar():
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 
 def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_int_df=None):
-    """Generates a Plotly chart with various chart types and overlays."""
+    """Generates a Plotly chart with proper theme adaptation."""
     fig = go.Figure()
     if df.empty: return fig
     chart_df = df.copy()
@@ -437,36 +620,130 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
         st.error(f"Charting error for {ticker}: Dataframe is missing required columns (open, high, low, close).")
         return go.Figure()
 
+    # Get theme colors
+def get_theme_colors():
+    """Returns color scheme based on current theme."""
+    is_dark = st.session_state.get('theme') == 'Dark'
+    return {
+        'primary': '#28a745' if is_dark else '#198754',
+        'secondary': '#161B22' if is_dark else '#F8F9FA',
+        'accent': '#58a6ff' if is_dark else '#0d6efd',
+        'text': '#c9d1d9' if is_dark else '#212529',
+        'text_light': '#8b949e' if is_dark else '#6c757d',
+        'border': '#30363D' if is_dark else '#dee2e6',
+        'success': '#28a745' if is_dark else '#198754',
+        'danger': '#da3633' if is_dark else '#dc3545',
+        'warning': '#d29922' if is_dark else '#fd7e14',
+        'info': '#58a6ff' if is_dark else '#0dcaf0'
+    }
+    
     if chart_type == 'Heikin-Ashi':
-        # Manual Heikin-Ashi calculation
         ha_close = (chart_df['open'] + chart_df['high'] + chart_df['low'] + chart_df['close']) / 4
         ha_open = (chart_df['open'].shift(1) + chart_df['close'].shift(1)) / 2
         ha_open.iloc[0] = (chart_df['open'].iloc[0] + chart_df['close'].iloc[0]) / 2
         ha_high = chart_df[['high', 'open', 'close']].max(axis=1)
         ha_low = chart_df[['low', 'open', 'close']].min(axis=1)
         
-        fig.add_trace(go.Candlestick(x=chart_df.index, open=ha_open, high=ha_high, low=ha_low, close=ha_close, name='Heikin-Ashi'))
+        fig.add_trace(go.Candlestick(
+            x=chart_df.index, 
+            open=ha_open, 
+            high=ha_high, 
+            low=ha_low, 
+            close=ha_close, 
+            name='Heikin-Ashi'
+        ))
     elif chart_type == 'Line':
-        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['close'], mode='lines', name='Line'))
+        fig.add_trace(go.Scatter(
+            x=chart_df.index, 
+            y=chart_df['close'], 
+            mode='lines', 
+            name='Line',
+            line=dict(color='#1f77b4')
+        ))
     elif chart_type == 'Bar':
-        fig.add_trace(go.Ohlc(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Bar'))
+        fig.add_trace(go.Ohlc(
+            x=chart_df.index, 
+            open=chart_df['open'], 
+            high=chart_df['high'], 
+            low=chart_df['low'], 
+            close=chart_df['close'], 
+            name='Bar'
+        ))
     else:
-        fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['open'], high=chart_df['high'], low=chart_df['low'], close=chart_df['close'], name='Candlestick'))
+        fig.add_trace(go.Candlestick(
+            x=chart_df.index, 
+            open=chart_df['open'], 
+            high=chart_df['high'], 
+            low=chart_df['low'], 
+            close=chart_df['close'], 
+            name='Candlestick'
+        ))
         
     # Bollinger Bands using TA-Lib
     if 'close' in chart_df.columns:
         upperband, middleband, lowerband = talib.BBANDS(chart_df['close'], timeperiod=20, nbdevup=2, nbdevdn=2, matype=0)
-        fig.add_trace(go.Scatter(x=chart_df.index, y=lowerband, line=dict(color='rgba(135,206,250,0.5)', width=1), name='Lower Band'))
-        fig.add_trace(go.Scatter(x=chart_df.index, y=upperband, line=dict(color='rgba(135,206,250,0.5)', width=1), fill='tonexty', fillcolor='rgba(135,206,250,0.1)', name='Upper Band'))
+        fig.add_trace(go.Scatter(
+            x=chart_df.index, 
+            y=lowerband, 
+            line=dict(color='rgba(135,206,250,0.5)', width=1), 
+            name='Lower Band'
+        ))
+        fig.add_trace(go.Scatter(
+            x=chart_df.index, 
+            y=upperband, 
+            line=dict(color='rgba(135,206,250,0.5)', width=1), 
+            fill='tonexty', 
+            fillcolor='rgba(135,206,250,0.1)', 
+            name='Upper Band'
+        ))
         
     if forecast_df is not None:
-        fig.add_trace(go.Scatter(x=forecast_df.index, y=forecast_df['Predicted'], mode='lines', line=dict(color='yellow', dash='dash'), name='Forecast'))
+        fig.add_trace(go.Scatter(
+            x=forecast_df.index, 
+            y=forecast_df['Predicted'], 
+            mode='lines', 
+            line=dict(color='orange', dash='dash'), 
+            name='Forecast'
+        ))
         if conf_int_df is not None:
-            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['lower'], line=dict(color='rgba(255,255,0,0.2)', width=1), name='Lower CI', showlegend=False))
-            fig.add_trace(go.Scatter(x=conf_int_df.index, y=conf_int_df['upper'], line=dict(color='rgba(255,255,0,0.2)', width=1), fill='tonexty', fillcolor='rgba(255,255,0,0.2)', name='Confidence Interval'))
-        
-    template = 'plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
-    fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig.add_trace(go.Scatter(
+                x=conf_int_df.index, 
+                y=conf_int_df['lower'], 
+                line=dict(color='rgba(255,165,0,0.2)', width=1), 
+                name='Lower CI', 
+                showlegend=False
+            ))
+            fig.add_trace(go.Scatter(
+                x=conf_int_df.index, 
+                y=conf_int_df['upper'], 
+                line=dict(color='rgba(255,165,0,0.2)', width=1), 
+                fill='tonexty', 
+                fillcolor='rgba(255,165,0,0.2)', 
+                name='Confidence Interval'
+            ))
+    
+    # Use proper template based on theme
+    template = 'plotly_dark' if is_dark else 'plotly_white'
+    
+    fig.update_layout(
+        title=f'{ticker} Price Chart ({chart_type})',
+        yaxis_title='Price (INR)',
+        xaxis_rangeslider_visible=False,
+        template=template,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor='rgba(0,0,0,0)'  # Transparent background
+        ),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color=text_color),
+        xaxis=dict(gridcolor=grid_color),
+        yaxis=dict(gridcolor=grid_color)
+    )
     return fig
 
 @st.cache_resource(ttl=3600)
