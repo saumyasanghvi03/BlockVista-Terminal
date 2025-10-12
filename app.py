@@ -636,28 +636,6 @@ def get_theme_colors():
         'warning': '#d29922' if is_dark else '#fd7e14',
         'info': '#58a6ff' if is_dark else '#0dcaf0'
     }
-
-def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_int_df=None):
-    """Generates a Plotly chart with proper theme adaptation."""
-    fig = go.Figure()
-    if df.empty: return fig
-    chart_df = df.copy()
-    
-    if isinstance(chart_df.columns, pd.MultiIndex):
-        chart_df.columns = chart_df.columns.droplevel(0)
-        
-    chart_df.columns = [str(col).lower() for col in chart_df.columns]
-    
-    required_cols = ['open', 'high', 'low', 'close']
-    if not all(col in chart_df.columns for col in required_cols):
-        st.error(f"Charting error for {ticker}: Dataframe is missing required columns (open, high, low, close).")
-        return go.Figure()
-
-    # Get theme colors
-    is_dark = st.session_state.get('theme') == 'Dark'
-    colors = get_theme_colors()
-    text_color = colors['text']
-    grid_color = 'rgba(128, 128, 128, 0.2)' if is_dark else 'rgba(128, 128, 128, 0.1)'
     
     if chart_type == 'Heikin-Ashi':
         ha_close = (chart_df['open'] + chart_df['high'] + chart_df['low'] + chart_df['close']) / 4
@@ -767,7 +745,7 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
         yaxis=dict(gridcolor=grid_color)
     )
     return fig
-    
+
 @st.cache_resource(ttl=3600)
 def get_instrument_df():
     """Fetches the full list of tradable instruments from the broker."""
@@ -1270,14 +1248,13 @@ def show_most_active_dialog(underlying, instrument_df):
                 st.error(f"Could not fetch most active options: {e}")
 
 @st.cache_data(ttl=60)
-@st.cache_data(ttl=60)
-def get_global_indices_data_enhanced(tickers):
-    """Enhanced version of global indices data fetcher with better error handling."""
+def get_global_indices_data(tickers):
+    """Fetches real-time data for global indices using yfinance."""
     if not tickers:
         return pd.DataFrame()
     
     try:
-        data_yf = yf.download(list(tickers.values()), period="5d", progress=False)
+        data_yf = yf.download(list(tickers.values()), period="5d")
         if data_yf.empty:
             return pd.DataFrame()
 
@@ -5915,7 +5892,7 @@ def login_page():
             st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
 
 def main_app():
-    """The main application interface after successful login with proper theme handling."""
+    """The main application interface after successful login."""
     apply_custom_styling()
     display_overnight_changes_bar()
     
@@ -5923,7 +5900,7 @@ def main_app():
     if st.session_state.get('show_quick_trade', False):
         quick_trade_dialog()
     
-    # 2FA Check
+    # --- 2FA Check ---
     if st.session_state.get('profile'):
         if not st.session_state.get('two_factor_setup_complete'):
             qr_code_dialog()
@@ -5932,31 +5909,15 @@ def main_app():
             two_factor_dialog()
             return
 
+    # ... rest of your main_app function
+
     st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
     st.sidebar.caption(f"Connected via {st.session_state.broker}")
     st.sidebar.divider()
     
     st.sidebar.header("Terminal Controls")
-    
-    # Theme selector with better styling
-    current_theme = st.session_state.theme
-    new_theme = st.sidebar.radio(
-        "Theme", 
-        ["Dark", "Light"], 
-        horizontal=True,
-        index=0 if current_theme == "Dark" else 1,
-        key="theme_selector"
-    )
-    
-    if new_theme != current_theme:
-        st.session_state.theme = new_theme
-        st.rerun()
-    
-    st.session_state.terminal_mode = st.sidebar.radio(
-        "Terminal Mode", 
-        ["Cash", "Futures", "Options", "HFT"], 
-        horizontal=True
-    )
+    st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
+    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
     st.sidebar.divider()
     
     # Dynamic refresh interval based on mode
@@ -5968,13 +5929,7 @@ def main_app():
     else:
         st.sidebar.header("Live Data")
         auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-        refresh_interval = st.sidebar.number_input(
-            "Interval (s)", 
-            min_value=5, 
-            max_value=60, 
-            value=10, 
-            disabled=not auto_refresh
-        )
+        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
     
     st.sidebar.divider()
     
@@ -6014,23 +5969,9 @@ def main_app():
             "Portfolio & Risk": page_portfolio_and_risk,
         }
     }
-    
-    selection = st.sidebar.radio(
-        "Go to", 
-        list(pages[st.session_state.terminal_mode].keys()), 
-        key='nav_selector'
-    )
+    selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
     
     st.sidebar.divider()
-    
-    # Theme preview in sidebar
-    colors = get_theme_colors()
-    st.sidebar.caption("Theme Preview")
-    col1, col2, col3 = st.sidebar.columns(3)
-    col1.markdown(f'<div style="background-color:{colors["primary"]}; width:20px; height:20px; border-radius:3px;"></div>', unsafe_allow_html=True)
-    col2.markdown(f'<div style="background-color:{colors["success"]}; width:20px; height:20px; border-radius:3px;"></div>', unsafe_allow_html=True)
-    col3.markdown(f'<div style="background-color:{colors["danger"]}; width:20px; height:20px; border-radius:3px;"></div>', unsafe_allow_html=True)
-    
     if st.sidebar.button("Logout"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
