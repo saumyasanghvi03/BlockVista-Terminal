@@ -61,255 +61,287 @@ BlockVista Terminal is a professional-grade trading platform specifically design
 
 ### 📈 Core Trading Features
 
-- **Real-time Market Data**
+- **Real-time Market Data**  
   - Live NSE/BSE quotes with microsecond precision
-  - Level-2 market depth and order book analysis
-  - Real-time P&L tracking across portfolios
-  - Multi-exchange data aggregation
+  - Streaming Level-II market depth
+  - Real-time order book visualization
+  - Tick-by-tick price updates
+  - Historical data access (1min to monthly)
 
-- **Advanced Order Management**
-  - Smart order routing with best execution
-  - Bracket orders, OCO (One-Cancels-Other)
-  - Algorithmic order placement strategies
-  - Order modification and cancellation tools
-
-- **Portfolio Management**
-  - Real-time portfolio tracking and analysis
-  - Risk metrics and exposure management
-  - Performance attribution analysis
-  - Tax-loss harvesting suggestions
-
-### 🔬 Analysis Tools
-
-- **Technical Analysis Suite**
+- **Advanced Charting**  
   - 50+ technical indicators (RSI, MACD, Bollinger Bands, etc.)
-  - Custom indicator creation and backtesting
-  - Multi-timeframe analysis (1min to monthly)
-  - Pattern recognition algorithms
+  - Multiple chart types (Candlestick, Line, Heikin-Ashi, Renko)
+  - Multi-timeframe analysis (1min, 5min, 15min, 1H, 1D, 1W, 1M)
+  - Custom indicator creation
+  - Chart pattern recognition
+  - Drawing tools and annotations
 
-- **Options Analytics**
-  - Comprehensive options chain with real-time Greeks
-  - Volatility surface visualization
-  - Options strategy analyzer and P&L calculator
-  - Implied volatility analysis and alerts
+- **Options & Derivatives Analytics**  
+  - Real-time options chain with bid-ask spreads
+  - Greeks calculation (Delta, Gamma, Theta, Vega, Rho)
+  - Implied volatility surface visualization
+  - Options strategy builder (Straddles, Strangles, Spreads)
+  - Max pain analysis
+  - Put-Call ratio tracking
+  - Open interest analysis
 
-- **Machine Learning Forecasting**
-  - LSTM and ARIMA-based price prediction models
+- **Machine Learning & AI**  
+  - Price prediction models (LSTM, Prophet, ARIMA)
   - Sentiment analysis from news and social media
-  - Market regime detection algorithms
-  - Risk-adjusted return forecasting
+  - Pattern recognition and anomaly detection
+  - Risk assessment algorithms
+  - Portfolio optimization
+  - AI-powered trading signals
 
-- **Fundamental Analysis**
-  - Financial ratio analysis and peer comparison
-  - Earnings calendar and estimate revisions
-  - Corporate actions and dividend tracking
-  - Sector and industry analysis tools
+- **Portfolio & Risk Management**  
+  - Real-time P&L tracking
+  - Position sizing calculators
+  - Risk-reward ratio analysis
+  - Stop-loss and target management
+  - Diversification metrics
+  - Performance analytics
 
-### 🤖 Automation & Alerts
+### 🤖 AI Trading Assistant
 
-- **Smart Alerts System**
-  - Price, volume, and technical indicator alerts
-  - Options Greeks and volatility alerts
-  - Fundamental metric threshold notifications
-  - Custom alert creation with advanced logic
+- Natural language queries about market conditions
+- Automated trading recommendations
+- Risk assessment and portfolio suggestions
+- Market sentiment analysis
+- News impact prediction
+- Personalized trading insights
 
-- **AI Trading Assistant**
-  - Natural language query processing
-  - Market insight generation and recommendations
-  - Risk assessment and position sizing suggestions
-  - Economic event impact analysis
+### 📰 Market Intelligence
 
-- **Paper Trading Simulator**
-  - Risk-free strategy testing environment
-  - Historical backtesting with real market data
-  - Performance metrics and trade analysis
-  - Strategy optimization tools
+- **Economic Calendar**  
+  - Indian and global economic events
+  - Historical impact analysis
+  - Customizable alerts
 
-- **Economic Calendar Integration**
-  - Real-time economic events and announcements
-  - Market impact assessment for each event
-  - Historical correlation analysis
-  - Custom event tracking and notifications
+- **News Integration**  
+  - Real-time financial news
+  - Sentiment analysis
+  - Impact on specific stocks
 
----
+- **Social Sentiment**  
+  - Twitter/Reddit sentiment tracking
+  - Community trading sentiment
+  - Influencer tracking
 
-## 💡 Usage Tips
+### 🎮 Paper Trading
 
-### For Beginners
-- Start with the **Paper Trading Mode** to practice without risk
-- Use **preset technical analysis templates** for common strategies
-- Enable **educational tooltips** for learning indicator meanings
-- Follow the **guided setup wizard** for initial configuration
+- Risk-free simulation environment
+- Real market data
+- Virtual portfolio with ₹10,00,000 starting capital
+- Complete trading functionality
+- Performance tracking and analytics
+- Strategy backtesting
 
-### For Advanced Users
-- Customize **technical indicator parameters** for your strategies
-- Set up **complex alert conditions** with multiple criteria
-- Utilize **ML forecasting models** for enhanced decision-making
-- Create **custom dashboards** with your preferred layout
+### 🔌 Multi-Broker Integration
 
-### Best Practices
-- **Regular Data Backup**: Enable automatic backup of your configurations
-- **Risk Management**: Always set stop-loss levels for your positions
-- **Diversification**: Use portfolio analysis tools to maintain balanced exposure
-- **Continuous Learning**: Leverage built-in educational resources
+Supported brokers:
+- Zerodha (Kite Connect)
+- Angel One (SmartAPI)
+- Upstox
+- ICICI Direct
+- 5Paisa
+- Kotak Securities
 
----
+### 🎨 Customization
 
-## 🎨 Customization
-
-### Dashboard Personalization
-- **Widget Configuration**: Add, remove, and resize dashboard widgets
-- **Color Schemes**: Choose from multiple professional themes
-- **Layout Options**: Single-screen or multi-monitor setups
-- **Data Refresh Rates**: Customize update frequencies per widget
-
-### Technical Analysis
-- **Custom Indicators**: Create and save your own technical indicators
-- **Chart Templates**: Save and load your preferred chart configurations
-- **Timeframe Presets**: Quick access to your most-used time intervals
-- **Alert Templates**: Reusable alert configurations for different scenarios
-
-### Advanced Settings
-- **API Configurations**: Custom broker API endpoints and credentials
-- **Data Sources**: Multiple data provider integrations
-- **Performance Tuning**: Optimize for your system specifications
-- **Security Settings**: Two-factor authentication and encryption options
+- Fully customizable dashboard
+- Widget-based interface
+- Custom color schemes
+- Personalized watchlists
+- Saved layouts
+- Custom alerts and notifications
 
 ---
 
-## 🔧 Troubleshooting
+## 🚀 Installation & Setup
 
-### Common Issues
+### Prerequisites
 
-**Q: Data feed is not updating**
-- Check your internet connection stability
-- Verify API credentials are valid and active
-- Ensure market hours alignment (NSE: 9:15 AM - 3:30 PM IST)
-- Restart the application if data lag persists
+- Python 3.9 or higher
+- pip package manager
+- Git
 
-**Q: Charts are loading slowly**
-- Reduce the number of indicators displayed simultaneously
-- Adjust data refresh rate in settings
-- Clear browser cache and cookies
-- Check system memory usage and close unnecessary applications
+### Quick Start
 
-**Q: Options data is incomplete**
-- Verify your broker provides options data access
-- Check if you have necessary permissions for derivatives trading
-- Ensure options chain refresh rate is appropriate
-- Contact support if specific strikes are missing
+```bash
+# Clone the repository
+git clone https://github.com/saumyasanghvi03/BlockVista-Terminal.git
+cd BlockVista-Terminal
 
-**Q: ML predictions seem inaccurate**
-- Ensure sufficient historical data is available (minimum 1000 data points)
-- Check for corporate actions that might affect model accuracy
-- Verify that the prediction timeframe matches your trading strategy
-- Consider market regime changes that might impact model performance
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-### Performance Optimization
-- **Memory Management**: Close unused browser tabs and applications
-- **Network Optimization**: Use wired internet for stable data feeds
-- **Display Settings**: Reduce animation effects for faster response
-- **Data Management**: Regular cleanup of old logs and cached data
+# Install dependencies
+pip install -r requirements.txt
 
----
+# Run the application
+streamlit run app.py
+```
 
-## 👥 Contributor Guide
+### Broker Configuration
 
-### Development Guidelines
-- **Code Style**: Follow PEP 8 standards for Python code
-- **Documentation**: Comprehensive docstrings and inline comments
-- **Testing**: Unit tests for all new features and bug fixes
-- **Performance**: Benchmark new features for latency impact
+1. Navigate to the Settings page
+2. Select your broker
+3. Enter API credentials (obtained from your broker's developer portal)
+4. Enable desired features (real-time data, trading, etc.)
 
-### Feature Requests
-- **Enhancement Proposals**: Submit detailed feature specifications
-- **Market Research**: Justify features with trading use cases
-- **Implementation Plan**: Outline technical approach and timeline
-- **User Feedback**: Gather input from target user segments
+### Data Sources
 
-### Bug Reports
-- **Detailed Description**: Steps to reproduce the issue
-- **Environment Information**: System specs, browser version, data sources
-- **Screenshots/Logs**: Visual evidence and error messages
-- **Impact Assessment**: Severity and frequency of the issue
+The terminal uses multiple data sources:
+- **NSE/BSE APIs**: Primary market data
+- **Yahoo Finance**: Historical and supplementary data
+- **News APIs**: Financial news and sentiment
+- **Economic Calendar APIs**: Event data
 
 ---
 
-## 📱 Visual Demo
+## 📖 Usage Guide
 
-### Dashboard Overview
-*[Placeholder for main dashboard screenshot showing real-time market data, charts, and portfolio summary]*
+### Dashboard
 
-### Technical Analysis
-*[Placeholder for technical analysis interface with multiple indicators, chart patterns, and drawing tools]*
+The main dashboard provides:
+- Market overview (Nifty 50, Sensex, sectoral indices)
+- Watchlist with real-time quotes
+- Active positions and P&L
+- Top gainers and losers
+- Market breadth indicators
 
-### Options Analytics
-*[Placeholder for options chain analysis with Greeks, volatility surface, and strategy analyzer]*
+### Charts & Technical Analysis
+
+1. Select a stock from the sidebar
+2. Choose timeframe and chart type
+3. Add indicators from the toolbar
+4. Use drawing tools for analysis
+5. Set alerts on price levels
+
+### Options Chain
+
+1. Navigate to Options Analytics
+2. Select underlying stock
+3. Choose expiry date
+4. View options chain with Greeks
+5. Analyze strategies using the strategy builder
 
 ### ML Forecasting
-*[Placeholder for machine learning predictions interface with model performance metrics and confidence intervals]*
+
+1. Go to AI Forecasting
+2. Select stock and timeframe
+3. Choose prediction model (LSTM/Prophet/ARIMA)
+4. View predictions with confidence intervals
+5. Analyze feature importance
 
 ### Paper Trading
-*[Placeholder for paper trading simulator showing virtual portfolio, trade history, and performance analytics]*
 
-### Economic Calendar
-*[Placeholder for economic calendar view with event impact ratings and market correlation analysis]*
+1. Enable Paper Trading mode
+2. Place virtual orders
+3. Track performance
+4. Test strategies risk-free
+
+### AI Assistant
+
+1. Open AI Assistant panel
+2. Ask questions in natural language
+3. Get market insights and recommendations
+4. Request analysis on specific stocks
+
+---
+
+## 🔒 Security & Privacy
+
+- **API Key Encryption**: All broker credentials are encrypted
+- **Local Storage**: Data stored locally on your machine
+- **No Data Collection**: We don't collect or transmit your trading data
+- **Secure Connections**: All API calls use HTTPS
+- **Open Source**: Full transparency - review the code yourself
+
+---
+
+## 🛠️ Technology Stack
+
+- **Frontend**: Streamlit
+- **Backend**: Python 3.9+
+- **Data Processing**: Pandas, NumPy
+- **Charting**: Plotly, Matplotlib
+- **Machine Learning**: TensorFlow, Scikit-learn, Prophet
+- **APIs**: NSE/BSE APIs, Broker APIs, Financial APIs
+- **Database**: SQLite (local storage)
+
+---
+
+## 📊 System Requirements
+
+### Minimum
+- OS: Windows 10, macOS 10.14, or Linux
+- RAM: 4GB
+- Storage: 500MB
+- Internet: Stable connection for real-time data
+
+### Recommended
+- OS: Windows 11, macOS 12+, or Linux
+- RAM: 8GB+
+- Storage: 2GB
+- Internet: High-speed broadband
+- Display: 1920x1080 or higher
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Write/update tests
+5. Submit a pull request
+
+---
+
+## 📞 Support
+
+- **Issues**: Report bugs or request features on [GitHub Issues](https://github.com/saumyasanghvi03/BlockVista-Terminal/issues)
+- **Discussions**: Join community discussions on [GitHub Discussions](https://github.com/saumyasanghvi03/BlockVista-Terminal/discussions)
+- **Email**: Contact us at support@blockvista.in
 
 ---
 
 ## 📄 Credits & License
 
-### Development Team
-**Lead Developer**: Saumya Sanghvi  
-**Project Vision**: Professional-grade trading tools for Indian markets  
-**Contact**: [GitHub Profile](https://github.com/saumyasanghvi03)
-
-### Acknowledgments
-- **Data Providers**: NSE, BSE, and various financial data vendors
-- **Technical Libraries**: Streamlit, Pandas, NumPy, Plotly, scikit-learn
-- **Community**: Beta testers and feature contributors
-- **Inspiration**: Professional trading platforms and trader feedback
-
 ### License
 
-**© 2025 Saumya Sanghvi. All rights reserved.**
+© 2025 IDC Fintech Solutions. All rights reserved.
 
-This is a **commercial project** and proprietary software. No part of this software may be reproduced, distributed, or transmitted in any form or by any means, including photocopying, recording, or other electronic or mechanical methods, without the prior written permission of the developer.
+Developers: Saumya Sanghvi & Kanishk Mohan.
 
-**Commercial Use**: Contact the developer for licensing arrangements for commercial deployment.
+This is a commercial product. Unauthorized copying, modification, distribution, or use is strictly prohibited.
 
-**Redistribution**: Public redistribution or modification of this software is not permitted without explicit authorization.
+### Acknowledgments
 
-**Usage Rights**: Licensed users are granted the right to use the software for personal trading activities only.
-
----
-
-## ⚠️ Disclaimers
-
-### Trading Risk Warning
-**IMPORTANT**: Trading in financial markets involves substantial risk of loss and is not suitable for all investors. Past performance is not indicative of future results.
-
-### Key Risk Factors
-- **Market Volatility**: Prices can fluctuate rapidly and unpredictably
-- **Leverage Risk**: Derivatives trading can amplify both gains and losses
-- **Technology Risk**: System failures or data delays may impact trading
-- **Regulatory Risk**: Changes in regulations may affect market access
-
-### User Responsibilities
-- **Due Diligence**: Conduct your own research before making investment decisions
-- **Risk Management**: Never invest more than you can afford to lose
-- **Professional Advice**: Consult qualified financial advisors when needed
-- **Regulatory Compliance**: Ensure compliance with all applicable laws and regulations
-
-### Software Limitations
-- **Data Accuracy**: While we strive for accuracy, data may contain errors or delays
-- **Predictive Models**: ML forecasting is based on historical patterns and may not predict future movements
-- **System Availability**: Service interruptions may occur during maintenance or technical issues
-- **Feature Changes**: Software features and functionality may be modified or discontinued
-
-### Liability Disclaimer
-The developer and BlockVista Terminal are not responsible for any trading losses, missed opportunities, or damages resulting from the use of this software. Users trade at their own risk and discretion.
+- NSE/BSE for market data access
+- Streamlit for the amazing framework
+- Open-source community for various libraries
+- Indian trading community for feedback and support
 
 ---
 
-*BlockVista Terminal - Empowering Indian traders with institutional-grade technology* 🇮🇳📈
+## ⚠️ Disclaimer
+
+BlockVista Terminal is a trading tool designed for educational and informational purposes. Trading in financial markets involves substantial risk of loss. Past performance is not indicative of future results. The developers are not responsible for any financial losses incurred through the use of this software.
+
+Always:
+- Do your own research
+- Understand the risks
+- Trade responsibly
+- Consult with a financial advisor
+- Never invest more than you can afford to lose
+
+---
+
+**Built with ❤️ for Indian Traders**
+
+[⭐ Star this repo](https://github.com/saumyasanghvi03/BlockVista-Terminal) | [🐛 Report Bug](https://github.com/saumyasanghvi03/BlockVista-Terminal/issues) | [💡 Request Feature](https://github.com/saumyasanghvi03/BlockVista-Terminal/issues)
