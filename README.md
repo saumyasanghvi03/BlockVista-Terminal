@@ -23,6 +23,7 @@ The latest enhancements to BlockVista Terminal include:
 ## 📊 Key Features
 
 ### 📘 Market Data & Analysis
+
 - **Real-Time Market Data**: Live quotes from NSE & BSE with sub-second latency
 - **Advanced Charting**: 50+ technical indicators with customizable parameters
 - **Multi-Asset Support**: Equity, F&O, Commodities, and Currency markets
@@ -31,297 +32,204 @@ The latest enhancements to BlockVista Terminal include:
 - **Economic Calendar**: Track important events affecting Indian markets
 
 ### 💹 Trading & Order Management
+
 - **Smart Order Types**: AMO, bracket orders, cover orders, and iceberg orders
 - **Risk Management**: Position sizing, stop-loss automation, and margin monitoring
 - **Portfolio Analytics**: Real-time P&L, Greek analysis, and performance metrics
-- **Algo Trading**: Strategy builder with backtesting and paper trading
-- **Multi-Broker Support**: Zerodha, Upstox, Angel One, ICICI Direct, and more
-- **Order Execution**: Ultra-low latency with direct market access
+- **Multi-Broker Support**: Connect with leading Indian brokers - Zerodha, Angel One, ICICI Direct, Upstox, and more
+- **Order Book Management**: Live tracking of pending, executed, and cancelled orders
+- **Paper Trading**: Test strategies risk-free before deploying real capital
 
-### 📱 User Experience
-- **Customizable Dashboard**: Drag-and-drop widgets with multiple layouts
-- **Dark/Light Themes**: Professional trading interface with eye-strain reduction
-- **Multi-Monitor Support**: Seamless workspace across multiple screens
-- **Keyboard Shortcuts**: Lightning-fast navigation and order placement
-- **Mobile Sync**: Cross-device watchlists and portfolio synchronization
-- **Voice Commands**: Hands-free trading with speech recognition
+### 🧠 Advanced Analytics & ML
 
-### 🤖 AI & Machine Learning
-- **Pattern Recognition**: AI-powered chart pattern detection
-- **Sentiment Analysis**: Real-time market sentiment from news and social media
-- **Predictive Models**: ML-based price forecasting and volatility prediction
-- **Smart Alerts**: Context-aware notifications based on your trading style
-- **Trade Recommendations**: AI-generated ideas based on market conditions
-- **Risk Scoring**: Dynamic risk assessment for positions and strategies
+- **Machine Learning Forecasting**: Price prediction models using LSTM and Random Forest algorithms
+- **Options Strategy Builder**: Pre-configured strategies (Iron Condor, Butterfly, Straddle, etc.)
+- **Greek Analytics**: Real-time calculation of Delta, Gamma, Theta, Vega, and Rho
+- **Backtesting Engine**: Test strategies against historical data with performance metrics
+- **Scanner & Screeners**: Custom filters for stocks, options, and futures based on technical/fundamental criteria
+- **Sentiment Analysis**: Social media and news sentiment tracking for Indian markets
+
+### 🔐 Security & Blockchain
+
+- **SHA-256 Encryption**: Military-grade security for all data transmissions
+- **Blockchain Integration**: Immutable audit trail for trade transparency
+- **Secure API Keys**: Encrypted storage of broker credentials
+- **Two-Factor Authentication**: Enhanced account security
+- **Privacy-First Design**: Your trading data stays on your machine
 
 ---
 
-## 🛠️ Installation & Setup
+## 📊 Advanced Dashboards
+
+- <img src="image.jpg" height="16" /> **Customizable Widgets:** Personalized dashboard layouts for market monitoring, analytics, and watchlists
+- <img src="image.jpg" height="16" /> **Real-Time Data Visualization:** Multi-asset live charts, tick-by-tick updates, heatmaps, and market depth
+- <img src="image.jpg" height="16" /> **Options & F&O Panel:** Instant Greeks, position P&L, scenario builder
+- <img src="image.jpg" height="16" /> **Performance Analytics:** Historic and live P&L, sector insights, benchmarks comparison
+
+---
+
+## 🚀 Seamless Onboarding
+
+- <img src="image.jpg" height="16" /> **Quick Start Wizard:** One-click setup for brokers, investors, and traders
+- <img src="image.jpg" height="16" /> **Step-by-Step Guidance:** Clear instructions through account creation, API configuration, and first trade
+- <img src="image.jpg" height="16" /> **Broker Credential Vault:** Secure API key storage and selection
+- <img src="image.jpg" height="16" /> **Get Started in Minutes:** Intuitive UI, detailed help guides, responsive support links
+
+---
+
+## 🏛️ Institutional Compliance & Security
+
+- <img src="image.jpg" height="16" /> **Full SEBI Regulatory Adherence:** Automated compliance checks for Indian financial regulations
+- <img src="image.jpg" height="16" /> **Enterprise-Grade Security:** SHA-256, encrypted connections, two-factor authentication options
+- <img src="image.jpg" height="16" /> **Audit Trail:** Tamper-proof transaction and action logs for due diligence
+- <img src="image.jpg" height="16" /> **Role-Based Access:** Configurable user permissions for team deployment, supervisor review, and restricted access
+- <img src="image.jpg" height="16" /> **Open Source Transparency:** All implementation details available for audit
+- <img src="image.jpg" height="16" /> **24/7 Support & Response:** Real-time monitoring and instant support for institutional customers
+
+---
+
+## 🛠️ Tech Stack
+
+### Frontend
+- **Python**: Core application logic
+- **Streamlit**: Interactive web interface
+- **Plotly**: Advanced charting and visualization
+- **Pandas**: Data manipulation and analysis
+
+### Backend & Data
+- **SQLite**: Local database for trade history and settings
+- **Blockchain**: Distributed ledger for trade verification
+- **REST APIs**: Broker integration and real-time data feeds
+- **WebSocket**: Live market data streaming
+
+### Machine Learning
+- **TensorFlow/Keras**: Deep learning models
+- **Scikit-learn**: Classical ML algorithms
+- **NumPy**: Numerical computations
+- **TA-Lib**: Technical analysis library
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
-- Windows 10/11 (64-bit) or macOS 10.15+
-- 8GB RAM minimum (16GB recommended)
-- 2GB free disk space
-- Stable internet connection (minimum 1 Mbps)
-- Compatible broker account with API access
 
-### Quick Start
+- Python 3.8 or higher
+- pip package manager
+- Active broker account with API access (optional for paper trading)
 
-1. **Download**: Get the latest release from our [Releases page](https://github.com/saumyasanghvi03/BlockVista-Terminal/releases)
+### Installation
 
-2. **Install**: Run the installer and follow the setup wizard
-   ```bash
-   # Windows
-   BlockVistaTerminal-Setup.exe
-   
-   # macOS
-   BlockVistaTerminal.dmg
-   ```
-
-3. **Configure**: Launch the application and complete broker integration
-   - Add your broker API credentials
-   - Configure market data subscriptions
-   - Set up your trading preferences
-
-4. **Start Trading**: Access live markets with professional-grade tools
-
-### Advanced Configuration
-
-#### Broker Integration
-```json
-{
-  "brokers": {
-    "zerodha": {
-      "api_key": "your_api_key",
-      "api_secret": "your_api_secret",
-      "redirect_url": "https://127.0.0.1:8080/callback"
-    },
-    "upstox": {
-      "api_key": "your_upstox_key",
-      "api_secret": "your_upstox_secret"
-    }
-  },
-  "market_data": {
-    "provider": "nse_live",
-    "subscription_level": "premium"
-  }
-}
-```
-
-#### Custom Indicators
-```python
-# Example: Custom RSI with dynamic periods
-class DynamicRSI(TechnicalIndicator):
-    def __init__(self, period_range=(14, 21)):
-        self.period_range = period_range
-        
-    def calculate(self, data):
-        # Your custom indicator logic here
-        return rsi_values
-```
-
----
-
-## 📈 Usage Examples
-
-### Basic Market Scanning
-```python
-# Scan for breakout stocks
-scanner = MarketScanner()
-breakouts = scanner.scan_breakouts(
-    min_volume=1000000,
-    price_range=(50, 5000),
-    breakout_threshold=0.05
-)
-
-for stock in breakouts:
-    print(f"{stock.symbol}: {stock.breakout_score}")
-```
-
-### Options Strategy Analysis
-```python
-# Analyze Iron Condor strategy
-strategy = IronCondor(
-    underlying="NIFTY",
-    expiry="2025-10-31",
-    strikes=[21800, 21900, 22100, 22200]
-)
-
-analysis = strategy.analyze(
-    spot_range=(21500, 22500),
-    days_to_expiry=30
-)
-
-print(f"Max Profit: {analysis.max_profit}")
-print(f"Max Loss: {analysis.max_loss}")
-print(f"Breakeven Points: {analysis.breakeven_points}")
-```
-
-### Automated Trading
-```python
-# Simple momentum strategy
-class MomentumStrategy(TradingStrategy):
-    def on_market_data(self, data):
-        if self.rsi(data) < 30 and self.macd_signal(data) > 0:
-            self.buy(quantity=100, order_type='MARKET')
-        elif self.rsi(data) > 70:
-            self.sell_all(order_type='MARKET')
-
-# Deploy strategy
-strategy = MomentumStrategy()
-backtest_results = strategy.backtest(
-    start_date='2024-01-01',
-    end_date='2024-12-31',
-    initial_capital=1000000
-)
-```
-
----
-
-## 📊 Performance & Benchmarks
-
-### Latency Metrics
-- **Order Placement**: < 2ms average
-- **Market Data Reception**: < 50ms from exchange
-- **Strategy Execution**: < 5ms end-to-end
-- **Portfolio Updates**: Real-time (< 100ms)
-
-### System Performance
-- **Memory Usage**: ~200MB baseline, scales with active instruments
-- **CPU Usage**: < 5% idle, < 25% during heavy trading
-- **Network Bandwidth**: 10-50 KB/s per 1000 instruments
-- **Database Queries**: < 10ms average response time
-
-### Accuracy Metrics
-- **Price Feed Accuracy**: 99.99% uptime
-- **Order Execution Success**: 99.95% fill rate
-- **Technical Indicator Precision**: Validated against industry standards
-- **Backtesting Accuracy**: Account for slippage and transaction costs
-
----
-
-## 🔧 API Documentation
-
-### REST API Endpoints
-
-#### Market Data
-```http
-GET /api/v1/market/quote/{symbol}
-GET /api/v1/market/depth/{symbol}
-GET /api/v1/market/historical/{symbol}?from={date}&to={date}
-```
-
-#### Trading
-```http
-POST /api/v1/orders/place
-GET /api/v1/orders/status/{order_id}
-DELETE /api/v1/orders/cancel/{order_id}
-```
-
-#### Portfolio
-```http
-GET /api/v1/portfolio/positions
-GET /api/v1/portfolio/holdings
-GET /api/v1/portfolio/pnl
-```
-
-### WebSocket Feeds
-```javascript
-// Market data subscription
-const ws = new WebSocket('wss://api.blockvista.com/v1/stream');
-
-ws.onopen = () => {
-    ws.send(JSON.stringify({
-        action: 'subscribe',
-        symbols: ['RELIANCE', 'TCS', 'INFY'],
-        mode: 'quote'
-    }));
-};
-
-ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    console.log('Live quote:', data);
-};
-```
-
----
-
-## 🔒 Security & Compliance
-
-### Data Protection
-- **Encryption**: AES-256 for data at rest, TLS 1.3 for data in transit
-- **Authentication**: Multi-factor authentication with TOTP support
-- **API Security**: JWT tokens with configurable expiry
-- **Audit Trail**: Complete transaction logging with tamper protection
-
-### Regulatory Compliance
-- **SEBI Guidelines**: Full compliance with Indian securities regulations
-- **Data Privacy**: GDPR-compliant data handling procedures
-- **Risk Management**: Built-in position limits and margin monitoring
-- **Reporting**: Automated compliance reporting for institutional clients
-
-### Broker Integration Security
-- **OAuth 2.0**: Secure broker authentication without storing passwords
-- **API Rate Limiting**: Prevents API abuse and ensures stability
-- **Encrypted Storage**: Broker credentials encrypted with hardware security
-- **Session Management**: Automatic logout and token refresh
-
----
-
-## 🤝 Contributing
-
-We welcome contributions from the trading and developer community!
-
-### Development Setup
 ```bash
 # Clone the repository
 git clone https://github.com/saumyasanghvi03/BlockVista-Terminal.git
 cd BlockVista-Terminal
 
 # Install dependencies
-npm install
 pip install -r requirements.txt
 
-# Run development server
-npm run dev
+# Run the application
+streamlit run app.py
 ```
 
-### Contribution Guidelines
-- Follow our [Code of Conduct](CODE_OF_CONDUCT.md)
-- Check existing [issues](https://github.com/saumyasanghvi03/BlockVista-Terminal/issues)
-- Fork the repo and create feature branches
-- Write comprehensive tests for new features
-- Update documentation for API changes
+### Configuration
+
+1. **Broker Setup**: Navigate to Settings → Broker Configuration
+2. **API Keys**: Enter your broker's API key and secret
+3. **Preferences**: Customize dashboard layout, alerts, and notification settings
+4. **Paper Trading**: Enable paper trading mode to practice without real money
+
+### Quick Start Guide
+
+1. Launch the terminal: `streamlit run app.py`
+2. Complete the onboarding wizard
+3. Connect your broker account (or use paper trading)
+4. Explore the dashboard and features
+5. Start trading!
+
+---
+
+## 📸 Screenshots
+
+### Main Dashboard
+![Main Dashboard](screenshots/dashboard.png)
+*Real-time market overview with customizable widgets*
+
+### Options Chain Analysis
+![Options Chain](screenshots/options.png)
+*Comprehensive options chain with Greeks and P&L scenarios*
+
+### Advanced Charting
+![Advanced Charts](screenshots/charts.png)
+*Multi-timeframe analysis with 50+ technical indicators*
+
+### ML Forecasting
+![ML Predictions](screenshots/ml.png)
+*Machine learning-based price predictions and confidence intervals*
+
+---
+
+## 📖 Documentation
+
+Comprehensive documentation is available in the `/docs` directory:
+
+- [User Guide](docs/user-guide.md) - Complete tutorial for all features
+- [API Reference](docs/api-reference.md) - Broker integration documentation
+- [Strategy Development](docs/strategy-dev.md) - Build custom trading strategies
+- [ML Models](docs/ml-models.md) - Understanding the prediction algorithms
+- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting pull requests.
+
+### Development Setup
+
+```bash
+# Fork and clone the repository
+git clone https://github.com/YOUR_USERNAME/BlockVista-Terminal.git
+cd BlockVista-Terminal
+
+# Create a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Run tests
+pytest tests/
+
+# Run linter
+flake8 .
+```
 
 ### Areas for Contribution
-- 🔧 **Technical Indicators**: New TA-Lib implementations
-- 📊 **Charting**: Advanced visualization features
-- 🤖 **AI/ML**: Trading algorithms and pattern recognition
-- 🛡️ **Security**: Penetration testing and vulnerability assessment
-- 📚 **Documentation**: User guides and API documentation
-- 🌐 **Localization**: Multi-language support
+
+- 🐛 Bug fixes and performance improvements
+- 📝 Documentation enhancements
+- 🎨 UI/UX improvements
+- 🧪 Test coverage expansion
+- 🔌 New broker integrations
+- 📊 Additional technical indicators
+- 🤖 ML model improvements
 
 ---
 
 ## 📜 License
 
-**Commercial License - All Rights Reserved**
+This project is licensed under a **Commercial License**. See [LICENSE.md](LICENSE.md) for details.
 
-This software is proprietary and confidential. Unauthorized copying, distribution, or use is strictly prohibited.
+### License Tiers
 
-### License Terms
-- **Personal Use**: Free for individual traders (non-commercial)
-- **Commercial Use**: Requires paid license for businesses and institutions
-- **API Access**: Separate licensing for third-party integrations
-- **Redistribution**: Not permitted without explicit written permission
-
-### Pricing
-- **Individual Trader**: Free (with feature limitations)
-- **Professional**: ₹2,999/month (unlimited features)
-- **Institutional**: ₹25,000/month (multi-user, priority support)
+- **Personal**: Free for individual non-commercial use
+- **Professional**: ₹9,999/year for professional traders
 - **Enterprise**: Custom pricing for large organizations
 
 ### License Restrictions
+
 - Commercial redistribution prohibited without explicit permission
 - Reverse engineering and derivative works not allowed
 - Contact for licensing inquiries: saumyasanghvi03@example.com
@@ -331,16 +239,21 @@ This software is proprietary and confidential. Unauthorized copying, distributio
 ## 📧 Contact & Support
 
 ### 👨‍💻 Developer
+
 **Saumya Sanghvi**
+
 - GitHub: [@saumyasanghvi03](https://github.com/saumyasanghvi03)
 - Email: saumyasanghvi03@example.com
 
 ### 🐛 Report Issues
+
 Found a bug or have a feature request?
+
 - [Open an Issue](https://github.com/saumyasanghvi03/BlockVista-Terminal/issues)
 - [Discussion Forum](https://github.com/saumyasanghvi03/BlockVista-Terminal/discussions)
 
 ### 💬 Community
+
 - Join our Discord server for real-time support
 - Follow development updates on Twitter
 - Star the repo to show your support!
@@ -350,12 +263,14 @@ Found a bug or have a feature request?
 ## 🌟 Roadmap
 
 ### Q4 2025
+
 - [ ] Mobile companion app (iOS/Android)
 - [ ] Advanced algorithmic trading module
 - [ ] Social trading features
 - [ ] Cloud sync for watchlists and settings
 
 ### Q1 2026
+
 - [ ] Multi-broker portfolio aggregation
 - [ ] Advanced AI assistant for trade ideas
 - [ ] Custom webhook integrations
