@@ -2000,7 +2000,7 @@ def initialize_automated_mode():
             'paper_portfolio': {
                 'cash_balance': 10000.0,
                 'positions': {},
-                'initial_capital': 10000.0,
+                'initial_capital': 1000.0,
                 'total_value': 10000.0
             }
         }
