@@ -2324,7 +2324,7 @@ def page_fully_automated_bots(instrument_df):
             st.session_state.automated_mode['paper_portfolio'] = {
                 'cash_balance': st.session_state.automated_mode.get('total_capital', 10000.0),
                 'positions': {},
-                'initial_capital': st.session_state.automated_mode.get('total_capital', 10000.0),
+                'initial_capital': st.session_state.automated_mode.get('total_capital', 1000.0),
                 'total_value': st.session_state.automated_mode.get('total_capital', 10000.0)
             }
     
@@ -2388,10 +2388,10 @@ def page_fully_automated_bots(instrument_df):
         
         total_capital = st.number_input(
             "Total Capital (₹)",
-            min_value=1000.0,
+            min_value=100.0,
             max_value=1000000.0,
             value=current_capital,
-            step=1000.0,
+            step=100.0,
             help="Total capital allocated for automated trading",
             key="auto_capital"
         )
