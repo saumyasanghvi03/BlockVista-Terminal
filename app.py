@@ -2472,83 +2472,84 @@ def page_fully_automated_bots(instrument_df):
         # Bot configuration and performance dashboard
         col5, col6 = st.columns([1, 2])
         
-        with col5:
-            st.subheader("⚙️ Bot Configuration")
-            
-            # Bot activation
-            st.write("**Activate Bots:**")
-            for bot_name in AUTOMATED_BOTS.keys():
-                is_active = st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False)
-                if st.checkbox(bot_name, value=is_active, key=f"auto_{bot_name}"):
-                    if 'bots_active' not in st.session_state.automated_mode:
-                        st.session_state.automated_mode['bots_active'] = {}
-                    st.session_state.automated_mode['bots_active'][bot_name] = True
-                else:
-                    if 'bots_active' not in st.session_state.automated_mode:
-                        st.session_state.automated_mode['bots_active'] = {}
-                    st.session_state.automated_mode['bots_active'][bot_name] = False
-            
-            # Trading limits
-            st.markdown("---")
-            max_trades = st.slider(
-                "Max Open Trades",
-                min_value=1,
-                max_value=20,
-                value=st.session_state.automated_mode.get('max_open_trades', 5),
-                help="Maximum number of simultaneous open trades",
-                key="auto_max_trades"
-            )
-            st.session_state.automated_mode['max_open_trades'] = max_trades
-            
-            # Trading frequency
-            check_interval = st.selectbox(
-                "Analysis Frequency",
-                ["30 seconds", "1 minute", "5 minutes", "15 minutes"],
-                index=1,
-                help="How often bots analyze the market",
-                key="auto_freq"
-            )
-            
-            # Watchlist selection for automated trading
-            st.markdown("---")
-            st.write("**📋 Trading Symbols**")
-            active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-            watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
-            
-            if watchlist_symbols:
-                st.success(f"Trading from: **{active_watchlist}**")
-                with st.expander(f"View {len(watchlist_symbols)} symbols"):
-                    for symbol in watchlist_symbols:
-                        st.write(f"• {symbol}")
-            else:
-                st.warning("No symbols in active watchlist. Add symbols to Dashboard first.")
-            
-            # Paper trading controls - with safe access
-            st.markdown("---")
-            st.subheader("📊 Paper Trading Controls")
-            
-            if st.button("🔄 Update Portfolio Values", use_container_width=True):
-                update_paper_portfolio_values(instrument_df)
-                st.success("Portfolio values updated!")
-            
-            paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
-            positions = paper_portfolio.get('positions', {})
-            if positions:
-                st.write("**Current Positions:**")
-                for symbol, position in positions.items():
-                    col_pos1, col_pos2, col_pos3 = st.columns([2, 1, 1])
-                    col_pos1.write(f"{symbol}")
-                    col_pos2.write(f"{position.get('quantity', 0)} shares")
-                    if col_pos3.button("Close", key=f"close_{symbol}"):
-                        close_paper_position(symbol)
-                        st.rerun()
-        
-    with col6:
-    st.subheader("📊 Live Performance Dashboard")
+    with col5:
+    st.subheader("⚙️ Bot Configuration")
     
-    if st.session_state.automated_mode.get('running', False):
+    # Bot activation (Simplified logic)
+    st.write("**Activate Bots:**")
+    if 'bots_active' not in st.session_state.automated_mode:
+        st.session_state.automated_mode['bots_active'] = {}
+
+    for bot_name in AUTOMATED_BOTS.keys():
+        is_active = st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False)
+        # The checkbox directly returns True or False, which we can assign
+        st.session_state.automated_mode['bots_active'][bot_name] = st.checkbox(
+            bot_name, value=is_active, key=f"auto_{bot_name}"
+        )
+
+    # Trading limits
+    st.markdown("---")
+    max_trades = st.slider(
+        "Max Open Trades",
+        min_value=1,
+        max_value=20,
+        value=st.session_state.automated_mode.get('max_open_trades', 5),
+        help="Maximum number of simultaneous open trades",
+        key="auto_max_trades"
+    )
+    st.session_state.automated_mode['max_open_trades'] = max_trades
+    
+    # Trading frequency - FIXED
+    check_interval = st.selectbox(
+        "Analysis Frequency",
+        options=["30 seconds", "1 minute", "5 minutes", "15 minutes"],
+        index=st.session_state.automated_mode.get('check_interval_index', 1), # Use state to remember selection
+        help="How often bots analyze the market",
+        key="auto_freq"
+    )
+    # Save both the string value and the index for the selectbox
+    st.session_state.automated_mode['check_interval'] = check_interval
+    st.session_state.automated_mode['check_interval_index'] = ["30 seconds", "1 minute", "5 minutes", "15 minutes"].index(check_interval)
+
+    # Watchlist selection for automated trading
+    st.markdown("---")
+    st.write("**📋 Trading Symbols**")
+    active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+    watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
+    
+    if watchlist_symbols:
+        st.success(f"Trading from: **{active_watchlist}**")
+        with st.expander(f"View {len(watchlist_symbols)} symbols"):
+            for symbol in watchlist_symbols:
+                st.write(f"• {symbol}")
+    else:
+        st.warning("No symbols in active watchlist. Add symbols to Dashboard first.")
+    
+    # Paper trading controls
+    st.markdown("---")
+    st.subheader("📊 Paper Trading Controls")
+    
+    if st.button("🔄 Update Portfolio Values", use_container_width=True):
+        update_paper_portfolio_values(instrument_df)
+        st.success("Portfolio values updated!")
+    
+    positions = st.session_state.automated_mode.get('paper_portfolio', {}).get('positions', {})
+    if positions:
+        st.write("**Current Positions:**")
+        for symbol, position in positions.items():
+            col_pos1, col_pos2, col_pos3 = st.columns([2, 1, 1])
+            col_pos1.write(f"{symbol}")
+            col_pos2.write(f"{position.get('quantity', 0)} shares")
+            if col_pos3.button("Close", key=f"close_{symbol}"):
+                close_paper_position(symbol)
+                st.rerun()
+
+# FIXED INDENTATION FOR THE ENTIRE col6 BLOCK
+        with col6:
+            st.subheader("📊 Live Performance Dashboard")
+            if st.session_state.automated_mode.get('running', False):
         # Auto-refresh for live trading
-        st_autorefresh(interval=30000, key="auto_refresh")
+            st_autorefresh(interval=30000, key="auto_refresh")
         
         # Get watchlist symbols for automated trading
         active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
@@ -2580,12 +2581,12 @@ def page_fully_automated_bots(instrument_df):
         st.info("⏸️ **AUTOMATED TRADING PAUSED**")
         st.caption("Enable automated mode and click 'Start Automated Trading' to begin")
     
-    # Performance metrics with safe access
+    # Performance metrics
     st.markdown("---")
     st.subheader("📈 Performance Metrics")
     metrics = get_automated_bot_performance()
     
-    # Paper trading portfolio overview with safe access
+    # Paper trading portfolio overview
     paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
     cash_balance = paper_portfolio.get('cash_balance', 0.0)
     portfolio_value = paper_portfolio.get('total_value', cash_balance)
@@ -2633,14 +2634,12 @@ def page_fully_automated_bots(instrument_df):
     
     if recent_trades:
         trades_display = []
-        # Using reversed to show the most recent trade first
         for trade in reversed(recent_trades):
             order_type = trade.get('order_type', 'PAPER')
             type_color = '🔴' if order_type == 'LIVE' else '🔵'
             pnl = trade.get('pnl', 0)
             status_color = '🟢' if pnl > 0 else '🔴' if pnl < 0 else '⚪'
             
-            # Use .get() for all keys to prevent errors if a key is missing
             timestamp = trade.get('timestamp')
             time_str = datetime.fromisoformat(timestamp).strftime("%H:%M:%S") if timestamp else "N/A"
             
@@ -2655,6 +2654,10 @@ def page_fully_automated_bots(instrument_df):
                 'Status': trade.get('status', 'OPEN'),
                 'P&L': f"{status_color} ₹{pnl:.2f}"
             })
+        st.dataframe(trades_display, use_container_width=True)
+            
+    else:
+        st.caption("No trading activity recorded yet.")        
         
         # FIX: Added st.dataframe to display the prepared list of trades
         st.dataframe(trades_display, use_container_width=True)
