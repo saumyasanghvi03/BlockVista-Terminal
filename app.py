@@ -2455,7 +2455,6 @@ def page_fully_automated_bots(instrument_df):
 
         with config_col:
             st.subheader("⚙️ Bot Configuration")
-
             st.write("**Activate Bots:**")
             if 'bots_active' not in st.session_state.automated_mode:
                 st.session_state.automated_mode['bots_active'] = {}
@@ -2464,7 +2463,7 @@ def page_fully_automated_bots(instrument_df):
                     bot_name,
                     value=st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False),
                     key=f"auto_{bot_name}",
-                    disabled=is_running  # UPDATE: Disable when running
+                    disabled=is_running
                 )
 
             st.markdown("---")
@@ -2474,13 +2473,13 @@ def page_fully_automated_bots(instrument_df):
 
             options = ["30 seconds", "1 minute", "5 minutes", "15 minutes"]
             try:
-                current_index = options.index(st.session_state.automated_mode.get('check_interval'))
+                default_index = options.index(st.session_state.automated_mode.get('check_interval'))
             except (ValueError, KeyError):
-                current_index = 1
+                default_index = 1 # Default to '1 minute' if not found
             
-            check_interval = st.selectbox("Analysis Frequency", options, index=current_index, disabled=is_running)
+            st.selectbox("Analysis Frequency", options, index=default_index, key='auto_freq_key', disabled=is_running)
             if not is_running:
-                st.session_state.automated_mode['check_interval'] = check_interval
+                st.session_state.automated_mode['check_interval'] = st.session_state.auto_freq_key
 
             st.markdown("---")
             st.write("**📋 Trading Symbols**")
@@ -2504,13 +2503,12 @@ def page_fully_automated_bots(instrument_df):
                     p1, p2, p3 = st.columns([2, 1, 1])
                     p1.write(f"**{symbol}**")
                     p2.write(f"{pos_data.get('quantity', 0)} shares")
-                    if p3.button("Close", key=f"close_{symbol}", use_container_width=True, disabled=not is_running):
+                    if p3.button("Close", key=f"close_{symbol}", use_container_width=True):
                         close_paper_position(symbol)
                         st.rerun()
 
         with dashboard_col:
             st.subheader("📊 Live Performance Dashboard")
-
             if is_running:
                 st_autorefresh(interval=30000, key="auto_refresh")
                 if watchlist_symbols and any(st.session_state.automated_mode.get('bots_active', {}).values()):
@@ -2524,33 +2522,24 @@ def page_fully_automated_bots(instrument_df):
                 last_check = st.session_state.automated_mode.get('last_signal_check')
                 if last_check:
                     st.caption(f"Last signal check: {datetime.fromisoformat(last_check).strftime('%H:%M:%S')}")
-
-                active_bots = [b for b, v in st.session_state.automated_mode.get('bots_active', {}).items() if v]
-                if active_bots:
-                    st.write(f"**Active Bots:** {', '.join(active_bots)}")
-                else:
-                    st.warning("No bots activated!")
             else:
                 st.info("⏸️ **AUTOMATED TRADING PAUSED**")
 
             st.markdown("---")
             st.subheader("📈 Performance Metrics")
             
-            # UPDATE: Add a prefix for clarity (Paper vs. Live)
-            mode_prefix = "Live" if st.session_state.automated_mode.get('live_trading') else "Paper"
-            
             metrics = get_automated_bot_performance()
             paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
             m1, m2, m3 = st.columns(3)
-            m1.metric(f"{mode_prefix} Portfolio Value", f"₹{paper_portfolio.get('total_value', 0):,.2f}")
-            m2.metric(f"{mode_prefix} Return", f"{metrics.get('paper_return_pct', 0):.2f}%")
+            m1.metric("Paper Portfolio Value", f"₹{paper_portfolio.get('total_value', 0):,.2f}")
+            m2.metric("Paper Return", f"{metrics.get('paper_return_pct', 0):.2f}%")
             m3.metric("Cash Balance", f"₹{paper_portfolio.get('cash_balance', 0):,.2f}")
 
             m4, m5, m6, m7 = st.columns(4)
             m4.metric("Total Trades", metrics.get('total_trades', 0))
             m5.metric("Win Rate", f"{metrics.get('win_rate', 0):.1f}%")
-            m6.metric(f"Realized P&L", f"₹{metrics.get('total_pnl', 0):.2f}")
-            m7.metric(f"Unrealized P&L", f"₹{metrics.get('unrealized_pnl', 0):.2f}")
+            m6.metric("Realized P&L", f"₹{metrics.get('total_pnl', 0):.2f}")
+            m7.metric("Unrealized P&L", f"₹{metrics.get('unrealized_pnl', 0):.2f}")
 
             st.markdown("---")
             st.subheader("📋 Recent Trading Activity")
