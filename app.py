@@ -2320,8 +2320,6 @@ from datetime import datetime
 # from streamlit_autorefresh import st_autorefresh
 # AUTOMATED_BOTS = {"Auto Momentum Trader": None, "Auto Mean Reversion": None}
 
-
-
 def page_fully_automated_bots(instrument_df):
     """Fully automated bots page with comprehensive paper trading simulation."""
     st.warning("🚨 **LIVE TRADING WARNING**: Automated bots will execute real trades with real money! Use at your own risk.", icon="⚠️")
@@ -2536,14 +2534,35 @@ def page_fully_automated_bots(instrument_df):
             )
             st.session_state.automated_mode['max_open_trades'] = max_trades
             
-            # Trading frequency
+            # Trading frequency - UPDATED WITH 15 SECONDS OPTION
+            st.markdown("---")
+            st.write("**⏰ Analysis Frequency**")
+            
+            # Get current interval with safe default
+            current_interval = st.session_state.automated_mode.get('check_interval', '1 minute')
+            frequency_options = ["15 seconds", "30 seconds", "1 minute", "5 minutes", "15 minutes"]
+            
+            # Find current index or default to 2 (1 minute)
+            current_index = 2  # Default to 1 minute
+            if current_interval in frequency_options:
+                current_index = frequency_options.index(current_interval)
+            
             check_interval = st.selectbox(
-                "Analysis Frequency",
-                ["30 seconds", "1 minute", "5 minutes", "15 minutes"],
-                index=1,
-                help="How often bots analyze the market",
+                "How often bots analyze the market",
+                options=frequency_options,
+                index=current_index,
+                help="More frequent analysis = faster reactions but higher system load",
                 key="auto_freq"
             )
+            st.session_state.automated_mode['check_interval'] = check_interval
+            
+            # Add frequency warnings
+            if check_interval == "15 seconds":
+                st.warning("⚡ **High Frequency**: Fast reactions but may hit API rate limits")
+            elif check_interval == "30 seconds":
+                st.info("🚀 **Active Trading**: Good balance of speed and stability")
+            else:
+                st.success("🔄 **Standard Frequency**: Stable performance")
             
             # Watchlist selection for automated trading
             st.markdown("---")
@@ -2598,8 +2617,21 @@ def page_fully_automated_bots(instrument_df):
                 """)
                 
                 if is_running:
-                    # Auto-refresh for live trading - more frequent
-                    st_autorefresh(interval=10000, key="live_refresh")  # 10 seconds for live
+                    # Auto-refresh for live trading - based on analysis frequency
+                    current_interval = st.session_state.automated_mode.get('check_interval', '1 minute')
+                    refresh_intervals = {
+                        "15 seconds": 5000,    # 5 seconds refresh for 15s analysis
+                        "30 seconds": 10000,   # 10 seconds refresh for 30s analysis  
+                        "1 minute": 15000,     # 15 seconds refresh for 1min analysis
+                        "5 minutes": 30000,    # 30 seconds refresh for 5min analysis
+                        "15 minutes": 60000    # 60 seconds refresh for 15min analysis
+                    }
+                    refresh_interval = refresh_intervals.get(current_interval, 15000)
+                    
+                    st_autorefresh(interval=refresh_interval, key="live_refresh")
+                    
+                    # Show current analysis frequency
+                    st.info(f"**Analysis Frequency**: {current_interval} | **Dashboard Refresh**: {refresh_interval//1000}s")
                     
                     # Get watchlist symbols for automated trading
                     active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
@@ -2692,8 +2724,21 @@ def page_fully_automated_bots(instrument_df):
                 """)
                 
                 if is_running:
-                    # Auto-refresh for paper trading - less frequent
-                    st_autorefresh(interval=30000, key="paper_refresh")  # 30 seconds for paper
+                    # Auto-refresh for paper trading - based on analysis frequency
+                    current_interval = st.session_state.automated_mode.get('check_interval', '1 minute')
+                    refresh_intervals = {
+                        "15 seconds": 10000,    # 10 seconds refresh for 15s analysis
+                        "30 seconds": 15000,    # 15 seconds refresh for 30s analysis  
+                        "1 minute": 30000,      # 30 seconds refresh for 1min analysis
+                        "5 minutes": 45000,     # 45 seconds refresh for 5min analysis
+                        "15 minutes": 60000     # 60 seconds refresh for 15min analysis
+                    }
+                    refresh_interval = refresh_intervals.get(current_interval, 30000)
+                    
+                    st_autorefresh(interval=refresh_interval, key="paper_refresh")
+                    
+                    # Show current analysis frequency
+                    st.success(f"**Analysis Frequency**: {current_interval} | **Dashboard Refresh**: {refresh_interval//1000}s")
                     
                     # Get watchlist symbols for automated trading
                     active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
