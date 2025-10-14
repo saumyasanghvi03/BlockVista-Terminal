@@ -2000,7 +2000,7 @@ def initialize_automated_mode():
             'paper_portfolio': {
                 'cash_balance': 10000.0,
                 'positions': {},
-                'initial_capital': 1000.0,
+                'initial_capital': 100.0,
                 'total_value': 10000.0
             }
         }
@@ -2748,7 +2748,7 @@ def initialize_automated_mode():
             'running': False,
             'live_trading': False,
             'bots_active': {},
-            'total_capital': 10000,
+            'total_capital': 1000,
             'risk_per_trade': 2.0,
             'max_open_trades': 5,
             'trade_history': [],
