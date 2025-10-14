@@ -2398,9 +2398,9 @@ def page_fully_automated_bots(instrument_df):
             st.button("Start Trading", use_container_width=True, disabled=True)
 
     with top_col4:
-    current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
+        current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
     # MODIFIED: Validation now uses 100.0 as the floor
-    validated_capital = max(100.0, current_capital)
+        validated_capital = max(100.0, current_capital)
     
     total_capital = st.number_input(
         "Total Capital (₹)",
