@@ -2475,19 +2475,18 @@ def page_fully_automated_bots(instrument_df):
         with col5:
             st.subheader("⚙️ Bot Configuration")
             
-            # Bot activation
+            # Bot activation (Simplified logic)
             st.write("**Activate Bots:**")
+            if 'bots_active' not in st.session_state.automated_mode:
+                st.session_state.automated_mode['bots_active'] = {}
+
             for bot_name in AUTOMATED_BOTS.keys():
                 is_active = st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False)
-                if st.checkbox(bot_name, value=is_active, key=f"auto_{bot_name}"):
-                    if 'bots_active' not in st.session_state.automated_mode:
-                        st.session_state.automated_mode['bots_active'] = {}
-                    st.session_state.automated_mode['bots_active'][bot_name] = True
-                else:
-                    if 'bots_active' not in st.session_state.automated_mode:
-                        st.session_state.automated_mode['bots_active'] = {}
-                    st.session_state.automated_mode['bots_active'][bot_name] = False
-            
+                # The checkbox directly returns True or False, which we can assign
+                st.session_state.automated_mode['bots_active'][bot_name] = st.checkbox(
+                    bot_name, value=is_active, key=f"auto_{bot_name}"
+                )
+
             # Trading limits
             st.markdown("---")
             max_trades = st.slider(
@@ -2500,15 +2499,18 @@ def page_fully_automated_bots(instrument_df):
             )
             st.session_state.automated_mode['max_open_trades'] = max_trades
             
-            # Trading frequency
+            # Trading frequency - FIXED
             check_interval = st.selectbox(
                 "Analysis Frequency",
-                ["30 seconds", "1 minute", "5 minutes", "15 minutes"],
-                index=1,
+                options=["30 seconds", "1 minute", "5 minutes", "15 minutes"],
+                index=st.session_state.automated_mode.get('check_interval_index', 1), # Use state to remember selection
                 help="How often bots analyze the market",
                 key="auto_freq"
             )
-            
+            # Save both the string value and the index for the selectbox
+            st.session_state.automated_mode['check_interval'] = check_interval
+            st.session_state.automated_mode['check_interval_index'] = ["30 seconds", "1 minute", "5 minutes", "15 minutes"].index(check_interval)
+
             # Watchlist selection for automated trading
             st.markdown("---")
             st.write("**📋 Trading Symbols**")
@@ -2523,7 +2525,7 @@ def page_fully_automated_bots(instrument_df):
             else:
                 st.warning("No symbols in active watchlist. Add symbols to Dashboard first.")
             
-            # Paper trading controls - with safe access
+            # Paper trading controls
             st.markdown("---")
             st.subheader("📊 Paper Trading Controls")
             
@@ -2531,8 +2533,7 @@ def page_fully_automated_bots(instrument_df):
                 update_paper_portfolio_values(instrument_df)
                 st.success("Portfolio values updated!")
             
-            paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
-            positions = paper_portfolio.get('positions', {})
+            positions = st.session_state.automated_mode.get('paper_portfolio', {}).get('positions', {})
             if positions:
                 st.write("**Current Positions:**")
                 for symbol, position in positions.items():
@@ -2542,129 +2543,133 @@ def page_fully_automated_bots(instrument_df):
                     if col_pos3.button("Close", key=f"close_{symbol}"):
                         close_paper_position(symbol)
                         st.rerun()
-        
+
         with col6:
             st.subheader("📊 Live Performance Dashboard")
-            
             if st.session_state.automated_mode.get('running', False):
                 # Auto-refresh for live trading
                 st_autorefresh(interval=30000, key="auto_refresh")
-                
-                # Get watchlist symbols for automated trading
-                active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-                watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
-                
-                # Run one cycle of automated trading
-                if watchlist_symbols and any(st.session_state.automated_mode.get('bots_active', {}).values()):
-                    run_automated_bots_cycle(instrument_df, watchlist_symbols)
-                
-                # Status indicator
-                if st.session_state.automated_mode.get('live_trading', False):
-                    st.success("🟢 **LIVE TRADING ACTIVE** - Real orders being placed!")
-                else:
-                    st.info("🔵 **PAPER TRADING ACTIVE** - Orders simulated only")
-                    
-                last_check = st.session_state.automated_mode.get('last_signal_check')
-                if last_check:
-                    last_check_time = datetime.fromisoformat(last_check).strftime("%H:%M:%S")
-                    st.caption(f"Last signal check: {last_check_time}")
-                
-                # Active bots status
-                active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
-                if active_bots:
-                    st.write(f"**Active Bots:** {', '.join(active_bots)}")
-                else:
-                    st.warning("No bots activated! Enable bots in the configuration panel.")
-                    
-            else:
-                st.info("⏸️ **AUTOMATED TRADING PAUSED**")
-                st.caption("Enable automated mode and click 'Start Automated Trading' to begin")
             
-            # Performance metrics with safe access
-            st.markdown("---")
-            st.subheader("📈 Performance Metrics")
-            metrics = get_automated_bot_performance()
+            # Get watchlist symbols for automated trading
+            active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+            watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
             
-            # Paper trading portfolio overview with safe access
-            paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
-            cash_balance = paper_portfolio.get('cash_balance', 0.0)
-            portfolio_value = paper_portfolio.get('total_value', cash_balance)
+            # Run one cycle of automated trading
+            if watchlist_symbols and any(st.session_state.automated_mode.get('bots_active', {}).values()):
+                run_automated_bots_cycle(instrument_df, watchlist_symbols)
             
-            metric_cols = st.columns(3)
-            metric_cols[0].metric("Paper Portfolio Value", f"₹{portfolio_value:,.2f}")
-            metric_cols[1].metric("Paper Return", f"{metrics.get('paper_return_pct', 0):.2f}%")
-            metric_cols[2].metric("Cash Balance", f"₹{cash_balance:,.2f}")
-            
-            metric_cols2 = st.columns(4)
-            metric_cols2[0].metric("Total Trades", metrics.get('total_trades', 0))
-            metric_cols2[1].metric("Win Rate", f"{metrics.get('win_rate', 0):.1f}%")
-            metric_cols2[2].metric("Realized P&L", f"₹{metrics.get('total_pnl', 0):.2f}")
-            metric_cols2[3].metric("Unrealized P&L", f"₹{metrics.get('unrealized_pnl', 0):.2f}")
-            
-            # Additional metrics
-            col7, col8 = st.columns(2)
-            with col7:
-                st.metric("Average Win", f"₹{metrics.get('avg_win', 0):.2f}")
-            with col8:
-                st.metric("Average Loss", f"₹{metrics.get('avg_loss', 0):.2f}")
-            
-            # Mode indicator
-            st.markdown("---")
+            # Status indicator
             if st.session_state.automated_mode.get('live_trading', False):
-                st.error("""
-                **🔴 LIVE TRADING MODE**
-                - Real orders are being placed
-                - Real money is at risk
-                - Monitor your positions carefully
-                """)
+                st.success("🟢 **LIVE TRADING ACTIVE** - Real orders being placed!")
             else:
-                st.info("""
-                **🔵 PAPER TRADING MODE**
-                - Orders are simulated only
-                - No real money is being used
-                - Perfect for testing strategies
-                - Portfolio: Cash + Positions = Total Value
-                """)
-            
-            # Recent trades table
-            st.markdown("---")
-            st.subheader("📋 Recent Trading Activity")
-            recent_trades = st.session_state.automated_mode.get('trade_history', [])[-20:]
-            
-            if recent_trades:
-                trades_display = []
-                for trade in reversed(recent_trades):
-                    order_type = trade.get('order_type', 'PAPER')
-                    type_color = '🔴' if order_type == 'LIVE' else '🔵'
-                    status_color = '🟢' if trade.get('pnl', 0) > 0 else '🔴' if trade.get('pnl', 0) < 0 else '⚪'
-                    
-                    trades_display.append({
-                        'Time': datetime.fromisoformat(trade['timestamp']).strftime("%H:%M:%S"),
-                        'Type': f"{type_color} {order_type}",
-                        'Symbol': trade['symbol'],
-                        'Action': trade['action'],
-                        'Qty': trade['quantity'],
-                        'Price': f"₹{trade.get('entry_price', 0):.2f}",
-                        'Bot': trade['bot_name'],
-                        'Status': trade.get('status', 'OPEN'),
-                        'P&L': f"{status_color} ₹{trade.get('pnl', 0):.2f}"
-                    })
+                st.info("🔵 **PAPER TRADING ACTIVE** - Orders simulated only")
                 
-                trades_df = pd.DataFrame(trades_display)
-                st.dataframe(trades_df, use_container_width=True, hide_index=True)
-                
-                # Export trades button
-                if st.button("📥 Export Trade History", use_container_width=True):
-                    csv = trades_df.to_csv(index=False)
-                    st.download_button(
-                        label="Download CSV",
-                        data=csv,
-                        file_name=f"automated_trades_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime="text/csv",
-                        use_container_width=True
-                    )
+            last_check = st.session_state.automated_mode.get('last_signal_check')
+            if last_check:
+                last_check_time = datetime.fromisoformat(last_check).strftime("%H:%M:%S")
+                st.caption(f"Last signal check: {last_check_time}")
+            
+            # Active bots status
+            active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
+            if active_bots:
+                st.write(f"**Active Bots:** {', '.join(active_bots)}")
             else:
-                st.info("No trades executed yet. Automated trading will populate this section.")
+                st.warning("No bots activated! Enable bots in the configuration panel.")
+                
+        else:
+            st.info("⏸️ **AUTOMATED TRADING PAUSED**")
+            st.caption("Enable automated mode and click 'Start Automated Trading' to begin")
+        
+        # Performance metrics
+        st.markdown("---")
+        st.subheader("📈 Performance Metrics")
+        metrics = get_automated_bot_performance()
+        
+        # Paper trading portfolio overview
+        paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+        cash_balance = paper_portfolio.get('cash_balance', 0.0)
+        portfolio_value = paper_portfolio.get('total_value', cash_balance)
+        
+        metric_cols = st.columns(3)
+        metric_cols[0].metric("Paper Portfolio Value", f"₹{portfolio_value:,.2f}")
+        metric_cols[1].metric("Paper Return", f"{metrics.get('paper_return_pct', 0):.2f}%")
+        metric_cols[2].metric("Cash Balance", f"₹{cash_balance:,.2f}")
+        
+        metric_cols2 = st.columns(4)
+        metric_cols2[0].metric("Total Trades", metrics.get('total_trades', 0))
+        metric_cols2[1].metric("Win Rate", f"{metrics.get('win_rate', 0):.1f}%")
+        metric_cols2[2].metric("Realized P&L", f"₹{metrics.get('total_pnl', 0):.2f}")
+        metric_cols2[3].metric("Unrealized P&L", f"₹{metrics.get('unrealized_pnl', 0):.2f}")
+        
+        # Additional metrics
+        col7, col8 = st.columns(2)
+        with col7:
+            st.metric("Average Win", f"₹{metrics.get('avg_win', 0):.2f}")
+        with col8:
+            st.metric("Average Loss", f"₹{metrics.get('avg_loss', 0):.2f}")
+        
+        # Mode indicator
+        st.markdown("---")
+        if st.session_state.automated_mode.get('live_trading', False):
+            st.error("""
+            **🔴 LIVE TRADING MODE**
+            - Real orders are being placed
+            - Real money is at risk
+            - Monitor your positions carefully
+            """)
+        else:
+            st.info("""
+            **🔵 PAPER TRADING MODE**
+            - Orders are simulated only
+            - No real money is being used
+            - Perfect for testing strategies
+            - Portfolio: Cash + Positions = Total Value
+            """)
+        
+        # Recent trades table
+        st.markdown("---")
+        st.subheader("📋 Recent Trading Activity")
+        recent_trades = st.session_state.automated_mode.get('trade_history', [])[-20:]
+        
+        if recent_trades:
+            trades_display = []
+            for trade in reversed(recent_trades):
+                order_type = trade.get('order_type', 'PAPER')
+                type_color = '🔴' if order_type == 'LIVE' else '🔵'
+                pnl = trade.get('pnl', 0)
+                status_color = '🟢' if pnl > 0 else '🔴' if pnl < 0 else '⚪'
+                
+                timestamp = trade.get('timestamp')
+                time_str = datetime.fromisoformat(timestamp).strftime("%H:%M:%S") if timestamp else "N/A"
+                
+                trades_display.append({
+                    'Time': time_str,
+                    'Type': f"{type_color} {order_type}",
+                    'Symbol': trade.get('symbol', 'N/A'),
+                    'Action': trade.get('action', 'N/A'),
+                    'Qty': trade.get('quantity', 0),
+                    'Price': f"₹{trade.get('entry_price', 0):.2f}",
+                    'Bot': trade.get('bot_name', 'N/A'),
+                    'Status': trade.get('status', 'OPEN'),
+                    'P&L': f"{status_color} ₹{pnl:.2f}"
+                })
+            
+            # Display the trades dataframe
+            trades_df = pd.DataFrame(trades_display)
+            st.dataframe(trades_df, use_container_width=True, hide_index=True)
+            
+            # Export trades button
+            if st.button("📥 Export Trade History", use_container_width=True):
+                csv = trades_df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"automated_trades_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+        else:
+            st.info("No trades executed yet. Automated trading will populate this section.")
     
     else:
         # Show setup guide when automated mode is disabled
@@ -2691,6 +2696,49 @@ def page_fully_automated_bots(instrument_df):
             - Performance analytics
             - Risk-free strategy testing
             - Exportable trade history
+            """)
+        
+        st.markdown("---")
+        st.subheader("🤖 Available Automated Bots")
+        
+        bot_col1, bot_col2 = st.columns(2)
+        
+        with bot_col1:
+            st.markdown("""
+            **Auto Momentum Trader**
+            - Identifies strong momentum signals
+            - Uses RSI, EMA, MACD confirmations
+            - Medium risk profile
+            - Best for trending markets
+            """)
+            
+            st.markdown("""
+            **Auto Mean Reversion**
+            - Trades price extremes
+            - Uses Bollinger Bands and RSI
+            - Low risk profile  
+            - Best for range-bound markets
+            """)
+        
+        with bot_col2:
+            st.markdown("""
+            **Key Features:**
+            - ✅ Real-time market analysis
+            - ✅ Automatic position sizing
+            - ✅ Risk-managed execution
+            - ✅ Performance tracking
+            - ✅ Trade history logging
+            - ✅ Paper trading simulation
+            """)
+            
+            st.markdown("""
+            **Monitoring:**
+            - Live performance dashboard
+            - Real-time trade updates
+            - Risk exposure tracking
+            - P&L calculations
+            - Bot activity logs
+            - Portfolio valuation
             """)
         
         st.markdown("---")
