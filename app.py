@@ -2330,6 +2330,15 @@ from datetime import datetime
 # from streamlit_autorefresh import st_autorefresh
 # AUTOMATED_BOTS = {"Auto Momentum Trader": None, "Auto Mean Reversion": None}
 
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
+# These are assumed to be defined elsewhere in your application
+# from your_utils import initialize_automated_mode, update_paper_portfolio_values, close_paper_position, run_automated_bots_cycle, get_automated_bot_performance
+# from streamlit_autorefresh import st_autorefresh
+# AUTOMATED_BOTS = {"Auto Momentum Trader": None, "Auto Mean Reversion": None}
+
 def page_fully_automated_bots(instrument_df):
     """Fully automated bots page with comprehensive paper trading simulation."""
     st.warning("🚨 **LIVE TRADING WARNING**: Automated bots can execute real trades with real money! Use at your own risk.", icon="⚠️")
@@ -2338,7 +2347,6 @@ def page_fully_automated_bots(instrument_df):
     if 'automated_mode' not in st.session_state:
         initialize_automated_mode()
     elif 'paper_portfolio' not in st.session_state.automated_mode:
-        # Migration for existing sessions to add the paper_portfolio dict
         st.session_state.automated_mode['paper_portfolio'] = {
             'cash_balance': st.session_state.automated_mode.get('total_capital', 10000.0),
             'positions': {},
@@ -2347,8 +2355,8 @@ def page_fully_automated_bots(instrument_df):
         }
 
     # --- TOP CONTROL PANEL ---
-    # REPAIRED: Renamed columns to avoid conflicts (top_col1, etc.)
     top_col1, top_col2, top_col3, top_col4, top_col5 = st.columns(5)
+    is_running = st.session_state.automated_mode.get('running', False)
 
     with top_col1:
         auto_enabled = st.toggle(
@@ -2365,13 +2373,14 @@ def page_fully_automated_bots(instrument_df):
             value=st.session_state.automated_mode.get('live_trading', False),
             help="WARNING: This will place REAL orders with REAL money!",
             key="live_trading_toggle",
-            disabled=st.session_state.automated_mode.get('running', False) # IMPROVEMENT: Disable if bots are running
+            disabled=is_running
         )
-        st.session_state.automated_mode['live_trading'] = live_trading
+        if not is_running:
+            st.session_state.automated_mode['live_trading'] = live_trading
 
     with top_col3:
         if auto_enabled:
-            if not st.session_state.automated_mode.get('running', False):
+            if not is_running:
                 if st.button("🚀 Start Trading", use_container_width=True, type="primary"):
                     if live_trading:
                         st.session_state.need_live_confirmation = True
@@ -2390,20 +2399,19 @@ def page_fully_automated_bots(instrument_df):
 
     with top_col4:
         current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
-        validated_capital = max(1000.0, current_capital) # Ensure value is never below min
+        validated_capital = max(1000.0, current_capital)
         
         total_capital = st.number_input(
             "Total Capital (₹)",
-            min_value=1000.0,  # REPAIRED: Matched min_value to validation logic
+            min_value=1000.0,
             max_value=1000000.0,
             value=validated_capital,
             step=1000.0,
             key="auto_capital",
-            disabled=st.session_state.automated_mode.get('running', False) # IMPROVEMENT: Disable if running
+            disabled=is_running
         )
-        if not st.session_state.automated_mode.get('running', False):
+        if not is_running:
              st.session_state.automated_mode['total_capital'] = total_capital
-             # Reset paper portfolio to new capital value if there are no open positions
              if not st.session_state.automated_mode.get('paper_portfolio', {}).get('positions'):
                  st.session_state.automated_mode['paper_portfolio']['initial_capital'] = total_capital
                  st.session_state.automated_mode['paper_portfolio']['cash_balance'] = total_capital
@@ -2416,9 +2424,11 @@ def page_fully_automated_bots(instrument_df):
             max_value=5.0,
             value=float(st.session_state.automated_mode.get('risk_per_trade', 2.0)),
             step=0.5,
-            key="auto_risk"
+            key="auto_risk",
+            disabled=is_running
         )
-        st.session_state.automated_mode['risk_per_trade'] = risk_per_trade
+        if not is_running:
+            st.session_state.automated_mode['risk_per_trade'] = risk_per_trade
 
     # --- LIVE TRADING CONFIRMATION DIALOG ---
     if st.session_state.get('need_live_confirmation', False):
@@ -2435,16 +2445,14 @@ def page_fully_automated_bots(instrument_df):
         if c3.button("❌ Cancel", use_container_width=True):
             st.session_state.automated_mode.update({'live_trading': False, 'need_live_confirmation': False})
             st.rerun()
-        return # Stop rendering the rest of the page
+        return 
 
     st.markdown("---")
 
     # --- MAIN PAGE CONTENT ---
     if auto_enabled:
-        # REPAIRED: Created new, distinct columns for the main layout to fix the overwrite error
         config_col, dashboard_col = st.columns([1, 2], gap="large")
 
-        # REPAIRED: Moved all configuration UI correctly inside this column
         with config_col:
             st.subheader("⚙️ Bot Configuration")
 
@@ -2455,21 +2463,24 @@ def page_fully_automated_bots(instrument_df):
                 st.session_state.automated_mode['bots_active'][bot_name] = st.checkbox(
                     bot_name,
                     value=st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False),
-                    key=f"auto_{bot_name}"
+                    key=f"auto_{bot_name}",
+                    disabled=is_running  # UPDATE: Disable when running
                 )
 
             st.markdown("---")
-            max_trades = st.slider("Max Open Trades", 1, 20, st.session_state.automated_mode.get('max_open_trades', 5))
-            st.session_state.automated_mode['max_open_trades'] = max_trades
+            max_trades = st.slider("Max Open Trades", 1, 20, st.session_state.automated_mode.get('max_open_trades', 5), disabled=is_running)
+            if not is_running:
+                st.session_state.automated_mode['max_open_trades'] = max_trades
 
             options = ["30 seconds", "1 minute", "5 minutes", "15 minutes"]
             try:
                 current_index = options.index(st.session_state.automated_mode.get('check_interval'))
             except (ValueError, KeyError):
-                current_index = 1 # Default to '1 minute'
+                current_index = 1
             
-            check_interval = st.selectbox("Analysis Frequency", options, index=current_index)
-            st.session_state.automated_mode['check_interval'] = check_interval
+            check_interval = st.selectbox("Analysis Frequency", options, index=current_index, disabled=is_running)
+            if not is_running:
+                st.session_state.automated_mode['check_interval'] = check_interval
 
             st.markdown("---")
             st.write("**📋 Trading Symbols**")
@@ -2493,15 +2504,14 @@ def page_fully_automated_bots(instrument_df):
                     p1, p2, p3 = st.columns([2, 1, 1])
                     p1.write(f"**{symbol}**")
                     p2.write(f"{pos_data.get('quantity', 0)} shares")
-                    if p3.button("Close", key=f"close_{symbol}", use_container_width=True):
+                    if p3.button("Close", key=f"close_{symbol}", use_container_width=True, disabled=not is_running):
                         close_paper_position(symbol)
                         st.rerun()
 
-        # REPAIRED: Moved all dashboard UI here with fully corrected indentation
         with dashboard_col:
             st.subheader("📊 Live Performance Dashboard")
 
-            if st.session_state.automated_mode.get('running', False):
+            if is_running:
                 st_autorefresh(interval=30000, key="auto_refresh")
                 if watchlist_symbols and any(st.session_state.automated_mode.get('bots_active', {}).values()):
                     run_automated_bots_cycle(instrument_df, watchlist_symbols)
@@ -2525,28 +2535,29 @@ def page_fully_automated_bots(instrument_df):
 
             st.markdown("---")
             st.subheader("📈 Performance Metrics")
+            
+            # UPDATE: Add a prefix for clarity (Paper vs. Live)
+            mode_prefix = "Live" if st.session_state.automated_mode.get('live_trading') else "Paper"
+            
             metrics = get_automated_bot_performance()
             paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
             m1, m2, m3 = st.columns(3)
-            m1.metric("Paper Portfolio Value", f"₹{paper_portfolio.get('total_value', 0):,.2f}")
-            m2.metric("Paper Return", f"{metrics.get('paper_return_pct', 0):.2f}%")
+            m1.metric(f"{mode_prefix} Portfolio Value", f"₹{paper_portfolio.get('total_value', 0):,.2f}")
+            m2.metric(f"{mode_prefix} Return", f"{metrics.get('paper_return_pct', 0):.2f}%")
             m3.metric("Cash Balance", f"₹{paper_portfolio.get('cash_balance', 0):,.2f}")
 
             m4, m5, m6, m7 = st.columns(4)
             m4.metric("Total Trades", metrics.get('total_trades', 0))
             m5.metric("Win Rate", f"{metrics.get('win_rate', 0):.1f}%")
-            m6.metric("Realized P&L", f"₹{metrics.get('total_pnl', 0):.2f}")
-            m7.metric("Unrealized P&L", f"₹{metrics.get('unrealized_pnl', 0):.2f}")
+            m6.metric(f"Realized P&L", f"₹{metrics.get('total_pnl', 0):.2f}")
+            m7.metric(f"Unrealized P&L", f"₹{metrics.get('unrealized_pnl', 0):.2f}")
 
             st.markdown("---")
             st.subheader("📋 Recent Trading Activity")
-            
-            # REPAIRED: Consolidated and cleaned up the duplicated/broken trade history logic
             recent_trades = st.session_state.automated_mode.get('trade_history', [])[-20:]
             if recent_trades:
                 trades_display = []
                 for trade in reversed(recent_trades):
-                    pnl = trade.get('pnl', 0)
                     trades_display.append({
                         'Time': datetime.fromisoformat(trade['timestamp']).strftime("%H:%M:%S") if trade.get('timestamp') else "N/A",
                         'Symbol': trade.get('symbol', 'N/A'),
@@ -2554,7 +2565,7 @@ def page_fully_automated_bots(instrument_df):
                         'Qty': trade.get('quantity', 0),
                         'Price': f"₹{trade.get('entry_price', 0):.2f}",
                         'Bot': trade.get('bot_name', 'N/A'),
-                        'P&L': f"₹{pnl:.2f}",
+                        'P&L': f"₹{trade.get('pnl', 0):.2f}",
                     })
                 
                 trades_df = pd.DataFrame(trades_display)
@@ -2572,7 +2583,7 @@ def page_fully_automated_bots(instrument_df):
                 st.caption("No trading activity recorded yet.")
 
     else:
-        # --- GETTING STARTED GUIDE (shown when automated mode is disabled) ---
+        # --- GETTING STARTED GUIDE ---
         st.subheader("🚀 Getting Started with Automated Trading")
         gs1, gs2 = st.columns(2)
         with gs1:
@@ -2590,6 +2601,26 @@ def page_fully_automated_bots(instrument_df):
             - Live P&L and performance tracking.
             - Risk-free strategy testing.
             - Building confidence before live trading.
+            """)
+        
+        st.markdown("---")
+        st.subheader("🤖 Available Automated Bots")
+        bot_col1, bot_col2 = st.columns(2)
+        with bot_col1:
+            st.markdown("""
+            #### Auto Momentum Trader
+            This bot is designed to identify and trade assets that are showing strong upward price momentum.
+            - **Strategy:** Buys into strength, aiming to ride a trend.
+            - **Indicators:** Uses a combination of RSI, MACD, and Exponential Moving Averages (EMA) to confirm strong trends.
+            - **Best For:** Markets that are clearly trending up or down.
+            """)
+        with bot_col2:
+            st.markdown("""
+            #### Auto Mean Reversion
+            This bot operates on the principle that asset prices tend to revert to their historical average over time.
+            - **Strategy:** Buys oversold assets and sells overbought assets, betting on a return to the mean.
+            - **Indicators:** Primarily uses Bollinger Bands and RSI to identify price extremes.
+            - **Best For:** Range-bound or sideways markets without a strong directional trend.
             """)
 
 # ================ AUTOMATED MODE HELPER FUNCTIONS ================
