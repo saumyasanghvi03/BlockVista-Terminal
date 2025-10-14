@@ -2543,7 +2543,7 @@ def page_fully_automated_bots(instrument_df):
                         close_paper_position(symbol)
                         st.rerun()
         
-        with col6:
+    with col6:
     st.subheader("📊 Live Performance Dashboard")
     
     if st.session_state.automated_mode.get('running', False):
