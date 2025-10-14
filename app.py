@@ -2472,8 +2472,8 @@ def page_fully_automated_bots(instrument_df):
         # Bot configuration and performance dashboard
         col5, col6 = st.columns([1, 2])
         
-    with col5:
-    st.subheader("⚙️ Bot Configuration")
+        with col5:
+            st.subheader("⚙️ Bot Configuration")
     
     # Bot activation (Simplified logic)
     st.write("**Activate Bots:**")
