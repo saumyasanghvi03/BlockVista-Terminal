@@ -2398,24 +2398,25 @@ def page_fully_automated_bots(instrument_df):
             st.button("Start Trading", use_container_width=True, disabled=True)
 
     with top_col4:
-        current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
-        validated_capital = max(1000.0, current_capital)
-        
-        total_capital = st.number_input(
-            "Total Capital (₹)",
-            min_value=1000.0,
-            max_value=1000000.0,
-            value=validated_capital,
-            step=1000.0,
-            key="auto_capital",
-            disabled=is_running
-        )
-        if not is_running:
-             st.session_state.automated_mode['total_capital'] = total_capital
-             if not st.session_state.automated_mode.get('paper_portfolio', {}).get('positions'):
-                 st.session_state.automated_mode['paper_portfolio']['initial_capital'] = total_capital
-                 st.session_state.automated_mode['paper_portfolio']['cash_balance'] = total_capital
-                 st.session_state.automated_mode['paper_portfolio']['total_value'] = total_capital
+    current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
+    # MODIFIED: Validation now uses 100.0 as the floor
+    validated_capital = max(100.0, current_capital)
+    
+    total_capital = st.number_input(
+        "Total Capital (₹)",
+        min_value=100.0,  # MODIFIED: Minimum value is now 100
+        max_value=1000000.0,
+        value=validated_capital,
+        step=100.0,      # MODIFIED: Step adjusted for the new minimum
+        key="auto_capital",
+        disabled=is_running
+    )
+    if not is_running:
+         st.session_state.automated_mode['total_capital'] = total_capital
+         if not st.session_state.automated_mode.get('paper_portfolio', {}).get('positions'):
+             st.session_state.automated_mode['paper_portfolio']['initial_capital'] = total_capital
+             st.session_state.automated_mode['paper_portfolio']['cash_balance'] = total_capital
+             st.session_state.automated_mode['paper_portfolio']['total_value'] = total_capital
 
     with top_col5:
         risk_per_trade = st.number_input(
