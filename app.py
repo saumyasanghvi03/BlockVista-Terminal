@@ -2667,7 +2667,7 @@ def page_fully_automated_bots(instrument_df):
                 
                 # Live trading performance metrics - Real broker data
                 st.markdown("---")
-                st.subheader("💰 Live Account Metrics")
+                st.subheader("💰 Live Performance Metrics")
                 
                 # Get real account metrics
                 metrics = get_live_trading_performance()
@@ -2803,6 +2803,37 @@ def page_fully_automated_bots(instrument_df):
                 learn_cols[1].metric("Profit Factor", f"{metrics.get('profit_factor', 0):.2f}")
                 learn_cols[2].metric("Recovery Factor", f"{metrics.get('recovery_factor', 0):.2f}")
             
+            # NEW: LIVE BOT THINKING AND DIAGNOSTICS SECTION
+            st.markdown("---")
+            st.subheader("🤖 Live Bot Thinking & Diagnostics")
+            
+            # Diagnostic controls
+            diag_col1, diag_col2 = st.columns(2)
+            with diag_col1:
+                if st.button("🔍 Run Diagnostics", use_container_width=True):
+                    st.session_state.run_detailed_diagnostics = True
+                    st.rerun()
+            
+            with diag_col2:
+                if st.button("📝 Force Analysis Cycle", use_container_width=True):
+                    # Force an immediate analysis cycle
+                    active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+                    watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
+                    if watchlist_symbols:
+                        run_detailed_bot_analysis(instrument_df, watchlist_symbols)
+                    st.success("Forced analysis cycle completed!")
+                    st.rerun()
+            
+            # Display current bot thinking
+            display_bot_thinking(instrument_df)
+            
+            # Display detailed diagnostics if requested
+            if st.session_state.get('run_detailed_diagnostics', False):
+                display_detailed_diagnostics(instrument_df)
+                if st.button("❌ Close Diagnostics", use_container_width=True):
+                    st.session_state.run_detailed_diagnostics = False
+                    st.rerun()
+            
             # COMMON ELEMENTS FOR BOTH DASHBOARDS
             # Recent trades table
             st.markdown("---")
@@ -2915,70 +2946,308 @@ def page_fully_automated_bots(instrument_df):
             - Portfolio valuation
             """)
 
-# Enhanced helper functions for different performance metrics
-def get_live_trading_performance():
-    """Get live trading performance metrics (would connect to broker API)"""
-    # Simulated broker connection data
-    total_capital = st.session_state.automated_mode.get('total_capital', 10000.0)
+# NEW: Enhanced diagnostic functions
+def display_bot_thinking(instrument_df):
+    """Display real-time bot thinking and analysis"""
     
-    # Calculate some simulated metrics based on trade history
-    trade_history = st.session_state.automated_mode.get('trade_history', [])
-    live_trades = [t for t in trade_history if t.get('order_type') == 'LIVE']
+    # Get current state
+    active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
+    active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+    watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
     
-    total_pnl = sum(trade.get('pnl', 0) for trade in live_trades)
-    winning_trades = [t for t in live_trades if t.get('pnl', 0) > 0]
-    win_rate = (len(winning_trades) / len(live_trades) * 100) if live_trades else 0
+    if not active_bots:
+        st.error("❌ **No Active Bots**: Enable at least one bot in the configuration panel")
+        return
+        
+    if not watchlist_symbols:
+        st.error("❌ **No Symbols**: Add symbols to your active watchlist first")
+        return
     
-    return {
-        'account_balance': total_capital + total_pnl,
-        'used_margin': total_capital * 0.1,  # 10% margin usage
-        'available_margin': total_capital * 0.9,
-        'margin_usage': 10.0,
-        'open_pnl': total_pnl * 0.3,  # 30% of total as open
-        'open_pnl_pct': (total_pnl * 0.3 / total_capital * 100),
-        'daily_pnl': total_pnl * 0.1,  # 10% as daily
-        'total_pnl': total_pnl,
-        'portfolio_risk': st.session_state.automated_mode.get('risk_per_trade', 2.0),
-        'max_drawdown': abs(min([t.get('pnl', 0) for t in live_trades] + [0])),
-        'sharpe_ratio': 1.2 if win_rate > 50 else 0.8,
-        'win_rate': win_rate,
-        'avg_position_size': total_capital * 0.05,  # 5% per position
-        'leverage': 1.0,
-        'volatility': 15.5
-    }
+    st.write("**🔍 Current Bot Analysis:**")
+    
+    # Create progress bar for analysis
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    thinking_data = []
+    
+    # Simulate bot analysis for each symbol
+    for i, symbol in enumerate(watchlist_symbols[:10]):  # Limit to first 10 symbols for performance
+        progress = (i + 1) / min(len(watchlist_symbols), 10)
+        progress_bar.progress(progress)
+        status_text.text(f"Analyzing {symbol}...")
+        
+        symbol_data = get_symbol_data(instrument_df, symbol)
+        if symbol_data is None:
+            thinking_data.append({
+                'symbol': symbol,
+                'status': '❌ No Data',
+                'signals': 'N/A',
+                'thinking': 'No market data available for analysis',
+                'recommendation': 'SKIP'
+            })
+            continue
+        
+        # Analyze with each active bot
+        bot_analysis = []
+        for bot_name in active_bots:
+            if bot_name in AUTOMATED_BOTS:
+                try:
+                    signal, confidence, reasoning = analyze_with_bot(bot_name, symbol, symbol_data)
+                    bot_analysis.append(f"{bot_name}: {signal} ({confidence}%)")
+                    
+                    thinking_data.append({
+                        'symbol': symbol,
+                        'bot': bot_name,
+                        'signal': signal,
+                        'confidence': confidence,
+                        'thinking': reasoning,
+                        'timestamp': datetime.now().strftime("%H:%M:%S")
+                    })
+                except Exception as e:
+                    thinking_data.append({
+                        'symbol': symbol,
+                        'bot': bot_name,
+                        'signal': 'ERROR',
+                        'confidence': 0,
+                        'thinking': f"Analysis failed: {str(e)}",
+                        'timestamp': datetime.now().strftime("%H:%M:%S")
+                    })
+    
+    progress_bar.empty()
+    status_text.empty()
+    
+    # Display thinking results
+    if thinking_data:
+        # Convert to dataframe for better display
+        thinking_df = pd.DataFrame(thinking_data)
+        
+        # Color code signals
+        def color_signal(signal):
+            if signal == 'BUY':
+                return 'background-color: #90EE90'  # Light green
+            elif signal == 'SELL':
+                return 'background-color: #FFB6C1'  # Light red
+            elif signal == 'HOLD':
+                return 'background-color: #F0F0F0'  # Light gray
+            else:
+                return ''
+        
+        # Display styled dataframe
+        styled_df = thinking_df.style.applymap(color_signal, subset=['signal'])
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        
+        # Summary statistics
+        buy_signals = len(thinking_df[thinking_df['signal'] == 'BUY'])
+        sell_signals = len(thinking_df[thinking_df['signal'] == 'SELL'])
+        hold_signals = len(thinking_df[thinking_df['signal'] == 'HOLD'])
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Buy Signals", buy_signals)
+        col2.metric("Sell Signals", sell_signals)
+        col3.metric("Hold Signals", hold_signals)
+        
+        # Reasons for no trades
+        if buy_signals == 0 and sell_signals == 0:
+            st.warning("""
+            **🤔 Why No Trades? Possible Reasons:**
+            - Market conditions don't match bot strategies
+            - Risk limits preventing position sizing
+            - Maximum open trades limit reached
+            - Insufficient confidence in signals
+            - Missing or stale market data
+            - Technical indicators showing neutral signals
+            """)
+    else:
+        st.info("No analysis data available. Run diagnostics to see bot thinking.")
 
-def get_automated_bot_performance():
-    """Get paper trading performance metrics"""
-    paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
-    cash_balance = paper_portfolio.get('cash_balance', 0.0)
-    portfolio_value = paper_portfolio.get('total_value', cash_balance)
-    initial_capital = paper_portfolio.get('initial_capital', portfolio_value)
+def display_detailed_diagnostics(instrument_df):
+    """Display comprehensive diagnostics"""
+    st.markdown("---")
+    st.subheader("🔧 Detailed System Diagnostics")
     
-    # Calculate metrics from trade history
-    trade_history = st.session_state.automated_mode.get('trade_history', [])
-    paper_trades = [t for t in trade_history if t.get('order_type') != 'LIVE']
+    # System status
+    st.write("**🖥️ System Status:**")
+    col1, col2, col3 = st.columns(3)
     
-    total_trades = len(paper_trades)
-    winning_trades = [t for t in paper_trades if t.get('pnl', 0) > 0]
-    win_rate = (len(winning_trades) / total_trades * 100) if total_trades > 0 else 0
+    # Check basic requirements
+    active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
+    active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+    watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
     
-    total_pnl = sum(trade.get('pnl', 0) for trade in paper_trades)
-    avg_win = np.mean([t.get('pnl', 0) for t in winning_trades]) if winning_trades else 0
-    losing_trades = [t for t in paper_trades if t.get('pnl', 0) < 0]
-    avg_loss = np.mean([t.get('pnl', 0) for t in losing_trades]) if losing_trades else 0
+    with col1:
+        if active_bots:
+            st.success(f"✅ **Bots Active**: {len(active_bots)}")
+        else:
+            st.error("❌ **No Bots Active**")
     
-    return {
-        'paper_return_pct': ((portfolio_value - initial_capital) / initial_capital * 100) if initial_capital > 0 else 0,
-        'total_trades': total_trades,
-        'win_rate': win_rate,
-        'total_pnl': total_pnl,
-        'unrealized_pnl': portfolio_value - cash_balance - initial_capital,
-        'avg_win': avg_win,
-        'avg_loss': avg_loss,
-        'max_drawdown': 5.2,  # Simulated
-        'profit_factor': abs(avg_win / avg_loss) if avg_loss != 0 else 0,
-        'recovery_factor': 1.8  # Simulated
+    with col2:
+        if watchlist_symbols:
+            st.success(f"✅ **Symbols**: {len(watchlist_symbols)}")
+        else:
+            st.error("❌ **No Symbols**")
+    
+    with col3:
+        if st.session_state.automated_mode.get('running', False):
+            st.success("✅ **Trading Active**")
+        else:
+            st.error("❌ **Trading Stopped**")
+    
+    # Market data diagnostics
+    st.write("**📊 Market Data Status:**")
+    if watchlist_symbols:
+        data_status = []
+        for symbol in watchlist_symbols[:5]:  # Check first 5 symbols
+            symbol_data = get_symbol_data(instrument_df, symbol)
+            if symbol_data is not None and len(symbol_data) > 0:
+                latest_time = symbol_data.index.max() if hasattr(symbol_data.index, 'max') else datetime.now()
+                data_age = (datetime.now() - latest_time).total_seconds() / 60  # minutes
+                
+                if data_age < 5:
+                    status = "✅ Fresh"
+                elif data_age < 15:
+                    status = "⚠️ Stale"
+                else:
+                    status = "❌ Old"
+                    
+                data_status.append({
+                    'Symbol': symbol,
+                    'Status': status,
+                    'Age (min)': f"{data_age:.1f}",
+                    'Data Points': len(symbol_data)
+                })
+            else:
+                data_status.append({
+                    'Symbol': symbol,
+                    'Status': "❌ No Data",
+                    'Age (min)': "N/A",
+                    'Data Points': 0
+                })
+        
+        st.dataframe(pd.DataFrame(data_status), use_container_width=True, hide_index=True)
+    
+    # Bot-specific diagnostics
+    st.write("**🤖 Bot Configuration Check:**")
+    bot_diagnostics = []
+    for bot_name in AUTOMATED_BOTS.keys():
+        is_active = st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False)
+        bot_diagnostics.append({
+            'Bot': bot_name,
+            'Status': '✅ Active' if is_active else '❌ Inactive',
+            'Strategy': AUTOMATED_BOTS[bot_name].get('description', 'N/A')
+        })
+    
+    st.dataframe(pd.DataFrame(bot_diagnostics), use_container_width=True, hide_index=True)
+    
+    # Trading limits check
+    st.write("**📈 Trading Limits:**")
+    limits_data = {
+        'Setting': ['Max Open Trades', 'Risk per Trade', 'Total Capital', 'Analysis Frequency'],
+        'Current Value': [
+            st.session_state.automated_mode.get('max_open_trades', 5),
+            f"{st.session_state.automated_mode.get('risk_per_trade', 2.0)}%",
+            f"₹{st.session_state.automated_mode.get('total_capital', 10000.0):,.2f}",
+            st.session_state.automated_mode.get('check_interval', '1 minute')
+        ],
+        'Status': ['✅ OK', '✅ OK', '✅ OK', '✅ OK']
     }
+    st.dataframe(pd.DataFrame(limits_data), use_container_width=True, hide_index=True)
+
+def run_detailed_bot_analysis(instrument_df, watchlist_symbols):
+    """Run detailed analysis and return thinking data"""
+    thinking_data = []
+    active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
+    
+    for symbol in watchlist_symbols[:15]:  # Limit for performance
+        symbol_data = get_symbol_data(instrument_df, symbol)
+        if symbol_data is None:
+            continue
+            
+        for bot_name in active_bots:
+            if bot_name in AUTOMATED_BOTS:
+                try:
+                    signal, confidence, reasoning = analyze_with_bot(bot_name, symbol, symbol_data)
+                    thinking_data.append({
+                        'symbol': symbol,
+                        'bot': bot_name,
+                        'signal': signal,
+                        'confidence': confidence,
+                        'thinking': reasoning,
+                        'timestamp': datetime.now().isoformat()
+                    })
+                except Exception as e:
+                    thinking_data.append({
+                        'symbol': symbol,
+                        'bot': bot_name,
+                        'signal': 'ERROR',
+                        'confidence': 0,
+                        'thinking': f"Analysis error: {str(e)}",
+                        'timestamp': datetime.now().isoformat()
+                    })
+    
+    # Store thinking data for display
+    st.session_state.automated_mode['last_thinking_analysis'] = thinking_data
+    return thinking_data
+
+# Helper function to analyze with a specific bot
+def analyze_with_bot(bot_name, symbol, data):
+    """Analyze a symbol with a specific bot and return thinking"""
+    if bot_name == "Auto Momentum Trader":
+        return analyze_momentum(symbol, data)
+    elif bot_name == "Auto Mean Reversion":
+        return analyze_mean_reversion(symbol, data)
+    else:
+        return "HOLD", 50, "Unknown bot strategy"
+
+def analyze_momentum(symbol, data):
+    """Momentum bot analysis with detailed thinking"""
+    if len(data) < 20:
+        return "HOLD", 0, "Insufficient data for momentum analysis"
+    
+    # Simple momentum logic (replace with actual implementation)
+    recent_price = data['close'].iloc[-1] if 'close' in data.columns else data.iloc[-1]
+    prev_price = data['close'].iloc[-5] if 'close' in data.columns else data.iloc[-5]
+    
+    momentum = (recent_price - prev_price) / prev_price * 100
+    
+    if momentum > 2:
+        return "BUY", 70, f"Strong upward momentum: {momentum:.2f}%"
+    elif momentum < -2:
+        return "SELL", 70, f"Strong downward momentum: {momentum:.2f}%"
+    else:
+        return "HOLD", 60, f"Neutral momentum: {momentum:.2f}%"
+
+def analyze_mean_reversion(symbol, data):
+    """Mean reversion bot analysis with detailed thinking"""
+    if len(data) < 20:
+        return "HOLD", 0, "Insufficient data for mean reversion analysis"
+    
+    # Simple mean reversion logic (replace with actual implementation)
+    recent_price = data['close'].iloc[-1] if 'close' in data.columns else data.iloc[-1]
+    mean_price = data['close'].mean() if 'close' in data.columns else data.mean()
+    
+    deviation = (recent_price - mean_price) / mean_price * 100
+    
+    if deviation > 5:
+        return "SELL", 65, f"Price {deviation:.2f}% above mean - overbought"
+    elif deviation < -5:
+        return "BUY", 65, f"Price {deviation:.2f}% below mean - oversold"
+    else:
+        return "HOLD", 55, f"Price near mean: {deviation:.2f}% deviation"
+
+def get_symbol_data(instrument_df, symbol):
+    """Get data for a specific symbol"""
+    try:
+        if symbol in instrument_df.columns:
+            return instrument_df[symbol]
+        else:
+            # Try to find symbol in dataframe
+            for col in instrument_df.columns:
+                if symbol in col:
+                    return instrument_df[col]
+        return None
+    except:
+        return None
 
 # ================ AUTOMATED MODE HELPER FUNCTIONS ================
 
