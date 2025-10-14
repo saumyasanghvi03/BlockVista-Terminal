@@ -2321,6 +2321,15 @@ from datetime import datetime
 # from streamlit_autorefresh import st_autorefresh
 # AUTOMATED_BOTS = {"Auto Momentum Trader": None, "Auto Mean Reversion": None}
 
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
+# These are assumed to be defined elsewhere in your application
+# from your_utils import initialize_automated_mode, update_paper_portfolio_values, close_paper_position, run_automated_bots_cycle, get_automated_bot_performance
+# from streamlit_autorefresh import st_autorefresh
+# AUTOMATED_BOTS = {"Auto Momentum Trader": None, "Auto Mean Reversion": None}
+
 def page_fully_automated_bots(instrument_df):
     """Fully automated bots page with comprehensive paper trading simulation."""
     st.warning("🚨 **LIVE TRADING WARNING**: Automated bots can execute real trades with real money! Use at your own risk.", icon="⚠️")
@@ -2338,6 +2347,7 @@ def page_fully_automated_bots(instrument_df):
         }
 
     # --- TOP CONTROL PANEL ---
+    # REPAIRED: Renamed columns to avoid conflicts (top_col1, etc.)
     top_col1, top_col2, top_col3, top_col4, top_col5 = st.columns(5)
 
     with top_col1:
@@ -2355,7 +2365,7 @@ def page_fully_automated_bots(instrument_df):
             value=st.session_state.automated_mode.get('live_trading', False),
             help="WARNING: This will place REAL orders with REAL money!",
             key="live_trading_toggle",
-            disabled=st.session_state.automated_mode.get('running', False) # Disable if bots are running
+            disabled=st.session_state.automated_mode.get('running', False) # IMPROVEMENT: Disable if bots are running
         )
         st.session_state.automated_mode['live_trading'] = live_trading
 
@@ -2379,23 +2389,25 @@ def page_fully_automated_bots(instrument_df):
             st.button("Start Trading", use_container_width=True, disabled=True)
 
     with top_col4:
+        current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
+        validated_capital = max(1000.0, current_capital) # Ensure value is never below min
+        
         total_capital = st.number_input(
             "Total Capital (₹)",
-            min_value=1000.0,
+            min_value=1000.0,  # REPAIRED: Matched min_value to validation logic
             max_value=1000000.0,
-            value=float(st.session_state.automated_mode.get('total_capital', 10000.0)),
+            value=validated_capital,
             step=1000.0,
-            help="Set the initial capital for paper trading.",
             key="auto_capital",
-            disabled=st.session_state.automated_mode.get('running', False) # Disable if running
+            disabled=st.session_state.automated_mode.get('running', False) # IMPROVEMENT: Disable if running
         )
         if not st.session_state.automated_mode.get('running', False):
              st.session_state.automated_mode['total_capital'] = total_capital
-             # Reset paper portfolio to new capital value
-             st.session_state.automated_mode['paper_portfolio']['initial_capital'] = total_capital
-             st.session_state.automated_mode['paper_portfolio']['cash_balance'] = total_capital
-             st.session_state.automated_mode['paper_portfolio']['total_value'] = total_capital
-
+             # Reset paper portfolio to new capital value if there are no open positions
+             if not st.session_state.automated_mode.get('paper_portfolio', {}).get('positions'):
+                 st.session_state.automated_mode['paper_portfolio']['initial_capital'] = total_capital
+                 st.session_state.automated_mode['paper_portfolio']['cash_balance'] = total_capital
+                 st.session_state.automated_mode['paper_portfolio']['total_value'] = total_capital
 
     with top_col5:
         risk_per_trade = st.number_input(
@@ -2404,7 +2416,6 @@ def page_fully_automated_bots(instrument_df):
             max_value=5.0,
             value=float(st.session_state.automated_mode.get('risk_per_trade', 2.0)),
             step=0.5,
-            help="Percentage of total capital to risk on a single trade",
             key="auto_risk"
         )
         st.session_state.automated_mode['risk_per_trade'] = risk_per_trade
@@ -2430,10 +2441,10 @@ def page_fully_automated_bots(instrument_df):
 
     # --- MAIN PAGE CONTENT ---
     if auto_enabled:
-        # REPAIRED: Use new, distinct names for columns to avoid overwriting
+        # REPAIRED: Created new, distinct columns for the main layout to fix the overwrite error
         config_col, dashboard_col = st.columns([1, 2], gap="large")
 
-        # REPAIRED: All configuration UI is now correctly placed inside this column
+        # REPAIRED: Moved all configuration UI correctly inside this column
         with config_col:
             st.subheader("⚙️ Bot Configuration")
 
@@ -2452,12 +2463,13 @@ def page_fully_automated_bots(instrument_df):
             st.session_state.automated_mode['max_open_trades'] = max_trades
 
             options = ["30 seconds", "1 minute", "5 minutes", "15 minutes"]
-            check_interval = st.selectbox(
-                "Analysis Frequency", options,
-                index=st.session_state.automated_mode.get('check_interval_index', 1)
-            )
+            try:
+                current_index = options.index(st.session_state.automated_mode.get('check_interval'))
+            except (ValueError, KeyError):
+                current_index = 1 # Default to '1 minute'
+            
+            check_interval = st.selectbox("Analysis Frequency", options, index=current_index)
             st.session_state.automated_mode['check_interval'] = check_interval
-            st.session_state.automated_mode['check_interval_index'] = options.index(check_interval)
 
             st.markdown("---")
             st.write("**📋 Trading Symbols**")
@@ -2485,7 +2497,7 @@ def page_fully_automated_bots(instrument_df):
                         close_paper_position(symbol)
                         st.rerun()
 
-        # REPAIRED: All dashboard UI with corrected indentation
+        # REPAIRED: Moved all dashboard UI here with fully corrected indentation
         with dashboard_col:
             st.subheader("📊 Live Performance Dashboard")
 
@@ -2529,7 +2541,7 @@ def page_fully_automated_bots(instrument_df):
             st.markdown("---")
             st.subheader("📋 Recent Trading Activity")
             
-            # REPAIRED: Consolidated and cleaned up recent trades logic
+            # REPAIRED: Consolidated and cleaned up the duplicated/broken trade history logic
             recent_trades = st.session_state.automated_mode.get('trade_history', [])[-20:]
             if recent_trades:
                 trades_display = []
@@ -2548,10 +2560,10 @@ def page_fully_automated_bots(instrument_df):
                 trades_df = pd.DataFrame(trades_display)
                 st.dataframe(trades_df, use_container_width=True, hide_index=True)
 
-                csv = trades_df.to_csv(index=False).encode('utf-8')
+                csv_data = trades_df.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📥 Export Trade History",
-                    data=csv,
+                    data=csv_data,
                     file_name=f"trade_history_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime='text/csv',
                     use_container_width=True
@@ -2579,6 +2591,7 @@ def page_fully_automated_bots(instrument_df):
             - Risk-free strategy testing.
             - Building confidence before live trading.
             """)
+
 # ================ AUTOMATED MODE HELPER FUNCTIONS ================
 
 # ================ AUTOMATED MODE HELPER FUNCTIONS ================
