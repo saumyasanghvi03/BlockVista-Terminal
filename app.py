@@ -30,8 +30,6 @@ import requests
 import hashlib
 import random
 
-
-
 # ================ 1. STYLING AND CONFIGURATION ===============
 
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -340,48 +338,7 @@ def get_market_holidays(year):
     }
     return holidays_by_year.get(year, [])
 
-def get_market_status():
-    """Checks if the Indian stock market is open."""
-    ist = pytz.timezone('Asia/Kolkata')
-    now = datetime.now(ist)
-    holidays = get_market_holidays(now.year)
-    market_open_time, market_close_time = time(9, 15), time(15, 30)
-    
-    if now.weekday() >= 5 or now.strftime('%Y-%m-%d') in holidays:
-        return {"status": "CLOSED", "color": "#FF4B4B"}
-    if market_open_time <= now.time() <= market_close_time:
-        return {"status": "OPEN", "color": "#28a745"}
-    return {"status": "CLOSED", "color": "#FF4B4B"}
-
-def display_header():
-    """Displays the main header with market status, a live clock, and trade buttons."""
-    status_info = get_market_status()
-    ist = pytz.timezone('Asia/Kolkata')
-    current_time = datetime.now(ist).strftime("%H:%M:%S IST")
-    
-    col1, col2, col3 = st.columns([2, 2, 1])
-    
-    with col1:
-        st.markdown('<h1 style="margin: 0; line-height: 1.2;">BlockVista Terminal</h1>', unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-            <div style="text-align: right;">
-                <h5 style="margin: 0;">{current_time}</h5>
-                <h5 style="margin: 0;">Market: <span style='color:{status_info["color"]}; font-weight: bold;'>{status_info["status"]}</span></h5>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        b_col1, b_col2 = st.columns(2)
-        if b_col1.button("Buy", use_container_width=True, key="header_buy"):
-            st.session_state.show_quick_trade = True
-            st.rerun()
-        if b_col2.button("Sell", use_container_width=True, key="header_sell"):
-            st.session_state.show_quick_trade = True
-            st.rerun()
-
-    st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+# =============================================================================
     
 def display_overnight_changes_bar():
     """Displays a notification bar with overnight market changes."""
@@ -400,6 +357,141 @@ def display_overnight_changes_bar():
                     bar_html += f"<span>{name}: {price:,.2f} <span style='color:{color};'>({change:+.2f}%)</span></span>"
         bar_html += "</div>"
         st.markdown(bar_html, unsafe_allow_html=True)
+
+# =============================================================================
+# MARKET TIMING FUNCTIONS - REPLACE EXISTING ONES
+# =============================================================================
+
+def is_market_hours():
+    """Check if current time is within market hours (9:15 AM to 3:30 PM, Monday to Friday)"""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    current_time = now.time()
+    current_day = now.weekday()  # Monday=0, Sunday=6
+    
+    # Check if it's a weekday (Monday to Friday)
+    if current_day >= 5:  # Saturday (5) or Sunday (6)
+        return False
+    
+    # Market hours: 9:15 AM to 3:30 PM
+    market_open = time(9, 15)
+    market_close = time(15, 30)
+    
+    return market_open <= current_time <= market_close
+
+def is_pre_market_hours():
+    """Check if current time is pre-market hours (9:00 AM to 9:15 AM, Monday to Friday)"""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    current_time = now.time()
+    current_day = now.weekday()
+    
+    # Check if it's a weekday
+    if current_day >= 5:
+        return False
+    
+    # Pre-market hours: 9:00 AM to 9:15 AM
+    pre_market_start = time(9, 0)
+    market_open = time(9, 15)
+    
+    return pre_market_start <= current_time < market_open
+
+def is_square_off_time():
+    """Check if current time is square-off time for Equity/Cash (3:20 PM to 3:30 PM, Monday to Friday)"""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    current_time = now.time()
+    current_day = now.weekday()
+    
+    # Check if it's a weekday
+    if current_day >= 5:  # Saturday or Sunday
+        return False
+    
+    # Square-off time for Equity/Cash: 3:20 PM to 3:30 PM
+    square_off_start = time(15, 20)  # 3:20 PM
+    square_off_end = time(15, 30)    # 3:30 PM
+    
+    return square_off_start <= current_time <= square_off_end
+
+def is_derivatives_square_off_time():
+    """Check if current time is square-off time for Equity/Index Derivatives (3:25 PM to 3:30 PM)"""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    current_time = now.time()
+    current_day = now.weekday()
+    
+    if current_day >= 5:
+        return False
+    
+    # Square-off time for Derivatives: 3:25 PM to 3:30 PM
+    square_off_start = time(15, 25)  # 3:25 PM
+    square_off_end = time(15, 30)    # 3:30 PM
+    
+    return square_off_start <= current_time <= square_off_end
+
+def get_market_status():
+    """Get current market status and next market event"""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    current_time = now.time()
+    current_day = now.weekday()
+    current_date = now.date()
+    
+    # Get holidays for current year
+    holidays = get_market_holidays(now.year)
+    
+    # Check if today is a holiday
+    if current_date.strftime('%Y-%m-%d') in holidays:
+        next_market = now + timedelta(days=1)
+        # Skip weekends and holidays
+        while next_market.weekday() >= 5 or next_market.strftime('%Y-%m-%d') in holidays:
+            next_market += timedelta(days=1)
+        next_market = next_market.replace(hour=9, minute=0, second=0, microsecond=0)
+        return "holiday", next_market
+    
+    # Weekend check
+    if current_day >= 5:  # Saturday or Sunday
+        days_until_monday = (7 - current_day) % 7
+        if days_until_monday == 0:  # Already Monday? (shouldn't happen but safe)
+            days_until_monday = 7
+        next_market = now + timedelta(days=days_until_monday)
+        return "weekend", next_market.replace(hour=9, minute=0, second=0, microsecond=0)
+    
+    # Market timing definitions
+    pre_market_start = time(9, 0)
+    market_open = time(9, 15)
+    equity_square_off = time(15, 20)  # 3:20 PM for Equity/Cash
+    derivatives_square_off = time(15, 25)  # 3:25 PM for Derivatives
+    market_close = time(15, 30)
+    
+    if current_time < pre_market_start:
+        # Before pre-market (overnight)
+        next_market = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        return "market_closed", next_market
+    elif pre_market_start <= current_time < market_open:
+        # Pre-market hours (9:00 AM to 9:15 AM)
+        next_market = now.replace(hour=9, minute=15, second=0, microsecond=0)
+        return "pre_market", next_market
+    elif market_open <= current_time < equity_square_off:
+        # Market open (9:15 AM to 3:20 PM)
+        next_market = now.replace(hour=15, minute=20, second=0, microsecond=0)
+        return "market_open", next_market
+    elif equity_square_off <= current_time < derivatives_square_off:
+        # Equity square-off time (3:20 PM to 3:25 PM)
+        next_market = now.replace(hour=15, minute=25, second=0, microsecond=0)
+        return "equity_square_off", next_market
+    elif derivatives_square_off <= current_time <= market_close:
+        # Derivatives square-off time (3:25 PM to 3:30 PM)
+        next_market = now.replace(hour=15, minute=30, second=0, microsecond=0)
+        return "derivatives_square_off", next_market
+    else:
+        # Market closed for the day (after 3:30 PM)
+        next_day = now + timedelta(days=1)
+        # Skip weekends and holidays
+        while next_day.weekday() >= 5 or next_day.strftime('%Y-%m-%d') in holidays:
+            next_day += timedelta(days=1)
+        next_market = next_day.replace(hour=9, minute=0, second=0, microsecond=0)
+        return "market_closed", next_market
 
 # ================ 3. CORE DATA & CHARTING FUNCTIONS ================
 
@@ -2668,51 +2760,72 @@ def page_fully_automated_bots(instrument_df):
     # Initialize automated mode if not exists
     if 'automated_mode' not in st.session_state:
         initialize_automated_mode()
-    
-    # Ensure paper_portfolio exists
-    if 'paper_portfolio' not in st.session_state.automated_mode:
-        st.session_state.automated_mode['paper_portfolio'] = {
-            'cash_balance': st.session_state.automated_mode.get('total_capital', 10000.0),
-            'positions': {},
-            'initial_capital': st.session_state.automated_mode.get('total_capital', 1000.0),
-            'total_value': st.session_state.automated_mode.get('total_capital', 10000.0)
-        }
+    else:
+        # Ensure paper_portfolio exists (migration for existing sessions)
+        if 'paper_portfolio' not in st.session_state.automated_mode:
+            st.session_state.automated_mode['paper_portfolio'] = {
+                'cash_balance': st.session_state.automated_mode.get('total_capital', 10000.0),
+                'positions': {},
+                'initial_capital': st.session_state.automated_mode.get('total_capital', 1000.0),
+                'total_value': st.session_state.automated_mode.get('total_capital', 10000.0)
+            }
     
     # Fix the total_capital value if it's below minimum
     current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
     if current_capital < 1000.0:
         st.session_state.automated_mode['total_capital'] = 10000.0
     
-    # Get market status
-    market_status, next_market = get_market_status()
+    # Get market status with error handling
+    try:
+        market_status, next_market = get_market_status()
+    except Exception as e:
+        st.error(f"Error getting market status: {e}")
+        market_status = "unknown"
+        next_market = datetime.now()
     
-    # 🎯 ENHANCED MARKET STATUS WITH TICKER THEMES
+    # 🎯 ENHANCED MARKET STATUS WITH SEGMENT TIMING
     st.markdown("---")
     
     if market_status == "market_open":
+        time_left = datetime.combine(datetime.now().date(), time(15, 20)) - datetime.now()
+        minutes_left = time_left.seconds // 60
+        st.success(f"🟢 **MARKET OPEN** | Equity square-off at 3:20 PM | {minutes_left} minutes | {current_time}")
+        
+    elif market_status == "equity_square_off":
+        time_left = datetime.combine(datetime.now().date(), time(15, 25)) - datetime.now()
+        minutes_left = time_left.seconds // 60
+        st.error(f"🔴 **EQUITY SQUARE-OFF** | Derivatives square-off in {minutes_left} minutes | {current_time}")
+        
+    elif market_status == "derivatives_square_off":
         time_left = datetime.combine(datetime.now().date(), time(15, 30)) - datetime.now()
         minutes_left = time_left.seconds // 60
-        # Green theme for market open
-        st.success(f"🟢 **MARKET OPEN** | Live trading enabled | Closes in: {minutes_left} minutes | {current_time}")
-    elif market_status == "square_off_time":
-        time_left = datetime.combine(datetime.now().date(), time(15, 30)) - datetime.now()
-        minutes_left = time_left.seconds // 60
-        # Red theme for square-off time
-        st.error(f"🔴 **SQUARE-OFF TIME** | Close positions in: {minutes_left} minutes | {current_time}")
+        st.error(f"🚨 **DERIVATIVES SQUARE-OFF** | Market closes in {minutes_left} minutes | {current_time}")
+        
     elif market_status == "pre_market":
-        st.info(f"⏰ **PRE-MARKET** | Live trading starts at 9:15 AM | {current_time}")
+        time_left = datetime.combine(datetime.now().date(), time(9, 15)) - datetime.now()
+        minutes_left = time_left.seconds // 60
+        st.info(f"⏰ **PRE-MARKET** | Live trading starts in {minutes_left} minutes | {current_time}")
+        
     elif market_status == "market_closed":
         st.info(f"🔴 **MARKET CLOSED** | Live trading available tomorrow at 9:15 AM | {current_time}")
-    else:  # weekend
+        
+    else:  # weekend or unknown
         st.info(f"🎉 **WEEKEND** | Markets closed | Paper trading available | {current_time}")
     
-    # 🎯 ENHANCED AUTO SQUARE-OFF SUGGESTIONS
-    if is_square_off_time():
-        display_auto_square_off_suggestions()
+    # 🎯 ENHANCED AUTO SQUARE-OFF SUGGESTIONS - ONLY FOR LIVE TRADING
+    is_live_trading = st.session_state.automated_mode.get('live_trading', False)
+    try:
+        if is_live_trading and (is_square_off_time() or is_derivatives_square_off_time()):
+            display_enhanced_square_off_suggestions()
+    except Exception as e:
+        st.error(f"Error in square-off suggestions: {e}")
+    
+    # Display segment timing information
+    display_segment_square_off_info()
     
     # Trading status indicators with color themes
     if st.session_state.automated_mode.get('running', False):
-        if st.session_state.automated_mode.get('live_trading', False):
+        if is_live_trading:
             if is_market_hours():
                 # Red theme for live trading
                 st.error("**🔴 LIVE TRADING ACTIVE** - Real money at risk! Monitor positions carefully.")
@@ -2743,11 +2856,11 @@ def page_fully_automated_bots(instrument_df):
         st.write("**🎯 Trading Type**")
         is_market_open = is_market_hours()
         
-        if is_market_open:
+        if is_market_open or is_pre_market_hours():
             live_trading = st.toggle(
                 "Live Trading",
                 value=st.session_state.automated_mode.get('live_trading', False),
-                help="Real money trading (Market hours only)",
+                help="Real money trading (Market hours: 9:15 AM - 3:30 PM)",
                 key="live_trading"
             )
         else:
@@ -2774,11 +2887,11 @@ def page_fully_automated_bots(instrument_df):
         if st.session_state.automated_mode['enabled']:
             if not st.session_state.automated_mode.get('running', False):
                 # Start button with color themes
-                if live_trading and is_market_open:
+                if live_trading and (is_market_hours() or is_pre_market_hours()):
                     if st.button("🔴 Start Live", use_container_width=True, type="secondary"):
                         st.session_state.need_live_confirmation = True
                         st.rerun()
-                elif live_trading and not is_market_open:
+                elif live_trading and not is_market_hours():
                     st.button("⏸️ Market Closed", use_container_width=True, disabled=True)
                 else:
                     if st.button("🔵 Start Paper", use_container_width=True, type="primary"):
@@ -2842,41 +2955,33 @@ def page_fully_automated_bots(instrument_df):
             st.session_state.automated_mode['paper_portfolio']['cash_balance'] = float(total_capital)
             st.session_state.automated_mode['paper_portfolio']['total_value'] = float(total_capital)
     
-    # 🎯 MARKET INFO BAR
+    # 🎯 MARKET INFO BAR WITH SEGMENT TIMING
     st.markdown("---")
     col_info1, col_info2, col_info3 = st.columns(3)
     
     with col_info1:
         with st.container():
             st.write("**🏛️ Market Hours**")
-            st.write("• Live: 9:15 AM - 3:30 PM")
+            st.write("• Pre-market: 9:00 AM - 9:15 AM")
+            st.write("• Equity: 9:15 AM - 3:30 PM")
             st.write("• Paper: 24/7")
             st.write("• Days: Mon - Fri")
     
     with col_info2:
         with st.container():
-            st.write("**⏰ Current Status**")
-            if market_status == "market_open":
-                st.write("• 🟢 Market Open")
-                time_left = datetime.combine(datetime.now().date(), time(15, 30)) - datetime.now()
-                hours_left = time_left.seconds // 3600
-                minutes_left = (time_left.seconds % 3600) // 60
-                st.write(f"• ⏳ Closes: {hours_left}h {minutes_left}m")
-            elif market_status == "square_off_time":
-                st.write("• 🔴 Square-off Time")
-                time_left = datetime.combine(datetime.now().date(), time(15, 30)) - datetime.now()
-                minutes_left = time_left.seconds // 60
-                st.write(f"• 🚨 Close in: {minutes_left}m")
-            else:
-                st.write("• 🔴 Market Closed")
+            st.write("**⏰ Square-off Times**")
+            st.write("• Equity/Cash: 3:20 PM")
+            st.write("• Derivatives: 3:25 PM")
+            st.write("• Commodities: 10 min before close")
+            st.write("• All auto-executed")
     
     with col_info3:
         with st.container():
             st.write("**📋 Trading Rules**")
             st.write("• ✅ Paper: Always available")
             st.write("• ✅ Live: Market hours only")
-            st.write("• ⚠️ Square-off by 3:30 PM")
-            st.write("• 🔒 Auto-stop at close")
+            st.write("• ⚠️ Auto square-off enforced")
+            st.write("• 🔒 Positions auto-closed")
     
     # Live trading confirmation dialog
     if st.session_state.get('need_live_confirmation', False):
@@ -2927,7 +3032,7 @@ def page_fully_automated_bots(instrument_df):
     # Auto-stop live trading if market closes
     if (st.session_state.automated_mode.get('running', False) and 
         st.session_state.automated_mode.get('live_trading', False) and 
-        not is_market_hours()):
+        not is_market_hours() and not is_pre_market_hours()):
         
         st.session_state.automated_mode['running'] = False
         st.session_state.automated_mode['live_trading'] = False
@@ -2940,584 +3045,502 @@ def page_fully_automated_bots(instrument_df):
         tab1, tab2, tab3, tab4 = st.tabs(["🤖 Bot Configuration", "📊 Live Dashboard", "🔍 Live Thinking", "🎯 Symbol Override"])
         
         with tab1:
-            st.subheader("⚙️ Bot Configuration")
-            
-            col_config1, col_config2 = st.columns(2)
-            
-            with col_config1:
-                st.write("**🤖 Active Bots**")
-                for bot_name in AUTOMATED_BOTS.keys():
-                    is_active = st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False)
-                    if st.checkbox(bot_name, value=is_active, key=f"auto_{bot_name}"):
-                        if 'bots_active' not in st.session_state.automated_mode:
-                            st.session_state.automated_mode['bots_active'] = {}
-                        st.session_state.automated_mode['bots_active'][bot_name] = True
-                    else:
-                        if 'bots_active' not in st.session_state.automated_mode:
-                            st.session_state.automated_mode['bots_active'] = {}
-                        st.session_state.automated_mode['bots_active'][bot_name] = False
-                
-                st.markdown("---")
-                st.write("**📊 Trading Limits**")
-                max_trades = st.slider(
-                    "Max Open Trades",
-                    min_value=1,
-                    max_value=20,
-                    value=st.session_state.automated_mode.get('max_open_trades', 5),
-                    help="Maximum simultaneous trades",
-                    key="auto_max_trades"
-                )
-                st.session_state.automated_mode['max_open_trades'] = max_trades
-            
-            with col_config2:
-                st.write("**⏰ Analysis Frequency**")
-                current_interval = st.session_state.automated_mode.get('check_interval', '1 minute')
-                frequency_options = ["15 seconds", "30 seconds", "1 minute", "5 minutes", "15 minutes"]
-                
-                current_index = 2
-                if current_interval in frequency_options:
-                    current_index = frequency_options.index(current_interval)
-                
-                check_interval = st.selectbox(
-                    "Analysis Frequency",
-                    options=frequency_options,
-                    index=current_index,
-                    help="How often bots analyze the market",
-                    key="auto_freq"
-                )
-                st.session_state.automated_mode['check_interval'] = check_interval
-                
-                # Frequency warnings
-                if check_interval == "15 seconds":
-                    st.warning("⚡ High frequency - May hit API limits")
-                elif check_interval == "30 seconds":
-                    st.info("🚀 Active trading - Good balance")
-                else:
-                    st.success("🔄 Standard frequency - Stable")
-                
-                st.markdown("---")
-                st.write("**📋 Trading Symbols**")
-                active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-                watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
-                
-                if watchlist_symbols:
-                    st.success(f"Trading from: **{active_watchlist}**")
-                    with st.expander(f"View {len(watchlist_symbols)} symbols"):
-                        for symbol in watchlist_symbols:
-                            st.write(f"• {symbol}")
-                else:
-                    st.warning("No symbols in active watchlist")
+            display_bot_configuration_tab()
         
         with tab2:
             # Live performance dashboard
-            display_live_dashboard(instrument_df)
+            try:
+                display_enhanced_live_dashboard(instrument_df)
+            except Exception as e:
+                st.error(f"Error displaying dashboard: {e}")
         
         with tab3:
             # 🎯 ENHANCED LIVE THINKING TAB
-            display_live_thinking_tab(instrument_df)
+            try:
+                display_enhanced_live_thinking_tab(instrument_df)
+            except Exception as e:
+                st.error(f"Error in live thinking: {e}")
         
         with tab4:
             # 🎯 NEW SYMBOL OVERRIDE TAB
-            display_symbol_override_tab(instrument_df)
+            try:
+                display_symbol_override_tab(instrument_df)
+            except Exception as e:
+                st.error(f"Error in symbol override: {e}")
     
     else:
         # Setup guide when disabled
         display_setup_guide()
 
-# 🎯 NEW FUNCTION: Display Auto Square-off Suggestions
-def display_auto_square_off_suggestions():
-    """Display intelligent square-off suggestions starting from 3 PM"""
-    
-    # Get current positions
-    if st.session_state.automated_mode.get('live_trading', False):
-        positions = st.session_state.automated_mode.get('paper_portfolio', {}).get('positions', {})
-        
-        if positions:
-            st.error("""
-            🚨 **AUTO SQUARE-OFF SUGGESTIONS (3:00 PM - 3:30 PM)**
-            
-            **Recommended Actions:**
-            """)
-            
-            # Analyze each position and provide specific suggestions
-            for symbol, position in positions.items():
-                quantity = position.get('quantity', 0)
-                avg_price = position.get('avg_price', 0)
-                current_price = get_current_price(symbol)  # You'll need to implement this
-                
-                if current_price:
-                    pnl = (current_price - avg_price) * quantity
-                    pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0
-                    
-                    if pnl > 0:
-                        st.success(f"✅ **{symbol}**: ₹{pnl:.2f} profit ({pnl_percent:.1f}%) - Consider taking profits")
-                    else:
-                        st.warning(f"⚠️ **{symbol}**: ₹{abs(pnl):.2f} loss ({abs(pnl_percent):.1f}%) - Consider cutting losses")
-            
-            # Quick action buttons
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if st.button("📊 Analyze All Positions", use_container_width=True):
-                    st.session_state.analyze_positions = True
-                    st.rerun()
-            
-            with col2:
-                if st.button("🔄 Auto Square-off", use_container_width=True, type="primary"):
-                    # Implement auto square-off logic
-                    auto_square_off_all_positions()
-                    st.success("Auto square-off initiated!")
-                    st.rerun()
-            
-            with col3:
-                if st.button("📋 View Position Details", use_container_width=True):
-                    st.session_state.show_position_details = True
-                    st.rerun()
-        else:
-            st.info("✅ No open positions to square off")
+# =============================================================================
+# INTELLIGENT SQUARE-OFF FUNCTIONS - ADD NEW ONES
+# =============================================================================
 
-# 🎯 NEW FUNCTION: Display Live Thinking Tab
-def display_live_thinking_tab(instrument_df):
-    """Enhanced live thinking display with real-time analysis"""
-    
-    st.subheader("🧠 Live Bot Thinking")
-    
-    # Real-time thinking display with auto-refresh
-    if st.session_state.automated_mode.get('running', False):
-        st_autorefresh(interval=10000, key="thinking_refresh")
-    
-    # Thinking controls
-    col_think1, col_think2, col_think3 = st.columns([2, 1, 1])
-    
-    with col_think1:
-        st.write("**🤔 What bots are thinking right now:**")
-    
-    with col_think2:
-        if st.button("🔄 Refresh Thinking", use_container_width=True):
-            st.session_state.last_thinking_refresh = datetime.now()
-            st.rerun()
-    
-    with col_think3:
-        thinking_depth = st.selectbox(
-            "Detail Level",
-            ["Basic", "Detailed", "Expert"],
-            index=1,
-            help="How much detail to show in bot thinking"
-        )
-    
-    # Display current bot thinking with enhanced visualization
-    display_enhanced_bot_thinking(instrument_df, thinking_depth)
-
-# 🎯 NEW FUNCTION: Enhanced Bot Thinking Display
-def display_enhanced_bot_thinking(instrument_df, depth="Detailed"):
-    """Display enhanced bot thinking with visual indicators"""
-    
-    active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
-    active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-    watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
-    
-    if not active_bots:
-        st.error("❌ **No Active Bots** - Enable bots in configuration tab")
-        return
-        
-    if not watchlist_symbols:
-        st.error("❌ **No Symbols** - Add symbols to watchlist first")
-        return
-    
-    # Progress and status
-    thinking_status = st.empty()
-    thinking_progress = st.progress(0)
-    thinking_status.text("🔄 Analyzing market conditions...")
-    
-    # Get or generate thinking data
-    if 'last_thinking_analysis' in st.session_state.automated_mode:
-        thinking_data = st.session_state.automated_mode['last_thinking_analysis']
-    else:
-        thinking_data = run_detailed_bot_analysis(instrument_df, watchlist_symbols)
-    
-    thinking_progress.progress(100)
-    thinking_status.text("✅ Analysis complete!")
-    
-    if thinking_data:
-        # Convert to dataframe
-        thinking_df = pd.DataFrame(thinking_data)
-        
-        # 🎯 ENHANCED VISUAL DISPLAY
-        st.markdown("### 📈 Current Market Analysis")
-        
-        # Summary statistics with color coding
-        buy_signals = len(thinking_df[thinking_df['signal'] == 'BUY'])
-        sell_signals = len(thinking_df[thinking_df['signal'] == 'SELL'])
-        hold_signals = len(thinking_df[thinking_df['signal'] == 'HOLD'])
-        high_confidence = len(thinking_df[thinking_df['confidence'] > 70])
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("🟢 Buy Signals", buy_signals)
-        with col2:
-            st.metric("🔴 Sell Signals", sell_signals)
-        with col3:
-            st.metric("⚪ Hold Signals", hold_signals)
-        with col4:
-            st.metric("🎯 High Confidence", high_confidence)
-        
-        # Detailed thinking display based on depth
-        if depth == "Basic":
-            display_basic_thinking(thinking_df)
-        elif depth == "Detailed":
-            display_detailed_thinking(thinking_df)
-        else:  # Expert
-            display_expert_thinking(thinking_df, instrument_df)
-        
-        # Market sentiment indicator
-        display_market_sentiment(thinking_df)
-        
-    else:
-        st.info("No analysis data available. Run analysis to see bot thinking.")
-
-# 🎯 NEW FUNCTION: Display Symbol Override Tab
-def display_symbol_override_tab(instrument_df):
-    """Allow users to override and focus on specific symbols"""
-    
-    st.subheader("🎯 Symbol Override & Focus")
-    
-    st.info("""
-    **Override Feature:** Force bots to analyze specific symbols and execute trades if signals are strong enough.
-    This bypasses normal watchlist scanning for immediate attention.
-    """)
-    
-    col_override1, col_override2 = st.columns(2)
-    
-    with col_override1:
-        # Symbol input
-        override_symbol = st.text_input(
-            "Symbol to Analyze",
-            placeholder="e.g., RELIANCE, TCS, INFY",
-            help="Enter stock symbol for immediate analysis"
-        )
-        
-        # Bot selection for override
-        st.write("**🤖 Select Bot for Analysis:**")
-        selected_bot = st.selectbox(
-            "Bot Strategy",
-            list(AUTOMATED_BOTS.keys()),
-            help="Which bot strategy to use for analysis",
-            key="override_bot"
-        )
-    
-    with col_override2:
-        # Override parameters
-        st.write("**⚡ Override Parameters:**")
-        
-        override_confidence = st.slider(
-            "Minimum Confidence %",
-            min_value=50,
-            max_value=90,
-            value=70,
-            help="Minimum confidence level to execute trade"
-        )
-        
-        override_quantity = st.number_input(
-            "Quantity to Trade",
-            min_value=1,
-            max_value=1000,
-            value=10,
-            help="Number of shares to trade if signal is strong"
-        )
-    
-    # Action buttons
-    col_action1, col_action2, col_action3 = st.columns(3)
-    
-    with col_action1:
-        if st.button("🔍 Analyze Symbol", use_container_width=True, type="primary"):
-            if override_symbol:
-                analyze_override_symbol(override_symbol, selected_bot, instrument_df)
-            else:
-                st.error("Please enter a symbol to analyze")
-    
-    with col_action2:
-        if st.button("🚀 Auto-Execute if Strong", use_container_width=True):
-            if override_symbol:
-                execute_override_trade(override_symbol, selected_bot, override_confidence, override_quantity, instrument_df)
-            else:
-                st.error("Please enter a symbol first")
-    
-    with col_action3:
-        if st.button("📊 Quick Scan", use_container_width=True):
-            quick_scan_top_symbols(instrument_df)
-    
-    # Display override results
-    if 'override_analysis' in st.session_state:
-        display_override_results()
-
-# 🎯 NEW FUNCTION: Analyze Override Symbol
-def analyze_override_symbol(symbol, bot_name, instrument_df):
-    """Analyze a specific symbol with override settings"""
-    
-    symbol_data = get_symbol_data(instrument_df, symbol)
-    
-    if symbol_data is not None:
-        # Analyze with selected bot
-        signal, confidence, reasoning = analyze_with_bot(bot_name, symbol, symbol_data)
-        
-        # Store results
-        st.session_state.override_analysis = {
-            'symbol': symbol,
-            'bot': bot_name,
-            'signal': signal,
-            'confidence': confidence,
-            'reasoning': reasoning,
-            'timestamp': datetime.now().isoformat(),
-            'current_price': get_current_price(symbol)  # You'll need to implement this
-        }
-        
-        st.success(f"✅ Analysis complete for {symbol}")
-        
-    else:
-        st.error(f"❌ No data available for {symbol}")
-
-# 🎯 NEW FUNCTION: Execute Override Trade
-def execute_override_trade(symbol, bot_name, min_confidence, quantity, instrument_df):
-    """Execute trade for override symbol if conditions met"""
-    
-    if 'override_analysis' not in st.session_state:
-        st.error("Please analyze the symbol first")
-        return
-    
-    analysis = st.session_state.override_analysis
-    
-    if analysis['symbol'] != symbol or analysis['bot'] != bot_name:
-        st.error("Analysis mismatch. Please re-analyze the symbol.")
-        return
-    
-    if analysis['confidence'] >= min_confidence:
-        # Execute the trade
-        if st.session_state.automated_mode.get('live_trading', False):
-            # Live trading execution
-            if execute_live_trade(symbol, analysis['signal'], quantity, analysis['current_price'], bot_name):
-                st.success(f"🚀 LIVE TRADE EXECUTED: {analysis['signal']} {quantity} shares of {symbol}")
-            else:
-                st.error("❌ Live trade execution failed")
-        else:
-            # Paper trading execution
-            if execute_paper_trade(symbol, analysis['signal'], quantity, analysis['current_price'], bot_name):
-                st.success(f"📄 PAPER TRADE EXECUTED: {analysis['signal']} {quantity} shares of {symbol}")
-            else:
-                st.error("❌ Paper trade execution failed")
-    else:
-        st.warning(f"⚠️ Confidence too low: {analysis['confidence']}% (required: {min_confidence}%)")
-
-# 🎯 NEW FUNCTION: Display Override Results
-def display_override_results():
-    """Display results of override analysis"""
-    
-    if 'override_analysis' in st.session_state:
-        analysis = st.session_state.override_analysis
-        
-        st.markdown("---")
-        st.subheader("🎯 Override Analysis Results")
-        
-        # Color-coded result display
-        if analysis['signal'] == 'BUY':
-            st.success(f"🟢 **BUY SIGNAL** for {analysis['symbol']}")
-        elif analysis['signal'] == 'SELL':
-            st.error(f"🔴 **SELL SIGNAL** for {analysis['symbol']}")
-        else:
-            st.info(f"⚪ **HOLD SIGNAL** for {analysis['symbol']}")
-        
-        # Confidence meter
-        confidence = analysis['confidence']
-        if confidence >= 80:
-            confidence_color = "🟢"
-        elif confidence >= 60:
-            confidence_color = "🟡"
-        else:
-            confidence_color = "🔴"
-        
-        st.write(f"{confidence_color} **Confidence Level:** {confidence}%")
-        st.progress(confidence / 100)
-        
-        # Detailed reasoning
-        with st.expander("📖 Detailed Analysis Reasoning"):
-            st.write(analysis['reasoning'])
-        
-        # Quick action buttons
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Re-analyze", use_container_width=True):
-                del st.session_state.override_analysis
-                st.rerun()
-        
-        with col2:
-            if st.button("📊 Add to Watchlist", use_container_width=True):
-                add_symbol_to_watchlist(analysis['symbol'])
-                st.success(f"Added {analysis['symbol']} to watchlist")
-
-# 🎯 NEW FUNCTION: Enhanced Live Dashboard with Ticker Themes
-def display_live_dashboard(instrument_df):
-    """Display the main trading dashboard with red/green themes"""
-    
-    is_live_trading = st.session_state.automated_mode.get('live_trading', False)
-    is_running = st.session_state.automated_mode.get('running', False)
-    is_market_open = is_market_hours()
-    
-    # 🎯 TICKER-STYLE HEADER
-    if is_live_trading:
-        st.subheader("🔴 Live Trading Dashboard")
-        
-        # Red theme elements for live trading
-        if is_running and is_market_open:
-            st.error("🔴 **LIVE TRADING ACTIVE** - Real money at risk!")
-            
-            # Auto-refresh with faster intervals for live trading
-            current_interval = st.session_state.automated_mode.get('check_interval', '1 minute')
-            refresh_intervals = {
-                "15 seconds": 5000, "30 seconds": 10000, "1 minute": 15000,
-                "5 minutes": 30000, "15 minutes": 60000
-            }
-            refresh_interval = refresh_intervals.get(current_interval, 15000)
-            st_autorefresh(interval=refresh_interval, key="live_refresh")
-            
-            # Run trading cycle
-            active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-            watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
-            if watchlist_symbols and any(st.session_state.automated_mode.get('bots_active', {}).values()):
-                run_automated_bots_cycle(instrument_df, watchlist_symbols)
-        
-        elif is_running and not is_market_open:
-            st.warning("⏸️ **LIVE TRADING PAUSED** - Outside market hours")
-        
-        # Performance metrics with red theme
-        display_live_performance_metrics()
-        
-    else:
-        # Blue theme for paper trading
-        st.subheader("🔵 Paper Trading Dashboard")
-        
-        if is_running:
-            st.success("🔵 **PAPER TRADING ACTIVE** - Safe simulation")
-            
-            # Auto-refresh for paper trading
-            current_interval = st.session_state.automated_mode.get('check_interval', '1 minute')
-            refresh_intervals = {
-                "15 seconds": 10000, "30 seconds": 15000, "1 minute": 30000,
-                "5 minutes": 45000, "15 minutes": 60000
-            }
-            refresh_interval = refresh_intervals.get(current_interval, 30000)
-            st_autorefresh(interval=refresh_interval, key="paper_refresh")
-            
-            # Run trading cycle
-            active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-            watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
-            if watchlist_symbols and any(st.session_state.automated_mode.get('bots_active', {}).values()):
-                run_automated_bots_cycle(instrument_df, watchlist_symbols)
-        
-        # Performance metrics with blue theme
-        display_paper_performance_metrics()
-    
-    # Recent trades table with color coding
-    display_enhanced_recent_trades()
-
-# 🎯 NEW FUNCTION: Display Live Performance Metrics with Red Theme
-def display_live_performance_metrics():
-    """Display live trading metrics with red/green color coding"""
+def display_segment_square_off_info():
+    """Display segment-specific square-off information"""
     
     st.markdown("---")
-    st.subheader("💰 Live Performance Metrics")
+    st.subheader("🕒 Segment-wise Square-off Times")
     
-    metrics = get_live_trading_performance()
-    
-    # Main metrics with color coding
     col1, col2, col3 = st.columns(3)
     
-    # Account metrics
-    daily_pnl = metrics.get('daily_pnl', 0)
     with col1:
-        if daily_pnl >= 0:
-            st.metric("📈 Today's P&L", f"₹{daily_pnl:,.2f}", delta=f"₹{daily_pnl:,.2f}")
-        else:
-            st.metric("📉 Today's P&L", f"₹{daily_pnl:,.2f}", delta=f"₹{daily_pnl:,.2f}", delta_color="inverse")
+        st.write("**📈 Equity/Cash**")
+        st.write("• Market: 9:15 AM - 3:30 PM")
+        st.write("• Square-off: 3:20 PM")
+        st.write("• Auto close: 3:20 PM")
     
     with col2:
-        st.metric("💼 Account Balance", f"₹{metrics.get('account_balance', 0):,.2f}")
+        st.write("**📊 Equity Derivatives**")
+        st.write("• Market: 9:15 AM - 3:30 PM")
+        st.write("• Square-off: 3:25 PM")
+        st.write("• Auto close: 3:25 PM")
     
     with col3:
-        margin_usage = metrics.get('margin_usage', 0)
-        if margin_usage > 50:
-            st.metric("⚡ Margin Usage", f"{margin_usage:.1f}%", delta_color="inverse")
-        else:
-            st.metric("⚡ Margin Usage", f"{margin_usage:.1f}%")
+        st.write("**🛢️ Commodities**")
+        st.write("• Market: Varies by commodity")
+        st.write("• Square-off: 10 min before close")
+        st.write("• Auto close: 10 min before")
+
+def display_enhanced_square_off_suggestions():
+    """Display intelligent square-off suggestions with segment-specific timing - ONLY FOR LIVE TRADING"""
     
-    # Risk metrics
-    st.markdown("#### 📊 Risk Exposure")
-    col4, col5, col6, col7 = st.columns(4)
+    # Only show for live trading
+    if not st.session_state.automated_mode.get('live_trading', False):
+        return
+    
+    portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+    positions = portfolio.get('positions', {})
+    
+    if not positions:
+        st.info("✅ No open positions to square off")
+        return
+    
+    current_time = datetime.now()
+    market_close = datetime.combine(current_time.date(), time(15, 30))
+    
+    # Check different square-off times
+    equity_square_off_start = datetime.combine(current_time.date(), time(15, 20))
+    derivatives_square_off_start = datetime.combine(current_time.date(), time(15, 25))
+    
+    minutes_to_equity_square_off = max(0, (equity_square_off_start - current_time).seconds // 60)
+    minutes_to_derivatives_square_off = max(0, (derivatives_square_off_start - current_time).seconds // 60)
+    minutes_to_market_close = max(0, (market_close - current_time).seconds // 60)
+    
+    # Determine which square-off period we're in
+    if current_time >= equity_square_off_start and current_time < derivatives_square_off_start:
+        # Equity square-off time (3:20 PM - 3:25 PM)
+        st.markdown("---")
+        st.error(f"🚨 **EQUITY SQUARE-OFF TIME** - Auto square-off in progress | {minutes_to_derivatives_square_off} min until derivatives")
+        
+    elif current_time >= derivatives_square_off_start and current_time <= market_close:
+        # Derivatives square-off time (3:25 PM - 3:30 PM)
+        st.markdown("---")
+        st.error(f"🚨 **DERIVATIVES SQUARE-OFF TIME** - Final auto square-off | {minutes_to_market_close} min until market close")
+        
+    elif minutes_to_equity_square_off <= 15 and minutes_to_equity_square_off > 0:
+        # Pre-square-off warning (3:05 PM - 3:20 PM)
+        st.markdown("---")
+        st.warning(f"⚠️ **PRE-SQUARE OFF WARNING** - {minutes_to_equity_square_off} minutes until equity auto square-off")
+    
+    # Get intelligent analysis only for live trading
+    analyzed_positions = get_intelligent_square_off_suggestions(positions)
+    
+    if analyzed_positions:
+        # Display priority actions
+        display_priority_actions(analyzed_positions)
+        
+        # Display detailed analysis
+        with st.expander("📊 Live Position Analysis", expanded=True):
+            display_intelligent_position_analysis(analyzed_positions)
+        
+        # Quick action panel
+        display_enhanced_square_off_actions(analyzed_positions)
+
+def get_intelligent_square_off_suggestions(positions):
+    """Get intelligent square-off suggestions for LIVE TRADING only"""
+    
+    if not st.session_state.automated_mode.get('live_trading', False):
+        return []
+    
+    if not positions:
+        return []
+    
+    analyzed_positions = []
+    
+    for symbol, position in positions.items():
+        try:
+            current_price = get_current_price(symbol)
+            if not current_price:
+                continue
+                
+            quantity = position.get('quantity', 0)
+            avg_price = position.get('avg_price', 0)
+            entry_time = position.get('entry_time')
+            bot_name = position.get('bot_name', 'Unknown')
+            
+            # Calculate metrics
+            pnl = (current_price - avg_price) * quantity
+            pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0
+            holding_period = calculate_holding_period(entry_time)
+            
+            position_data = {
+                'symbol': symbol,
+                'quantity': quantity,
+                'avg_price': avg_price,
+                'current_price': current_price,
+                'pnl': pnl,
+                'pnl_percent': pnl_percent,
+                'holding_period': holding_period,
+                'bot_name': bot_name,
+                'entry_time': entry_time
+            }
+            
+            # Get intelligent recommendation
+            position_data['recommendation'] = get_ai_position_analysis(position_data)
+            
+            analyzed_positions.append(position_data)
+            
+        except Exception as e:
+            print(f"Error analyzing {symbol}: {e}")
+            continue
+    
+    return analyzed_positions
+
+def display_priority_actions(analyzed_positions):
+    """Display priority actions based on intelligent analysis"""
+    
+    # Sort by priority (high confidence CLOSE actions first)
+    high_priority = [p for p in analyzed_positions 
+                    if p['recommendation'].get('action') == 'CLOSE' 
+                    and p['recommendation'].get('confidence', 0) >= 70]
+    
+    medium_priority = [p for p in analyzed_positions 
+                      if p['recommendation'].get('action') == 'CLOSE' 
+                      and 50 <= p['recommendation'].get('confidence', 0) < 70]
+    
+    hold_positions = [p for p in analyzed_positions 
+                     if p['recommendation'].get('action') == 'HOLD_OVERNIGHT']
+    
+    if high_priority:
+        st.subheader("🎯 HIGH PRIORITY - Close These Positions")
+        for position in high_priority:
+            display_priority_position_card(position)
+    
+    if medium_priority:
+        st.subheader("⚠️ MEDIUM PRIORITY - Consider Closing")
+        for position in medium_priority:
+            display_priority_position_card(position)
+    
+    if hold_positions:
+        st.subheader("💡 HOLD RECOMMENDED - Can Keep Overnight")
+        for position in hold_positions:
+            display_hold_position_card(position)
+
+def display_priority_position_card(position):
+    """Display a priority position card for closing"""
+    
+    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
+    
+    with col1:
+        st.write(f"**{position['symbol']}**")
+        st.write(f"*{position['bot_name']}*")
+    
+    with col2:
+        # P&L display
+        pnl = position['pnl']
+        if pnl > 0:
+            st.success(f"₹{pnl:+.2f}")
+        else:
+            st.error(f"₹{pnl:+.2f}")
+    
+    with col3:
+        # Confidence level
+        confidence = position['recommendation'].get('confidence', 0)
+        if confidence >= 80:
+            st.error(f"🔴 {confidence}%")
+        elif confidence >= 60:
+            st.warning(f"🟡 {confidence}%")
+        else:
+            st.info(f"🔵 {confidence}%")
     
     with col4:
-        st.metric("🎯 Win Rate", f"{metrics.get('win_rate', 0):.1f}%")
+        # Quick close button
+        if st.button("📉 Close", key=f"quick_close_{position['symbol']}"):
+            close_position(position['symbol'], position['quantity'])
+            st.success(f"Closed {position['symbol']}")
+            st.rerun()
     
     with col5:
-        drawdown = metrics.get('max_drawdown', 0)
-        if drawdown > 5:
-            st.metric("📉 Max Drawdown", f"{drawdown:.1f}%", delta_color="inverse")
+        # View details
+        if st.button("📖", key=f"details_{position['symbol']}"):
+            st.session_state[f"show_{position['symbol']}"] = True
+
+def display_intelligent_position_analysis(analyzed_positions):
+    """Display detailed intelligent analysis of all positions"""
+    
+    for position in analyzed_positions:
+        with st.container():
+            st.markdown(f"### {position['symbol']} Analysis")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Position Details:**")
+                st.write(f"• Entry: ₹{position['avg_price']:.2f}")
+                st.write(f"• Current: ₹{position['current_price']:.2f}")
+                st.write(f"• P&L: ₹{position['pnl']:+.2f} ({position['pnl_percent']:+.1f}%)")
+                st.write(f"• Held: {position['holding_period']}")
+                st.write(f"• Strategy: {position['bot_name']}")
+            
+            with col2:
+                st.write("**Intelligent Analysis:**")
+                recommendation = position['recommendation']
+                
+                action = recommendation.get('action', 'HOLD')
+                confidence = recommendation.get('confidence', 50)
+                reasoning = recommendation.get('reasoning', 'Analysis unavailable')
+                
+                # Action with color coding
+                if action == "CLOSE":
+                    st.error(f"**Action: CLOSE** (Confidence: {confidence}%)")
+                elif action == "HOLD_OVERNIGHT":
+                    st.success(f"**Action: HOLD** (Confidence: {confidence}%)")
+                else:
+                    st.warning(f"**Action: {action}** (Confidence: {confidence}%)")
+                
+                st.write(f"**Reasoning:** {reasoning}")
+                
+                if recommendation.get('target_price'):
+                    st.write(f"**Target:** ₹{recommendation['target_price']:.2f}")
+                if recommendation.get('stop_loss'):
+                    st.write(f"**Stop Loss:** ₹{recommendation['stop_loss']:.2f}")
+            
+            st.markdown("---")
+
+def display_enhanced_square_off_actions(analyzed_positions):
+    """Display enhanced square-off action buttons with intelligence"""
+    
+    st.markdown("### ⚡ Quick Actions")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("🔴 Close High Priority", use_container_width=True, type="primary"):
+            close_high_priority_positions(analyzed_positions)
+            st.success("High priority positions closed!")
+            st.rerun()
+    
+    with col2:
+        if st.button("📉 Close All Losing", use_container_width=True):
+            close_losing_positions(analyzed_positions)
+            st.success("All losing positions closed!")
+            st.rerun()
+    
+    with col3:
+        if st.button("🤖 Smart Close All", use_container_width=True):
+            execute_smart_close_all(analyzed_positions)
+            st.success("Smart close executed!")
+            st.rerun()
+    
+    with col4:
+        if st.button("📊 Market Analysis", use_container_width=True):
+            display_market_analysis_report(analyzed_positions)
+
+def calculate_holding_period(entry_time):
+    """Calculate how long position has been held"""
+    if not entry_time:
+        return "Unknown"
+    
+    try:
+        if isinstance(entry_time, str):
+            entry_dt = datetime.fromisoformat(entry_time)
         else:
-            st.metric("📉 Max Drawdown", f"{drawdown:.1f}%")
+            entry_dt = entry_time
+            
+        duration = datetime.now() - entry_dt
+        hours = duration.seconds // 3600
+        minutes = (duration.seconds % 3600) // 60
+        
+        if hours > 0:
+            return f"{hours}h {minutes}m"
+        else:
+            return f"{minutes}m"
+    except:
+        return "Unknown"
+
+def close_high_priority_positions(analyzed_positions):
+    """Close only high priority positions"""
+    for position in analyzed_positions:
+        if (position['recommendation'].get('action') == 'CLOSE' and 
+            position['recommendation'].get('confidence', 0) >= 70):
+            close_position(position['symbol'], position['quantity'])
+
+def close_losing_positions(analyzed_positions):
+    """Close all losing positions"""
+    for position in analyzed_positions:
+        if position['pnl'] < 0:
+            close_position(position['symbol'], position['quantity'])
+
+def execute_smart_close_all(analyzed_positions):
+    """Execute smart closing based on recommendations"""
+    for position in analyzed_positions:
+        action = position['recommendation'].get('action')
+        confidence = position['recommendation'].get('confidence', 0)
+        
+        if action == "CLOSE" and confidence >= 60:
+            close_position(position['symbol'], position['quantity'])
+        elif action == "PARTIAL_CLOSE" and confidence >= 50:
+            # Close half position
+            close_position(position['symbol'], position['quantity'] // 2)
+
+def display_market_analysis_report(analyzed_positions):
+    """Display comprehensive market analysis report"""
     
-    with col6:
-        st.metric("⚖️ Sharpe Ratio", f"{metrics.get('sharpe_ratio', 0):.2f}")
+    total_pnl = sum(pos['pnl'] for pos in analyzed_positions)
+    close_recommendations = sum(1 for pos in analyzed_positions 
+                               if pos['recommendation'].get('action') == 'CLOSE')
+    hold_recommendations = sum(1 for pos in analyzed_positions 
+                              if pos['recommendation'].get('action') == 'HOLD_OVERNIGHT')
     
-    with col7:
-        st.metric("📏 Avg Position", f"₹{metrics.get('avg_position_size', 0):,.0f}")
-
-# 🎯 NEW FUNCTION: Helper functions for thinking display
-def display_basic_thinking(thinking_df):
-    """Display basic level thinking"""
-    st.dataframe(thinking_df[['symbol', 'bot', 'signal', 'confidence']], use_container_width=True)
-
-def display_detailed_thinking(thinking_df):
-    """Display detailed thinking with reasoning"""
-    st.dataframe(thinking_df, use_container_width=True)
-
-def display_expert_thinking(thinking_df, instrument_df):
-    """Display expert level thinking with advanced analysis"""
-    # Implement expert-level analysis display
-    pass
-
-def display_market_sentiment(thinking_df):
-    """Display overall market sentiment"""
-    buy_ratio = len(thinking_df[thinking_df['signal'] == 'BUY']) / len(thinking_df) * 100
-    if buy_ratio > 60:
-        sentiment = "🟢 Bullish"
-    elif buy_ratio < 40:
-        sentiment = "🔴 Bearish"
-    else:
-        sentiment = "⚪ Neutral"
+    st.info(f"""
+    **📈 Live Market Analysis Report:**
     
-    st.metric("📊 Market Sentiment", sentiment, delta=f"{buy_ratio:.1f}% Buy Signals")
+    • **Total Portfolio P&L:** ₹{total_pnl:,.2f}
+    • **Close Recommendations:** {close_recommendations} positions
+    • **Hold Recommendations:** {hold_recommendations} positions
+    • **Overall Sentiment:** {'Bearish' if close_recommendations > hold_recommendations else 'Bullish'}
+    • **Suggested Action:** {'Square off majority' if close_recommendations > hold_recommendations else 'Hold quality positions'}
+    """)
 
-# 🎯 Add these missing helper function placeholders
+def display_hold_position_card(position):
+    """Display hold position card"""
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        st.write(f"**{position['symbol']}**")
+        st.write(f"*{position['bot_name']}*")
+    
+    with col2:
+        pnl = position['pnl']
+        if pnl > 0:
+            st.success(f"₹{pnl:+.2f}")
+        else:
+            st.error(f"₹{pnl:+.2f}")
+    
+    with col3:
+        confidence = position['recommendation'].get('confidence', 0)
+        st.success(f"🟢 {confidence}%")
+
+# Placeholder functions for the main implementation
 def get_current_price(symbol):
     """Get current price for a symbol - implement based on your data source"""
     return 100.0  # Placeholder
 
-def auto_square_off_all_positions():
-    """Auto square off all positions - implement based on your trading logic"""
-    st.info("Auto square-off functionality would be implemented here")
+def close_position(symbol, quantity):
+    """Close a position - implement based on your trading logic"""
+    st.success(f"Closed {symbol} - {quantity} shares")
 
-def execute_live_trade(symbol, signal, quantity, price, bot_name):
-    """Execute live trade - implement based on your broker API"""
-    return True  # Placeholder
+def get_ai_position_analysis(position_data):
+    """Get AI analysis for position - implement based on your AI service"""
+    # This would integrate with your AI service
+    return {
+        "action": "CLOSE",
+        "confidence": 75,
+        "reasoning": "Profit target achieved, take profits before market close",
+        "target_price": None,
+        "stop_loss": None
+    }
 
-def execute_paper_trade(symbol, signal, quantity, price, bot_name):
-    """Execute paper trade - implement based on your simulation"""
-    return True  # Placeholder
+def display_bot_configuration_tab():
+    """Display bot configuration tab"""
+    st.subheader("⚙️ Bot Configuration")
+    
+    col_config1, col_config2 = st.columns(2)
+    
+    with col_config1:
+        st.write("**🤖 Active Bots**")
+        for bot_name in AUTOMATED_BOTS.keys():
+            is_active = st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False)
+            if st.checkbox(bot_name, value=is_active, key=f"auto_{bot_name}"):
+                if 'bots_active' not in st.session_state.automated_mode:
+                    st.session_state.automated_mode['bots_active'] = {}
+                st.session_state.automated_mode['bots_active'][bot_name] = True
+            else:
+                if 'bots_active' not in st.session_state.automated_mode:
+                    st.session_state.automated_mode['bots_active'] = {}
+                st.session_state.automated_mode['bots_active'][bot_name] = False
+        
+        st.markdown("---")
+        st.write("**📊 Trading Limits**")
+        max_trades = st.slider(
+            "Max Open Trades",
+            min_value=1,
+            max_value=20,
+            value=st.session_state.automated_mode.get('max_open_trades', 5),
+            help="Maximum simultaneous trades",
+            key="auto_max_trades"
+        )
+        st.session_state.automated_mode['max_open_trades'] = max_trades
+    
+    with col_config2:
+        st.write("**⏰ Analysis Frequency**")
+        current_interval = st.session_state.automated_mode.get('check_interval', '1 minute')
+        frequency_options = ["15 seconds", "30 seconds", "1 minute", "5 minutes", "15 minutes"]
+        
+        current_index = 2
+        if current_interval in frequency_options:
+            current_index = frequency_options.index(current_interval)
+        
+        check_interval = st.selectbox(
+            "Analysis Frequency",
+            options=frequency_options,
+            index=current_index,
+            help="How often bots analyze the market",
+            key="auto_freq"
+        )
+        st.session_state.automated_mode['check_interval'] = check_interval
+        
+        # Frequency warnings
+        if check_interval == "15 seconds":
+            st.warning("⚡ High frequency - May hit API limits")
+        elif check_interval == "30 seconds":
+            st.info("🚀 Active trading - Good balance")
+        else:
+            st.success("🔄 Standard frequency - Stable")
+        
+        st.markdown("---")
+        st.write("**📋 Trading Symbols**")
+        active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+        watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
+        
+        if watchlist_symbols:
+            st.success(f"Trading from: **{active_watchlist}**")
+            with st.expander(f"View {len(watchlist_symbols)} symbols"):
+                for symbol in watchlist_symbols:
+                    st.write(f"• {symbol}")
+        else:
+            st.warning("No symbols in active watchlist")
 
-def add_symbol_to_watchlist(symbol):
-    """Add symbol to watchlist - implement based on your watchlist management"""
-    st.success(f"Added {symbol} to watchlist")
+def display_enhanced_live_dashboard(instrument_df):
+    """Display enhanced live dashboard"""
+    st.info("Live trading dashboard - Real-time performance metrics would display here")
 
-def quick_scan_top_symbols(instrument_df):
-    """Quick scan top symbols - implement based on your scanning logic"""
-    st.info("Quick scan functionality would be implemented here")
+def display_enhanced_live_thinking_tab(instrument_df):
+    """Display enhanced live thinking tab"""
+    st.info("Live bot thinking analysis would display here")
+
+def display_symbol_override_tab(instrument_df):
+    """Display symbol override tab"""
+    st.info("Symbol override functionality would be here")
+
+def display_setup_guide():
+    """Display setup guide"""
+    st.info("Automated trading setup guide would display here")
+
+
+
+
 
 # ================ AUTOMATED MODE HELPER FUNCTIONS ================
 
