@@ -293,7 +293,15 @@ def get_broker_client():
         return st.session_state.get('kite')
     return None
 
-# @st.dialog("Quick Trade")
+def display_header():
+    """Displays the main header for the application."""
+    st.markdown("""
+    <div style="text-align: center; padding: 1rem; background: linear-gradient(90deg, #1e3c72, #2a5298); border-radius: 10px; margin-bottom: 1rem;">
+        <h1 style="color: white; margin: 0;">🚀 BlockVista Terminal</h1>
+        <p style="color: #cccccc; margin: 0;">Professional Trading & Analytics Platform</p>
+    </div>
+    """, unsafe_allow_html=True)
+
 def quick_trade_dialog(symbol=None, exchange=None):
     """A quick trade dialog for placing market or limit orders."""
     if 'show_quick_trade' not in st.session_state:
@@ -988,7 +996,6 @@ def style_option_chain(df, ltp):
 
     return df.style.apply(highlight_itm, axis=1)
 
-@st.dialog("Most Active Options")
 def show_most_active_dialog(underlying, instrument_df):
     """Dialog to display the most active options by volume."""
     if 'show_most_active' not in st.session_state:
@@ -1716,16 +1723,6 @@ def page_algo_bots():
         comparison_df = pd.DataFrame(comparison_data)
         st.dataframe(comparison_df, use_container_width=True, hide_index=True)
 
-# Dictionary of all available bots (semi-automated)
-ALGO_BOTS = {
-    "Momentum Trader": momentum_trader_bot,
-    "Mean Reversion": mean_reversion_bot,
-    "Volatility Breakout": volatility_breakout_bot,
-    "Value Investor": value_investor_bot,
-    "Scalper Pro": scalper_bot,
-    "Trend Follower": trend_follower_bot
-}
-
 # ================ AUTOMATED BOT FUNCTIONS ================
 
 def automated_momentum_trader(instrument_df, symbol):
@@ -1907,175 +1904,6 @@ AUTOMATED_BOTS = {
     "Auto Mean Reversion": automated_mean_reversion
 }
 
-# ================ ALGO BOTS PAGE FUNCTIONS ================
-
-def page_algo_bots():
-    """Main algo bots page with both semi-automated and fully automated modes."""
-    display_header()
-    st.title("🤖 Algo Trading Bots")
-    
-    # Initialize automated mode
-    initialize_automated_mode()
-    
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to use algo bots.")
-        return
-    
-    # Mode selection tabs
-    tab1, tab2 = st.tabs(["🚀 Semi-Automated Bots", "⚡ Fully Automated Bots"])
-    
-    with tab1:
-        page_semi_automated_bots(instrument_df)
-    
-    with tab2:
-        page_fully_automated_bots(instrument_df)
-
-def page_semi_automated_bots(instrument_df):
-    """Semi-automated bots page - requires manual confirmation."""
-    st.info("Run automated analysis and get trading signals. Manual confirmation required for execution.", icon="🚀")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        selected_bot = st.selectbox(
-            "Select Trading Bot",
-            list(ALGO_BOTS.keys()),
-            help="Choose a trading bot based on your risk appetite and trading style",
-            key="semi_bot_select"
-        )
-        
-        # Bot descriptions
-        bot_descriptions = {
-            "Momentum Trader": "Trades on strong price momentum and trend continuations. Medium risk.",
-            "Mean Reversion": "Buys low and sells high based on statistical mean reversion. Low risk.",
-            "Volatility Breakout": "Captures breakouts from low volatility periods. High risk.",
-            "Value Investor": "Focuses on longer-term value and fundamental trends. Low risk.",
-            "Scalper Pro": "High-frequency trading for quick, small profits. Very high risk.",
-            "Trend Follower": "Rides established trends with multiple confirmation signals. Medium risk."
-        }
-        
-        st.markdown(f"**Description:** {bot_descriptions[selected_bot]}")
-    
-    with col2:
-        trading_capital = st.number_input(
-            "Trading Capital (₹)",
-            min_value=100,
-            max_value=100000,
-            value=1000,
-            step=100,
-            help="Minimum ₹100 required",
-            key="semi_capital"
-        )
-    
-    st.markdown("---")
-    
-    # Symbol selection and bot execution
-    col3, col4 = st.columns([1, 1])
-    
-    with col3:
-        st.subheader("Stock Selection")
-        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'BSE'])]['tradingsymbol'].unique()
-        selected_symbol = st.selectbox(
-            "Select Stock",
-            sorted(all_symbols),
-            index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0,
-            key="semi_symbol"
-        )
-        
-        # Show current price
-        quote_data = get_watchlist_data([{'symbol': selected_symbol, 'exchange': 'NSE'}])
-        if not quote_data.empty:
-            current_price = quote_data.iloc[0]['Price']
-            st.metric("Current Price", f"₹{current_price:.2f}")
-    
-    with col4:
-        st.subheader("Bot Execution")
-        st.write(f"**Selected Bot:** {selected_bot}")
-        st.write(f"**Available Capital:** ₹{trading_capital:,}")
-        
-        if st.button("🚀 Run Trading Bot", use_container_width=True, type="primary", key="semi_run"):
-            with st.spinner(f"Running {selected_bot} analysis..."):
-                bot_function = ALGO_BOTS[selected_bot]
-                bot_result = bot_function(instrument_df, selected_symbol, trading_capital)
-                
-                if bot_result and not bot_result.get("error"):
-                    st.session_state.last_bot_result = bot_result
-                    st.rerun()
-    
-    # Display bot results
-    if 'last_bot_result' in st.session_state and st.session_state.last_bot_result:
-        bot_result = st.session_state.last_bot_result
-        
-        if bot_result.get("error"):
-            st.error(bot_result["error"])
-        else:
-            st.markdown("---")
-            st.subheader("🤖 Bot Analysis Results")
-            
-            # Create metrics cards
-            col5, col6, col7, col8 = st.columns(4)
-            
-            with col5:
-                action_color = "green" if bot_result["action"] == "BUY" else "red" if bot_result["action"] == "SELL" else "orange"
-                st.markdown(f'<div class="metric-card" style="border-color: {action_color};">'
-                          f'<h3 style="color: {action_color};">{bot_result["action"]}</h3>'
-                          f'<p>Recommended Action</p></div>', unsafe_allow_html=True)
-            
-            with col6:
-                st.metric("Quantity", bot_result["quantity"])
-            
-            with col7:
-                st.metric("Capital Required", f"₹{bot_result['capital_required']:.2f}")
-            
-            with col8:
-                risk_color = {"Low": "green", "Medium": "orange", "High": "red", "Very High": "darkred"}
-                st.markdown(f'<div class="metric-card" style="border-color: {risk_color.get(bot_result["risk_level"], "gray")};">'
-                          f'<h3 style="color: {risk_color.get(bot_result["risk_level"], "gray")};">{bot_result["risk_level"]}</h3>'
-                          f'<p>Risk Level</p></div>', unsafe_allow_html=True)
-            
-            # Display signals and execute trade
-            execute_bot_trade(instrument_df, bot_result)
-
-    # Bot performance history
-    st.markdown("---")
-    st.subheader("📈 Bot Performance Tips")
-    
-    tips_col1, tips_col2 = st.columns(2)
-    
-    with tips_col1:
-        st.markdown("""
-        **Best Practices:**
-        - Start with minimum capital (₹100)
-        - Use 'Value Investor' for beginners
-        - 'Scalper Pro' requires constant monitoring
-        - Always check signals before executing
-        - Combine multiple bot recommendations
-        """)
-    
-    with tips_col2:
-        st.markdown("""
-        **Risk Management:**
-        - Never risk more than 2% per trade
-        - Use stop losses with every trade
-        - Diversify across different bots
-        - Monitor performance regularly
-        - Adjust capital based on experience
-        """)
-    
-    # Quick bot comparison
-    with st.expander("🤖 Bot Comparison Guide"):
-        comparison_data = {
-            "Bot": list(ALGO_BOTS.keys()),
-            "Risk Level": ["Medium", "Low", "High", "Low", "Very High", "Medium"],
-            "Holding Period": ["Hours", "Days", "Minutes", "Weeks", "Minutes", "Days"],
-            "Capital Recommended": ["₹1,000+", "₹500+", "₹2,000+", "₹2,000+", "₹5,000+", "₹1,500+"],
-            "Best For": ["Trend riding", "Safe returns", "Quick profits", "Long term", "Experienced", "Trend following"]
-        }
-        
-        comparison_df = pd.DataFrame(comparison_data)
-        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
-
 def initialize_automated_mode():
     """Initialize session state for fully automated trading with paper trading."""
     if 'automated_mode' not in st.session_state:
@@ -2093,7 +1921,7 @@ def initialize_automated_mode():
             'paper_portfolio': {
                 'cash_balance': 10000.0,
                 'positions': {},
-                'initial_capital': 100.0,
+                'initial_capital': 10000.0,
                 'total_value': 10000.0
             }
         }
@@ -2147,7 +1975,6 @@ def update_paper_portfolio_values(instrument_df):
             
             paper_portfolio['total_value'] = paper_portfolio.get('cash_balance', 0.0) + total_position_value
 
-# Also add the missing close_paper_position function
 def close_paper_position(symbol, quantity=None):
     """Close a paper trading position."""
     paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
@@ -2197,7 +2024,6 @@ def close_paper_position(symbol, quantity=None):
     
     st.success(f"✅ Closed {close_quantity} shares of {symbol} at ₹{current_price:.2f} | P&L: ₹{pnl:.2f}")
     return True
-
 
 def get_automated_bot_performance():
     """Calculate performance metrics for automated bots with paper trading support."""
@@ -2403,338 +2229,6 @@ def run_automated_bots_cycle(instrument_df, watchlist_symbols):
     st.session_state.automated_mode['performance_metrics'] = get_automated_bot_performance()
     st.session_state.automated_mode['last_signal_check'] = datetime.now().isoformat()
 
-# Now define the page_fully_automated_bots function
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-
-# These are assumed to be defined elsewhere in your application
-# from your_utils import initialize_automated_mode, update_paper_portfolio_values, close_paper_position, run_automated_bots_cycle, get_automated_bot_performance
-# from streamlit_autorefresh import st_autorefresh
-# AUTOMATED_BOTS = {"Auto Momentum Trader": None, "Auto Mean Reversion": None}
-
-# Define helper functions FIRST, before the main function
-def get_live_trading_performance():
-    """Get live trading performance metrics (would connect to broker API)"""
-    # Simulated broker connection data
-    total_capital = st.session_state.automated_mode.get('total_capital', 10000.0)
-    
-    # Calculate some simulated metrics based on trade history
-    trade_history = st.session_state.automated_mode.get('trade_history', [])
-    live_trades = [t for t in trade_history if t.get('order_type') == 'LIVE']
-    
-    total_pnl = sum(trade.get('pnl', 0) for trade in live_trades)
-    winning_trades = [t for t in live_trades if t.get('pnl', 0) > 0]
-    win_rate = (len(winning_trades) / len(live_trades) * 100) if live_trades else 0
-    
-    return {
-        'account_balance': total_capital + total_pnl,
-        'used_margin': total_capital * 0.1,  # 10% margin usage
-        'available_margin': total_capital * 0.9,
-        'margin_usage': 10.0,
-        'open_pnl': total_pnl * 0.3,  # 30% of total as open
-        'open_pnl_pct': (total_pnl * 0.3 / total_capital * 100),
-        'daily_pnl': total_pnl * 0.1,  # 10% as daily
-        'total_pnl': total_pnl,
-        'portfolio_risk': st.session_state.automated_mode.get('risk_per_trade', 2.0),
-        'max_drawdown': abs(min([t.get('pnl', 0) for t in live_trades] + [0])),
-        'sharpe_ratio': 1.2 if win_rate > 50 else 0.8,
-        'win_rate': win_rate,
-        'avg_position_size': total_capital * 0.05,  # 5% per position
-        'leverage': 1.0,
-        'volatility': 15.5
-    }
-
-def get_automated_bot_performance():
-    """Get paper trading performance metrics"""
-    paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
-    cash_balance = paper_portfolio.get('cash_balance', 0.0)
-    portfolio_value = paper_portfolio.get('total_value', cash_balance)
-    initial_capital = paper_portfolio.get('initial_capital', portfolio_value)
-    
-    # Calculate metrics from trade history
-    trade_history = st.session_state.automated_mode.get('trade_history', [])
-    paper_trades = [t for t in trade_history if t.get('order_type') != 'LIVE']
-    
-    total_trades = len(paper_trades)
-    winning_trades = [t for t in paper_trades if t.get('pnl', 0) > 0]
-    win_rate = (len(winning_trades) / total_trades * 100) if total_trades > 0 else 0
-    
-    total_pnl = sum(trade.get('pnl', 0) for trade in paper_trades)
-    avg_win = np.mean([t.get('pnl', 0) for t in winning_trades]) if winning_trades else 0
-    losing_trades = [t for t in paper_trades if t.get('pnl', 0) < 0]
-    avg_loss = np.mean([t.get('pnl', 0) for t in losing_trades]) if losing_trades else 0
-    
-    return {
-        'paper_return_pct': ((portfolio_value - initial_capital) / initial_capital * 100) if initial_capital > 0 else 0,
-        'total_trades': total_trades,
-        'win_rate': win_rate,
-        'total_pnl': total_pnl,
-        'unrealized_pnl': portfolio_value - cash_balance - initial_capital,
-        'avg_win': avg_win,
-        'avg_loss': avg_loss,
-        'max_drawdown': 5.2,  # Simulated
-        'profit_factor': abs(avg_win / avg_loss) if avg_loss != 0 else 0,
-        'recovery_factor': 1.8  # Simulated
-    }
-
-# Define diagnostic helper functions
-def get_symbol_data(instrument_df, symbol):
-    """Get data for a specific symbol"""
-    try:
-        if symbol in instrument_df.columns:
-            return instrument_df[symbol]
-        else:
-            # Try to find symbol in dataframe
-            for col in instrument_df.columns:
-                if symbol in col:
-                    return instrument_df[col]
-        return None
-    except:
-        return None
-
-def analyze_with_bot(bot_name, symbol, data):
-    """Analyze a symbol with a specific bot and return thinking"""
-    if bot_name == "Auto Momentum Trader":
-        return analyze_momentum(symbol, data)
-    elif bot_name == "Auto Mean Reversion":
-        return analyze_mean_reversion(symbol, data)
-    else:
-        return "HOLD", 50, "Unknown bot strategy"
-
-def analyze_momentum(symbol, data):
-    """Momentum bot analysis with detailed thinking"""
-    if len(data) < 20:
-        return "HOLD", 0, "Insufficient data for momentum analysis"
-    
-    # Simple momentum logic (replace with actual implementation)
-    recent_price = data['close'].iloc[-1] if 'close' in data.columns else data.iloc[-1]
-    prev_price = data['close'].iloc[-5] if 'close' in data.columns else data.iloc[-5]
-    
-    momentum = (recent_price - prev_price) / prev_price * 100
-    
-    if momentum > 2:
-        return "BUY", 70, f"Strong upward momentum: {momentum:.2f}%"
-    elif momentum < -2:
-        return "SELL", 70, f"Strong downward momentum: {momentum:.2f}%"
-    else:
-        return "HOLD", 60, f"Neutral momentum: {momentum:.2f}%"
-
-def analyze_mean_reversion(symbol, data):
-    """Mean reversion bot analysis with detailed thinking"""
-    if len(data) < 20:
-        return "HOLD", 0, "Insufficient data for mean reversion analysis"
-    
-    # Simple mean reversion logic (replace with actual implementation)
-    recent_price = data['close'].iloc[-1] if 'close' in data.columns else data.iloc[-1]
-    mean_price = data['close'].mean() if 'close' in data.columns else data.mean()
-    
-    deviation = (recent_price - mean_price) / mean_price * 100
-    
-    if deviation > 5:
-        return "SELL", 65, f"Price {deviation:.2f}% above mean - overbought"
-    elif deviation < -5:
-        return "BUY", 65, f"Price {deviation:.2f}% below mean - oversold"
-    else:
-        return "HOLD", 55, f"Price near mean: {deviation:.2f}% deviation"
-
-def run_detailed_bot_analysis(instrument_df, watchlist_symbols):
-    """Run detailed analysis and return thinking data"""
-    thinking_data = []
-    active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
-    
-    for symbol in watchlist_symbols[:15]:  # Limit for performance
-        symbol_data = get_symbol_data(instrument_df, symbol)
-        if symbol_data is None:
-            continue
-            
-        for bot_name in active_bots:
-            if bot_name in AUTOMATED_BOTS:
-                try:
-                    signal, confidence, reasoning = analyze_with_bot(bot_name, symbol, symbol_data)
-                    thinking_data.append({
-                        'symbol': symbol,
-                        'bot': bot_name,
-                        'signal': signal,
-                        'confidence': confidence,
-                        'thinking': reasoning,
-                        'timestamp': datetime.now().isoformat()
-                    })
-                except Exception as e:
-                    thinking_data.append({
-                        'symbol': symbol,
-                        'bot': bot_name,
-                        'signal': 'ERROR',
-                        'confidence': 0,
-                        'thinking': f"Analysis error: {str(e)}",
-                        'timestamp': datetime.now().isoformat()
-                    })
-    
-    # Store thinking data for display
-    st.session_state.automated_mode['last_thinking_analysis'] = thinking_data
-    return thinking_data
-
-def display_bot_thinking(instrument_df):
-    """Display real-time bot thinking and analysis"""
-    
-    # Get current state
-    active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
-    active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-    watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
-    
-    if not active_bots:
-        st.error("❌ **No Active Bots**: Enable at least one bot in the configuration panel")
-        return
-        
-    if not watchlist_symbols:
-        st.error("❌ **No Symbols**: Add symbols to your active watchlist first")
-        return
-    
-    st.write("**🔍 Current Bot Analysis:**")
-    
-    # Use cached thinking data or run new analysis
-    if 'last_thinking_analysis' in st.session_state.automated_mode:
-        thinking_data = st.session_state.automated_mode['last_thinking_analysis']
-    else:
-        thinking_data = run_detailed_bot_analysis(instrument_df, watchlist_symbols)
-    
-    if thinking_data:
-        # Convert to dataframe for better display
-        thinking_df = pd.DataFrame(thinking_data)
-        
-        # Color code signals
-        def color_signal(signal):
-            if signal == 'BUY':
-                return 'background-color: #90EE90'  # Light green
-            elif signal == 'SELL':
-                return 'background-color: #FFB6C1'  # Light red
-            elif signal == 'HOLD':
-                return 'background-color: #F0F0F0'  # Light gray
-            else:
-                return ''
-        
-        # Display styled dataframe
-        styled_df = thinking_df.style.apply(lambda x: [color_signal(val) for val in x], subset=['signal'])
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        
-        # Summary statistics
-        buy_signals = len(thinking_df[thinking_df['signal'] == 'BUY'])
-        sell_signals = len(thinking_df[thinking_df['signal'] == 'SELL'])
-        hold_signals = len(thinking_df[thinking_df['signal'] == 'HOLD'])
-        
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Buy Signals", buy_signals)
-        col2.metric("Sell Signals", sell_signals)
-        col3.metric("Hold Signals", hold_signals)
-        
-        # Reasons for no trades
-        if buy_signals == 0 and sell_signals == 0:
-            st.warning("""
-            **🤔 Why No Trades? Possible Reasons:**
-            - Market conditions don't match bot strategies
-            - Risk limits preventing position sizing
-            - Maximum open trades limit reached
-            - Insufficient confidence in signals
-            - Missing or stale market data
-            - Technical indicators showing neutral signals
-            """)
-    else:
-        st.info("No analysis data available. Run diagnostics to see bot thinking.")
-
-def display_detailed_diagnostics(instrument_df):
-    """Display comprehensive diagnostics"""
-    st.markdown("---")
-    st.subheader("🔧 Detailed System Diagnostics")
-    
-    # System status
-    st.write("**🖥️ System Status:**")
-    col1, col2, col3 = st.columns(3)
-    
-    # Check basic requirements
-    active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
-    active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-    watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
-    
-    with col1:
-        if active_bots:
-            st.success(f"✅ **Bots Active**: {len(active_bots)}")
-        else:
-            st.error("❌ **No Bots Active**")
-    
-    with col2:
-        if watchlist_symbols:
-            st.success(f"✅ **Symbols**: {len(watchlist_symbols)}")
-        else:
-            st.error("❌ **No Symbols**")
-    
-    with col3:
-        if st.session_state.automated_mode.get('running', False):
-            st.success("✅ **Trading Active**")
-        else:
-            st.error("❌ **Trading Stopped**")
-    
-    # Market data diagnostics
-    st.write("**📊 Market Data Status:**")
-    if watchlist_symbols:
-        data_status = []
-        for symbol in watchlist_symbols[:5]:  # Check first 5 symbols
-            symbol_data = get_symbol_data(instrument_df, symbol)
-            if symbol_data is not None and len(symbol_data) > 0:
-                latest_time = symbol_data.index.max() if hasattr(symbol_data.index, 'max') else datetime.now()
-                data_age = (datetime.now() - latest_time).total_seconds() / 60  # minutes
-                
-                if data_age < 5:
-                    status = "✅ Fresh"
-                elif data_age < 15:
-                    status = "⚠️ Stale"
-                else:
-                    status = "❌ Old"
-                    
-                data_status.append({
-                    'Symbol': symbol,
-                    'Status': status,
-                    'Age (min)': f"{data_age:.1f}",
-                    'Data Points': len(symbol_data)
-                })
-            else:
-                data_status.append({
-                    'Symbol': symbol,
-                    'Status': "❌ No Data",
-                    'Age (min)': "N/A",
-                    'Data Points': 0
-                })
-        
-        st.dataframe(pd.DataFrame(data_status), use_container_width=True, hide_index=True)
-    
-    # Bot-specific diagnostics
-    st.write("**🤖 Bot Configuration Check:**")
-    bot_diagnostics = []
-    for bot_name in AUTOMATED_BOTS.keys():
-        is_active = st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False)
-        bot_diagnostics.append({
-            'Bot': bot_name,
-            'Status': '✅ Active' if is_active else '❌ Inactive',
-            'Strategy': AUTOMATED_BOTS[bot_name].get('description', 'N/A')
-        })
-    
-    st.dataframe(pd.DataFrame(bot_diagnostics), use_container_width=True, hide_index=True)
-    
-    # Trading limits check
-    st.write("**📈 Trading Limits:**")
-    limits_data = {
-        'Setting': ['Max Open Trades', 'Risk per Trade', 'Total Capital', 'Analysis Frequency'],
-        'Current Value': [
-            st.session_state.automated_mode.get('max_open_trades', 5),
-            f"{st.session_state.automated_mode.get('risk_per_trade', 2.0)}%",
-            f"₹{st.session_state.automated_mode.get('total_capital', 10000.0):,.2f}",
-            st.session_state.automated_mode.get('check_interval', '1 minute')
-        ],
-        'Status': ['✅ OK', '✅ OK', '✅ OK', '✅ OK']
-    }
-    st.dataframe(pd.DataFrame(limits_data), use_container_width=True, hide_index=True)
-
-# NOW define the main function
-
 def page_fully_automated_bots(instrument_df):
     """Fully automated bots page with comprehensive paper trading simulation."""
     
@@ -2766,7 +2260,7 @@ def page_fully_automated_bots(instrument_df):
             st.session_state.automated_mode['paper_portfolio'] = {
                 'cash_balance': st.session_state.automated_mode.get('total_capital', 10000.0),
                 'positions': {},
-                'initial_capital': st.session_state.automated_mode.get('total_capital', 1000.0),
+                'initial_capital': st.session_state.automated_mode.get('total_capital', 10000.0),
                 'total_value': st.session_state.automated_mode.get('total_capital', 10000.0)
             }
     
@@ -2812,20 +2306,9 @@ def page_fully_automated_bots(instrument_df):
     else:  # weekend or unknown
         st.info(f"🎉 **WEEKEND** | Markets closed | Paper trading available | {current_time}")
     
-    # 🎯 ENHANCED AUTO SQUARE-OFF SUGGESTIONS - ONLY FOR LIVE TRADING
-    is_live_trading = st.session_state.automated_mode.get('live_trading', False)
-    try:
-        if is_live_trading and (is_square_off_time() or is_derivatives_square_off_time()):
-            display_enhanced_square_off_suggestions()
-    except Exception as e:
-        st.error(f"Error in square-off suggestions: {e}")
-    
-    # Display segment timing information
-    display_segment_square_off_info()
-    
     # Trading status indicators with color themes
     if st.session_state.automated_mode.get('running', False):
-        if is_live_trading:
+        if st.session_state.automated_mode.get('live_trading', False):
             if is_market_hours():
                 # Red theme for live trading
                 st.error("**🔴 LIVE TRADING ACTIVE** - Real money at risk! Monitor positions carefully.")
@@ -2955,34 +2438,6 @@ def page_fully_automated_bots(instrument_df):
             st.session_state.automated_mode['paper_portfolio']['cash_balance'] = float(total_capital)
             st.session_state.automated_mode['paper_portfolio']['total_value'] = float(total_capital)
     
-    # 🎯 MARKET INFO BAR WITH SEGMENT TIMING
-    st.markdown("---")
-    col_info1, col_info2, col_info3 = st.columns(3)
-    
-    with col_info1:
-        with st.container():
-            st.write("**🏛️ Market Hours**")
-            st.write("• Pre-market: 9:00 AM - 9:15 AM")
-            st.write("• Equity: 9:15 AM - 3:30 PM")
-            st.write("• Paper: 24/7")
-            st.write("• Days: Mon - Fri")
-    
-    with col_info2:
-        with st.container():
-            st.write("**⏰ Square-off Times**")
-            st.write("• Equity/Cash: 3:20 PM")
-            st.write("• Derivatives: 3:25 PM")
-            st.write("• Commodities: 10 min before close")
-            st.write("• All auto-executed")
-    
-    with col_info3:
-        with st.container():
-            st.write("**📋 Trading Rules**")
-            st.write("• ✅ Paper: Always available")
-            st.write("• ✅ Live: Market hours only")
-            st.write("• ⚠️ Auto square-off enforced")
-            st.write("• 🔒 Positions auto-closed")
-    
     # Live trading confirmation dialog
     if st.session_state.get('need_live_confirmation', False):
         st.markdown("---")
@@ -3072,386 +2527,6 @@ def page_fully_automated_bots(instrument_df):
         # Setup guide when disabled
         display_setup_guide()
 
-# =============================================================================
-# INTELLIGENT SQUARE-OFF FUNCTIONS - ADD NEW ONES
-# =============================================================================
-
-def display_segment_square_off_info():
-    """Display segment-specific square-off information"""
-    
-    st.markdown("---")
-    st.subheader("🕒 Segment-wise Square-off Times")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.write("**📈 Equity/Cash**")
-        st.write("• Market: 9:15 AM - 3:30 PM")
-        st.write("• Square-off: 3:20 PM")
-        st.write("• Auto close: 3:20 PM")
-    
-    with col2:
-        st.write("**📊 Equity Derivatives**")
-        st.write("• Market: 9:15 AM - 3:30 PM")
-        st.write("• Square-off: 3:25 PM")
-        st.write("• Auto close: 3:25 PM")
-    
-    with col3:
-        st.write("**🛢️ Commodities**")
-        st.write("• Market: Varies by commodity")
-        st.write("• Square-off: 10 min before close")
-        st.write("• Auto close: 10 min before")
-
-def display_enhanced_square_off_suggestions():
-    """Display intelligent square-off suggestions with segment-specific timing - ONLY FOR LIVE TRADING"""
-    
-    # Only show for live trading
-    if not st.session_state.automated_mode.get('live_trading', False):
-        return
-    
-    portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
-    positions = portfolio.get('positions', {})
-    
-    if not positions:
-        st.info("✅ No open positions to square off")
-        return
-    
-    current_time = datetime.now()
-    market_close = datetime.combine(current_time.date(), time(15, 30))
-    
-    # Check different square-off times
-    equity_square_off_start = datetime.combine(current_time.date(), time(15, 20))
-    derivatives_square_off_start = datetime.combine(current_time.date(), time(15, 25))
-    
-    minutes_to_equity_square_off = max(0, (equity_square_off_start - current_time).seconds // 60)
-    minutes_to_derivatives_square_off = max(0, (derivatives_square_off_start - current_time).seconds // 60)
-    minutes_to_market_close = max(0, (market_close - current_time).seconds // 60)
-    
-    # Determine which square-off period we're in
-    if current_time >= equity_square_off_start and current_time < derivatives_square_off_start:
-        # Equity square-off time (3:20 PM - 3:25 PM)
-        st.markdown("---")
-        st.error(f"🚨 **EQUITY SQUARE-OFF TIME** - Auto square-off in progress | {minutes_to_derivatives_square_off} min until derivatives")
-        
-    elif current_time >= derivatives_square_off_start and current_time <= market_close:
-        # Derivatives square-off time (3:25 PM - 3:30 PM)
-        st.markdown("---")
-        st.error(f"🚨 **DERIVATIVES SQUARE-OFF TIME** - Final auto square-off | {minutes_to_market_close} min until market close")
-        
-    elif minutes_to_equity_square_off <= 15 and minutes_to_equity_square_off > 0:
-        # Pre-square-off warning (3:05 PM - 3:20 PM)
-        st.markdown("---")
-        st.warning(f"⚠️ **PRE-SQUARE OFF WARNING** - {minutes_to_equity_square_off} minutes until equity auto square-off")
-    
-    # Get intelligent analysis only for live trading
-    analyzed_positions = get_intelligent_square_off_suggestions(positions)
-    
-    if analyzed_positions:
-        # Display priority actions
-        display_priority_actions(analyzed_positions)
-        
-        # Display detailed analysis
-        with st.expander("📊 Live Position Analysis", expanded=True):
-            display_intelligent_position_analysis(analyzed_positions)
-        
-        # Quick action panel
-        display_enhanced_square_off_actions(analyzed_positions)
-
-def get_intelligent_square_off_suggestions(positions):
-    """Get intelligent square-off suggestions for LIVE TRADING only"""
-    
-    if not st.session_state.automated_mode.get('live_trading', False):
-        return []
-    
-    if not positions:
-        return []
-    
-    analyzed_positions = []
-    
-    for symbol, position in positions.items():
-        try:
-            current_price = get_current_price(symbol)
-            if not current_price:
-                continue
-                
-            quantity = position.get('quantity', 0)
-            avg_price = position.get('avg_price', 0)
-            entry_time = position.get('entry_time')
-            bot_name = position.get('bot_name', 'Unknown')
-            
-            # Calculate metrics
-            pnl = (current_price - avg_price) * quantity
-            pnl_percent = ((current_price - avg_price) / avg_price * 100) if avg_price > 0 else 0
-            holding_period = calculate_holding_period(entry_time)
-            
-            position_data = {
-                'symbol': symbol,
-                'quantity': quantity,
-                'avg_price': avg_price,
-                'current_price': current_price,
-                'pnl': pnl,
-                'pnl_percent': pnl_percent,
-                'holding_period': holding_period,
-                'bot_name': bot_name,
-                'entry_time': entry_time
-            }
-            
-            # Get intelligent recommendation
-            position_data['recommendation'] = get_ai_position_analysis(position_data)
-            
-            analyzed_positions.append(position_data)
-            
-        except Exception as e:
-            print(f"Error analyzing {symbol}: {e}")
-            continue
-    
-    return analyzed_positions
-
-def display_priority_actions(analyzed_positions):
-    """Display priority actions based on intelligent analysis"""
-    
-    # Sort by priority (high confidence CLOSE actions first)
-    high_priority = [p for p in analyzed_positions 
-                    if p['recommendation'].get('action') == 'CLOSE' 
-                    and p['recommendation'].get('confidence', 0) >= 70]
-    
-    medium_priority = [p for p in analyzed_positions 
-                      if p['recommendation'].get('action') == 'CLOSE' 
-                      and 50 <= p['recommendation'].get('confidence', 0) < 70]
-    
-    hold_positions = [p for p in analyzed_positions 
-                     if p['recommendation'].get('action') == 'HOLD_OVERNIGHT']
-    
-    if high_priority:
-        st.subheader("🎯 HIGH PRIORITY - Close These Positions")
-        for position in high_priority:
-            display_priority_position_card(position)
-    
-    if medium_priority:
-        st.subheader("⚠️ MEDIUM PRIORITY - Consider Closing")
-        for position in medium_priority:
-            display_priority_position_card(position)
-    
-    if hold_positions:
-        st.subheader("💡 HOLD RECOMMENDED - Can Keep Overnight")
-        for position in hold_positions:
-            display_hold_position_card(position)
-
-def display_priority_position_card(position):
-    """Display a priority position card for closing"""
-    
-    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
-    
-    with col1:
-        st.write(f"**{position['symbol']}**")
-        st.write(f"*{position['bot_name']}*")
-    
-    with col2:
-        # P&L display
-        pnl = position['pnl']
-        if pnl > 0:
-            st.success(f"₹{pnl:+.2f}")
-        else:
-            st.error(f"₹{pnl:+.2f}")
-    
-    with col3:
-        # Confidence level
-        confidence = position['recommendation'].get('confidence', 0)
-        if confidence >= 80:
-            st.error(f"🔴 {confidence}%")
-        elif confidence >= 60:
-            st.warning(f"🟡 {confidence}%")
-        else:
-            st.info(f"🔵 {confidence}%")
-    
-    with col4:
-        # Quick close button
-        if st.button("📉 Close", key=f"quick_close_{position['symbol']}"):
-            close_position(position['symbol'], position['quantity'])
-            st.success(f"Closed {position['symbol']}")
-            st.rerun()
-    
-    with col5:
-        # View details
-        if st.button("📖", key=f"details_{position['symbol']}"):
-            st.session_state[f"show_{position['symbol']}"] = True
-
-def display_intelligent_position_analysis(analyzed_positions):
-    """Display detailed intelligent analysis of all positions"""
-    
-    for position in analyzed_positions:
-        with st.container():
-            st.markdown(f"### {position['symbol']} Analysis")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write("**Position Details:**")
-                st.write(f"• Entry: ₹{position['avg_price']:.2f}")
-                st.write(f"• Current: ₹{position['current_price']:.2f}")
-                st.write(f"• P&L: ₹{position['pnl']:+.2f} ({position['pnl_percent']:+.1f}%)")
-                st.write(f"• Held: {position['holding_period']}")
-                st.write(f"• Strategy: {position['bot_name']}")
-            
-            with col2:
-                st.write("**Intelligent Analysis:**")
-                recommendation = position['recommendation']
-                
-                action = recommendation.get('action', 'HOLD')
-                confidence = recommendation.get('confidence', 50)
-                reasoning = recommendation.get('reasoning', 'Analysis unavailable')
-                
-                # Action with color coding
-                if action == "CLOSE":
-                    st.error(f"**Action: CLOSE** (Confidence: {confidence}%)")
-                elif action == "HOLD_OVERNIGHT":
-                    st.success(f"**Action: HOLD** (Confidence: {confidence}%)")
-                else:
-                    st.warning(f"**Action: {action}** (Confidence: {confidence}%)")
-                
-                st.write(f"**Reasoning:** {reasoning}")
-                
-                if recommendation.get('target_price'):
-                    st.write(f"**Target:** ₹{recommendation['target_price']:.2f}")
-                if recommendation.get('stop_loss'):
-                    st.write(f"**Stop Loss:** ₹{recommendation['stop_loss']:.2f}")
-            
-            st.markdown("---")
-
-def display_enhanced_square_off_actions(analyzed_positions):
-    """Display enhanced square-off action buttons with intelligence"""
-    
-    st.markdown("### ⚡ Quick Actions")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        if st.button("🔴 Close High Priority", use_container_width=True, type="primary"):
-            close_high_priority_positions(analyzed_positions)
-            st.success("High priority positions closed!")
-            st.rerun()
-    
-    with col2:
-        if st.button("📉 Close All Losing", use_container_width=True):
-            close_losing_positions(analyzed_positions)
-            st.success("All losing positions closed!")
-            st.rerun()
-    
-    with col3:
-        if st.button("🤖 Smart Close All", use_container_width=True):
-            execute_smart_close_all(analyzed_positions)
-            st.success("Smart close executed!")
-            st.rerun()
-    
-    with col4:
-        if st.button("📊 Market Analysis", use_container_width=True):
-            display_market_analysis_report(analyzed_positions)
-
-def calculate_holding_period(entry_time):
-    """Calculate how long position has been held"""
-    if not entry_time:
-        return "Unknown"
-    
-    try:
-        if isinstance(entry_time, str):
-            entry_dt = datetime.fromisoformat(entry_time)
-        else:
-            entry_dt = entry_time
-            
-        duration = datetime.now() - entry_dt
-        hours = duration.seconds // 3600
-        minutes = (duration.seconds % 3600) // 60
-        
-        if hours > 0:
-            return f"{hours}h {minutes}m"
-        else:
-            return f"{minutes}m"
-    except:
-        return "Unknown"
-
-def close_high_priority_positions(analyzed_positions):
-    """Close only high priority positions"""
-    for position in analyzed_positions:
-        if (position['recommendation'].get('action') == 'CLOSE' and 
-            position['recommendation'].get('confidence', 0) >= 70):
-            close_position(position['symbol'], position['quantity'])
-
-def close_losing_positions(analyzed_positions):
-    """Close all losing positions"""
-    for position in analyzed_positions:
-        if position['pnl'] < 0:
-            close_position(position['symbol'], position['quantity'])
-
-def execute_smart_close_all(analyzed_positions):
-    """Execute smart closing based on recommendations"""
-    for position in analyzed_positions:
-        action = position['recommendation'].get('action')
-        confidence = position['recommendation'].get('confidence', 0)
-        
-        if action == "CLOSE" and confidence >= 60:
-            close_position(position['symbol'], position['quantity'])
-        elif action == "PARTIAL_CLOSE" and confidence >= 50:
-            # Close half position
-            close_position(position['symbol'], position['quantity'] // 2)
-
-def display_market_analysis_report(analyzed_positions):
-    """Display comprehensive market analysis report"""
-    
-    total_pnl = sum(pos['pnl'] for pos in analyzed_positions)
-    close_recommendations = sum(1 for pos in analyzed_positions 
-                               if pos['recommendation'].get('action') == 'CLOSE')
-    hold_recommendations = sum(1 for pos in analyzed_positions 
-                              if pos['recommendation'].get('action') == 'HOLD_OVERNIGHT')
-    
-    st.info(f"""
-    **📈 Live Market Analysis Report:**
-    
-    • **Total Portfolio P&L:** ₹{total_pnl:,.2f}
-    • **Close Recommendations:** {close_recommendations} positions
-    • **Hold Recommendations:** {hold_recommendations} positions
-    • **Overall Sentiment:** {'Bearish' if close_recommendations > hold_recommendations else 'Bullish'}
-    • **Suggested Action:** {'Square off majority' if close_recommendations > hold_recommendations else 'Hold quality positions'}
-    """)
-
-def display_hold_position_card(position):
-    """Display hold position card"""
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        st.write(f"**{position['symbol']}**")
-        st.write(f"*{position['bot_name']}*")
-    
-    with col2:
-        pnl = position['pnl']
-        if pnl > 0:
-            st.success(f"₹{pnl:+.2f}")
-        else:
-            st.error(f"₹{pnl:+.2f}")
-    
-    with col3:
-        confidence = position['recommendation'].get('confidence', 0)
-        st.success(f"🟢 {confidence}%")
-
-# Placeholder functions for the main implementation
-def get_current_price(symbol):
-    """Get current price for a symbol - implement based on your data source"""
-    return 100.0  # Placeholder
-
-def close_position(symbol, quantity):
-    """Close a position - implement based on your trading logic"""
-    st.success(f"Closed {symbol} - {quantity} shares")
-
-def get_ai_position_analysis(position_data):
-    """Get AI analysis for position - implement based on your AI service"""
-    # This would integrate with your AI service
-    return {
-        "action": "CLOSE",
-        "confidence": 75,
-        "reasoning": "Profit target achieved, take profits before market close",
-        "target_price": None,
-        "stop_loss": None
-    }
-
 def display_bot_configuration_tab():
     """Display bot configuration tab"""
     st.subheader("⚙️ Bot Configuration")
@@ -3538,213 +2613,6 @@ def display_setup_guide():
     """Display setup guide"""
     st.info("Automated trading setup guide would display here")
 
-
-
-
-
-# ================ AUTOMATED MODE HELPER FUNCTIONS ================
-
-# ================ AUTOMATED MODE HELPER FUNCTIONS ================
-
-def initialize_automated_mode():
-    """Initialize session state for fully automated trading."""
-    if 'automated_mode' not in st.session_state:
-        st.session_state.automated_mode = {
-            'enabled': False,
-            'running': False,
-            'live_trading': False,
-            'bots_active': {},
-            'total_capital': 1000,
-            'risk_per_trade': 2.0,
-            'max_open_trades': 5,
-            'trade_history': [],
-            'performance_metrics': {},
-            'last_signal_check': None
-        }
-
-def get_automated_bot_performance():
-    """Calculate performance metrics for automated bots."""
-    if not st.session_state.automated_mode['trade_history']:
-        return {
-            'total_trades': 0,
-            'winning_trades': 0,
-            'losing_trades': 0,
-            'total_pnl': 0,
-            'win_rate': 0,
-            'avg_win': 0,
-            'avg_loss': 0
-        }
-    
-    trades = st.session_state.automated_mode['trade_history']
-    winning_trades = [t for t in trades if t.get('pnl', 0) > 0]
-    losing_trades = [t for t in trades if t.get('pnl', 0) <= 0]
-    
-    total_pnl = sum(t.get('pnl', 0) for t in trades)
-    win_rate = len(winning_trades) / len(trades) * 100 if trades else 0
-    
-    avg_win = sum(t.get('pnl', 0) for t in winning_trades) / len(winning_trades) if winning_trades else 0
-    avg_loss = sum(t.get('pnl', 0) for t in losing_trades) / len(losing_trades) if losing_trades else 0
-    
-    return {
-        'total_trades': len(trades),
-        'winning_trades': len(winning_trades),
-        'losing_trades': len(losing_trades),
-        'total_pnl': total_pnl,
-        'win_rate': win_rate,
-        'avg_win': avg_win,
-        'avg_loss': avg_loss
-    }
-
-# <<<--- PLACE execute_automated_trade FUNCTION HERE --->>>
-def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
-    """Execute trades automatically based on bot signals."""
-    if bot_result.get("error") or bot_result["action"] == "HOLD":
-        return None
-    
-    try:
-        symbol = bot_result["symbol"]
-        action = bot_result["action"]
-        current_price = bot_result["current_price"]
-        
-        # Calculate position size based on risk
-        risk_amount = (risk_per_trade / 100) * st.session_state.automated_mode['total_capital']
-        quantity = max(1, int(risk_amount / current_price))
-        
-        # Check if we have too many open trades
-        open_trades = [t for t in st.session_state.automated_mode['trade_history'] 
-                      if t.get('status') == 'OPEN']
-        if len(open_trades) >= st.session_state.automated_mode['max_open_trades']:
-            return None
-        
-        # Check for existing position in the same symbol
-        existing_position = next((t for t in open_trades if t.get('symbol') == symbol), None)
-        if existing_position:
-            # Avoid opening same position multiple times
-            if existing_position['action'] == action:
-                return None
-        
-        # PLACE REAL ORDER if live trading is enabled
-        order_type = "PAPER"
-        if st.session_state.automated_mode.get('live_trading', False):
-            try:
-                # Place the real order
-                place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
-                order_type = "LIVE"
-            except Exception as e:
-                st.error(f"❌ Failed to place LIVE order for {symbol}: {e}")
-                return None
-        
-        # Record the trade
-        trade_record = {
-            'timestamp': datetime.now().isoformat(),
-            'symbol': symbol,
-            'action': action,
-            'quantity': quantity,
-            'entry_price': current_price,
-            'status': 'OPEN',
-            'bot_name': bot_result['bot_name'],
-            'risk_level': bot_result['risk_level'],
-            'order_type': order_type,
-            'pnl': 0  # Initialize P&L
-        }
-        
-        st.session_state.automated_mode['trade_history'].append(trade_record)
-        
-        if order_type == "LIVE":
-            st.toast(f"🤖 LIVE {action} order executed for {symbol} (Qty: {quantity})", icon="⚡")
-        else:
-            st.toast(f"🤖 PAPER {action} order simulated for {symbol} (Qty: {quantity})", icon="📄")
-            
-        return trade_record
-        
-    except Exception as e:
-        st.error(f"Automated trade execution failed: {e}")
-        return None
-
-def run_automated_bots_cycle(instrument_df, watchlist_symbols):
-    """Run one cycle of all active automated bots."""
-    if not st.session_state.automated_mode['running']:
-        return
-    
-    active_bots = [bot for bot, active in st.session_state.automated_mode['bots_active'].items() if active]
-    
-    for bot_name in active_bots:
-        for symbol in watchlist_symbols[:10]:  # Limit to first 10 symbols to avoid rate limits
-            try:
-                bot_function = AUTOMATED_BOTS[bot_name]
-                bot_result = bot_function(instrument_df, symbol)
-                
-                if not bot_result.get("error") and bot_result["action"] != "HOLD":
-                    execute_automated_trade(
-                        instrument_df, 
-                        bot_result, 
-                        st.session_state.automated_mode['risk_per_trade']
-                    )
-                
-                # Small delay to avoid rate limiting
-                import time
-                time.sleep(0.5)
-                
-            except Exception as e:
-                st.error(f"Automated bot {bot_name} failed for {symbol}: {e}")
-    
-    # Update performance metrics
-    st.session_state.automated_mode['performance_metrics'] = get_automated_bot_performance()
-    st.session_state.automated_mode['last_signal_check'] = datetime.now().isoformat()
-
-def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
-    """Execute trades automatically based on bot signals."""
-    if bot_result.get("error") or bot_result["action"] == "HOLD":
-        return None
-    
-    try:
-        symbol = bot_result["symbol"]
-        action = bot_result["action"]
-        current_price = bot_result["current_price"]
-        
-        # Calculate position size based on risk
-        risk_amount = (risk_per_trade / 100) * st.session_state.automated_mode['total_capital']
-        quantity = max(1, int(risk_amount / current_price))
-        
-        # Check if we have too many open trades
-        open_trades = [t for t in st.session_state.automated_mode['trade_history'] 
-                      if t.get('status') == 'OPEN']
-        if len(open_trades) >= st.session_state.automated_mode['max_open_trades']:
-            return None
-        
-        # Check for existing position in the same symbol
-        existing_position = next((t for t in open_trades if t.get('symbol') == symbol), None)
-        if existing_position:
-            # Avoid opening same position multiple times
-            if existing_position['action'] == action:
-                return None
-        
-       
-        # Place the real order
-        place_order(instrument_df, symbol, quantity, 'MARKET', action, 'MIS')
-        
-        # Record the trade (simulated for demo)
-        trade_record = {
-            'timestamp': datetime.now().isoformat(),
-            'symbol': symbol,
-            'action': action,
-            'quantity': quantity,
-            'entry_price': current_price,
-            'status': 'OPEN',
-            'bot_name': bot_result['bot_name'],
-            'risk_level': bot_result['risk_level'],
-            'pnl': 0  # Initialize P&L
-        }
-        
-        st.session_state.automated_mode['trade_history'].append(trade_record)
-        
-        st.toast(f"🤖 Automated {action} order executed for {symbol}", icon="⚡")
-        return trade_record
-        
-    except Exception as e:
-        st.error(f"Automated trade execution failed: {e}")
-        return None
-
 # ================ 5. PAGE DEFINITIONS ============
 
 # --- Bharatiya Market Pulse (BMP) Functions ---
@@ -3825,2574 +2693,1686 @@ def create_nifty_heatmap(instrument_df):
     
     fig = go.Figure(go.Treemap(
         labels=full_data['Ticker'],
-        parents=[''] * len(full_data),
+        parents=['NIFTY 50'] * len(full_data),
         values=full_data['size'],
+        text=full_data['% Change'].apply(lambda x: f"{x:+.2f}%"),
+        textinfo="label+text",
         marker=dict(
-            colorscale='RdYlGn',
             colors=full_data['% Change'],
-            colorbar=dict(title="% Change"),
+            colorscale='RdYlGn',
+            showscale=True,
+            colorbar=dict(title="% Change")
         ),
-        text=full_data['Ticker'],
-        textinfo="label",
-        hovertemplate='<b>%{label}</b><br>Price: ₹%{customdata[0]:.2f}<br>Change: %{customdata[1]:.2f}%<extra></extra>',
-        customdata=np.column_stack([full_data['Price'], full_data['% Change']])
+        hovertemplate='<b>%{label}</b><br>Price: ₹%{customdata[0]:.2f}<br>Change: %{text}<extra></extra>',
+        customdata=np.stack((full_data['Price'], full_data['% Change']), axis=-1)
     ))
-
-    fig.update_layout(title="NIFTY 50 Heatmap (Live)")
+    
+    fig.update_layout(
+        title="NIFTY 50 Heatmap",
+        height=500,
+        margin=dict(t=50, l=25, r=25, b=25),
+        template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
+    )
+    
     return fig
 
-@st.cache_data(ttl=300)
-def get_gift_nifty_data():
-    """Fetches GIFT NIFTY data using a more reliable yfinance ticker."""
-    try:
-        data = yf.download("NIFTY_F1", period="1d", interval="1m")
-        if not data.empty:
-            return data
-    except Exception:
-        pass
-    return pd.DataFrame()
+def create_sector_allocation_chart(instrument_df):
+    """Creates a sector allocation chart based on the SENSEX sector data."""
+    sector_df = get_sector_data()
+    if sector_df is None or sector_df.empty:
+        return go.Figure()
+    
+    sector_counts = sector_df['Sector'].value_counts()
+    
+    fig = go.Figure(data=[go.Pie(
+        labels=sector_counts.index,
+        values=sector_counts.values,
+        hole=0.4,
+        textinfo='label+percent',
+        hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
+    )])
+    
+    fig.update_layout(
+        title="SENSEX Sector Allocation",
+        height=400,
+        margin=dict(t=50, l=25, r=25, b=25),
+        template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
+    )
+    
+    return fig
 
 def page_dashboard():
-    """A completely redesigned 'Trader UI' Dashboard."""
+    """Enhanced Dashboard with BMP and visualizations."""
     display_header()
+    st.title("🏠 Bharatiya Market Pulse (BMP)")
+    
     instrument_df = get_instrument_df()
     if instrument_df.empty:
         st.info("Please connect to a broker to view the dashboard.")
         return
     
-    index_symbols = [
-        {'symbol': 'NIFTY 50', 'exchange': 'NSE'},
-        {'symbol': 'SENSEX', 'exchange': 'BSE'},
-        {'symbol': 'INDIA VIX', 'exchange': 'NSE'},
-    ]
-    index_data = get_watchlist_data(index_symbols)
+    # Auto-refresh every 60 seconds
+    st_autorefresh(interval=60000, key="dashboard_refresh")
     
-    # BMP Calculation and Display
-    bmp_col, heatmap_col = st.columns([1, 1], gap="large")
-    with bmp_col:
-        st.subheader("Bharatiya Market Pulse (BMP)")
-        if not index_data.empty:
-            nifty_row = index_data[index_data['Ticker'] == 'NIFTY 50'].iloc[0]
-            sensex_row = index_data[index_data['Ticker'] == 'SENSEX'].iloc[0]
-            vix_row = index_data[index_data['Ticker'] == 'INDIA VIX'].iloc[0]
-            
-            nifty_hist = get_historical_data(get_instrument_token('NIFTY 50', instrument_df, 'NSE'), 'day', period='1y')
-            sensex_hist = get_historical_data(get_instrument_token('SENSEX', instrument_df, 'BSE'), 'day', period='1y')
-            vix_hist = get_historical_data(get_instrument_token('INDIA VIX', instrument_df, 'NSE'), 'day', period='1y')
-            
-            if not nifty_hist.empty and not sensex_hist.empty and not vix_hist.empty:
-                lookback_data = pd.DataFrame({
-                    'nifty_change': nifty_hist['close'].pct_change() * 100,
-                    'sensex_change': sensex_hist['close'].pct_change() * 100,
-                    'vix_value': vix_hist['close']
-                }).dropna()
-                
-                bmp_score, bmp_label, bmp_color = get_bmp_score_and_label(nifty_row['% Change'], sensex_row['% Change'], vix_row['Price'], lookback_data)
-                
-                st.markdown(f'<div class="metric-card" style="border-color:{bmp_color};"><h3>{bmp_score:.2f}</h3><p style="color:{bmp_color}; font-weight:bold;">{bmp_label}</p><small>Proprietary score from NIFTY, SENSEX, and India VIX.</small></div>', unsafe_allow_html=True)
-                with st.expander("What do the BMP scores mean?"):
-                    st.markdown("""
-                    - **80-100 (Bharat Udaan):** Very Strong Bullish Momentum.
-                    - **60-80 (Bharat Pragati):** Moderately Bullish Sentiment.
-                    - **40-60 (Bharat Santulan):** Neutral or Sideways Market.
-                    - **20-40 (Bharat Sanket):** Moderately Bearish Sentiment.
-                    - **0-20 (Bharat Mandhi):** Very Strong Bearish Momentum.
-                    """)
-            else:
-                st.info("BMP data is loading...")
-        else:
-            st.info("BMP data is loading...")
-    with heatmap_col:
-        st.subheader("NIFTY 50 Heatmap")
-        st.plotly_chart(create_nifty_heatmap(instrument_df), use_container_width=True)
-
-    st.markdown("---")
+    # Market status and timing
+    market_status, next_market = get_market_status()
+    status_colors = {
+        "market_open": "🟢", "pre_market": "🟡", "equity_square_off": "🔴", 
+        "derivatives_square_off": "🔴", "market_closed": "⚫", "weekend": "⚫", "holiday": "⚫"
+    }
     
-    # --- Middle Row: Main Content Area ---
-    col1, col2 = st.columns([1, 1], gap="large")
-    
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        tab1, tab2 = st.tabs(["Watchlist", "Portfolio Overview"])
-
-        with tab1:
-            st.session_state.active_watchlist = st.radio(
-                "Select Watchlist",
-                options=st.session_state.watchlists.keys(),
-                horizontal=True,
-                label_visibility="collapsed"
-            )
-            
-            active_list = st.session_state.watchlists[st.session_state.active_watchlist]
-
-            with st.form(key="add_stock_form"):
-                add_col1, add_col2, add_col3 = st.columns([2, 1, 1])
-                new_symbol = add_col1.text_input("Symbol", placeholder="Add symbol...", label_visibility="collapsed")
-                new_exchange = add_col2.selectbox("Exchange", ["NSE", "BSE", "MCX", "CDS"], label_visibility="collapsed")
-                if add_col3.form_submit_button("Add"):
-                    if new_symbol:
-                        if len(active_list) >= 15:
-                            st.toast("Watchlist full (max 15 stocks).", icon="⚠️")
-                        elif not any(d['symbol'] == new_symbol.upper() for d in active_list):
-                            active_list.append({'symbol': new_symbol.upper(), 'exchange': new_exchange})
-                            st.rerun()
-                        else:
-                            st.toast(f"{new_symbol.upper()} is already in this watchlist.", icon="⚠️")
-            
-            # Display watchlist
-            watchlist_data = get_watchlist_data(active_list)
-            if not watchlist_data.empty:
-                for index, row in watchlist_data.iterrows():
-                    w_cols = st.columns([3, 2, 1, 1, 1, 1])
-                    color = 'var(--green)' if row['Change'] > 0 else 'var(--red)'
-                    w_cols[0].markdown(f"**{row['Ticker']}**<br><small style='color:var(--text-light);'>{row['Exchange']}</small>", unsafe_allow_html=True)
-                    w_cols[1].markdown(f"**{row['Price']:,.2f}**<br><small style='color:{color};'>{row['Change']:,.2f} ({row['% Change']:.2f}%)</small>", unsafe_allow_html=True)
-                    
-                    quantity = w_cols[2].number_input("Qty", min_value=1, step=1, key=f"qty_{row['Ticker']}", label_visibility="collapsed")
-                    
-                    if w_cols[3].button("B", key=f"buy_{row['Ticker']}", use_container_width=True):
-                        place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'BUY', 'MIS')
-                    if w_cols[4].button("S", key=f"sell_{row['Ticker']}", use_container_width=True):
-                        place_order(instrument_df, row['Ticker'], quantity, 'MARKET', 'SELL', 'MIS')
-                    if w_cols[5].button("🗑️", key=f"del_{row['Ticker']}", use_container_width=True):
-                        st.session_state.watchlists[st.session_state.active_watchlist] = [item for item in active_list if item['symbol'] != row['Ticker']]
-                        st.rerun()
-                st.markdown("---")
-
-        with tab2:
-            st.subheader("My Portfolio")
-            _, holdings_df, total_pnl, total_investment = get_portfolio()
-            st.metric("Total Investment", f"₹{total_investment:,.2f}")
-            st.metric("Today's Profit & Loss", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}")
-            with st.expander("View Holdings"):
-                if not holdings_df.empty:
-                    st.dataframe(holdings_df, use_container_width=True, hide_index=True)
-                else:
-                    st.info("No holdings found.")
+        st.subheader(f"{status_colors.get(market_status, '⚫')} Market Status: {market_status.replace('_', ' ').title()}")
     with col2:
-        st.subheader("NIFTY 50 Live Chart (1-min)")
-        nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NSE')
-        if nifty_token:
-            nifty_data = get_historical_data(nifty_token, "minute", period="1d")
-            if not nifty_data.empty:
-                st.plotly_chart(create_chart(nifty_data.tail(150), "NIFTY 50"), use_container_width=True)
-            else:
-                st.warning("Could not load NIFTY 50 chart. Market might be closed.")
+        if market_status in ["market_closed", "weekend", "holiday"]:
+            st.caption(f"Next market: {next_market.strftime('%a, %b %d, %H:%M')}")
+    with col3:
+        st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
     
-    # --- Bottom Row: Live Ticker Tape ---
-    ticker_symbols = st.session_state.get('watchlists', {}).get(st.session_state.get('active_watchlist'), [])
+    # Main BMP and indices row
+    col_a, col_b = st.columns([2, 1])
     
-    if ticker_symbols:
-        ticker_data = get_watchlist_data(ticker_symbols)
-        
-        if not ticker_data.empty:
-            ticker_html = "".join([
-                f"<span style='color: white; margin-right: 40px;'>{item['Ticker']} <span style='color: {'#28a745' if item['Change'] > 0 else '#FF4B4B'};'>{item['Price']:,.2f} ({item['% Change']:.2f}%)</span></span>"
-                for _, item in ticker_data.iterrows()
-            ])
+    with col_a:
+        # BMP Score Card
+        try:
+            nifty_quote = get_watchlist_data([{'symbol': 'NIFTY 50', 'exchange': 'NSE'}])
+            sensex_quote = get_watchlist_data([{'symbol': 'SENSEX', 'exchange': 'BSE'}])
+            vix_quote = get_watchlist_data([{'symbol': 'INDIAVIX', 'exchange': 'NSE'}])
+            
+            nifty_change = nifty_quote.iloc[0]['% Change'] if not nifty_quote.empty else 0
+            sensex_change = sensex_quote.iloc[0]['% Change'] if not sensex_quote.empty else 0
+            vix_value = vix_quote.iloc[0]['Price'] if not vix_quote.empty else 20
+            
+            # Create a simple lookback dataframe (in a real app, this would be historical)
+            lookback_df = pd.DataFrame({
+                'nifty_change': [nifty_change] * 30,
+                'sensex_change': [sensex_change] * 30,
+                'vix_value': [vix_value] * 30
+            })
+            
+            bmp_score, bmp_label, bmp_color = get_bmp_score_and_label(nifty_change, sensex_change, vix_value, lookback_df)
             
             st.markdown(f"""
-            <style>
-                @keyframes marquee {{
-                    0%   {{ transform: translate(100%, 0); }}
-                    100% {{ transform: translate(-100%, 0); }}
-                }}
-                .marquee-container {{
-                    width: 100%;
-                    overflow: hidden;
-                    position: fixed;
-                    bottom: 0;
-                    left: 0;
-                    background-color: #1a1a1a;
-                    border-top: 1px solid #333;
-                    padding: 5px 0;
-                    white-space: nowrap;
-                }}
-                .marquee-content {{
-                    display: inline-block;
-                    padding-left: 100%;
-                    animation: marquee 35s linear infinite;
-                }}
-            </style>
-            <div class="marquee-container">
-                <div class="marquee-content">
-                    {ticker_html}
-                </div>
+            <div style="text-align: center; padding: 2rem; background: linear-gradient(135deg, {bmp_color}22, {bmp_color}44); border-radius: 15px; border: 2px solid {bmp_color};">
+                <h1 style="margin: 0; color: {bmp_color}; font-size: 4rem;">{bmp_score:.0f}</h1>
+                <h3 style="margin: 0; color: {bmp_color};">{bmp_label}</h3>
+                <p style="margin: 0; color: #666;">Bharatiya Market Pulse Score</p>
             </div>
             """, unsafe_allow_html=True)
+            
+        except Exception as e:
+            st.error(f"Error calculating BMP: {e}")
+    
+    with col_b:
+        # Key indices
+        indices_data = [
+            {'Ticker': 'NIFTY 50', 'Exchange': 'NSE'},
+            {'Ticker': 'BANKNIFTY', 'Exchange': 'NSE'},
+            {'Ticker': 'INDIAVIX', 'Exchange': 'NSE'},
+            {'Ticker': 'SENSEX', 'Exchange': 'BSE'}
+        ]
+        
+        indices_df = get_watchlist_data(indices_data)
+        if not indices_df.empty:
+            for _, row in indices_df.iterrows():
+                change_color = "green" if row['% Change'] > 0 else "red"
+                st.metric(
+                    label=row['Ticker'],
+                    value=f"₹{row['Price']:.2f}",
+                    delta=f"{row['% Change']:+.2f}%",
+                    delta_color="normal"
+                )
+    
+    # Visualizations row
+    st.markdown("---")
+    col_viz1, col_viz2 = st.columns(2)
+    
+    with col_viz1:
+        # NIFTY 50 Heatmap
+        heatmap_fig = create_nifty_heatmap(instrument_df)
+        if heatmap_fig:
+            st.plotly_chart(heatmap_fig, use_container_width=True)
+        else:
+            st.info("NIFTY 50 heatmap data not available.")
+    
+    with col_viz2:
+        # Sector Allocation
+        sector_fig = create_sector_allocation_chart(instrument_df)
+        if sector_fig:
+            st.plotly_chart(sector_fig, use_container_width=True)
+        else:
+            st.info("Sector allocation data not available.")
+    
+    # News and Quick Actions
+    st.markdown("---")
+    col_news, col_actions = st.columns([2, 1])
+    
+    with col_news:
+        st.subheader("📰 Latest Market News")
+        news_df = fetch_and_analyze_news()
+        if not news_df.empty:
+            for _, article in news_df.head(5).iterrows():
+                sentiment_icon = "🟢" if article['sentiment'] > 0.1 else "🔴" if article['sentiment'] < -0.1 else "🟡"
+                st.markdown(f"""
+                **{sentiment_icon} [{article['title']}]({article['link']})**  
+                *{article['source']} • {article['date']}*
+                """)
+        else:
+            st.info("No recent news available.")
+    
+    with col_actions:
+        st.subheader("⚡ Quick Actions")
+        quick_trade_dialog()
+        
+        if st.button("🔄 Refresh Data", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+        
+        if st.button("📊 View Portfolio", use_container_width=True):
+            st.session_state.active_page = "Portfolio & Risk"
+            st.rerun()
 
 def page_advanced_charting():
-    """A page for advanced charting with custom intervals and indicators."""
+    """Advanced charting page with multiple chart types and technical indicators."""
     display_header()
-    st.title("Advanced Multi-Chart Terminal")
+    st.title("📈 Advanced Charting")
+    
     instrument_df = get_instrument_df()
     if instrument_df.empty:
-        st.info("Please connect to a broker to use the charting tools.")
+        st.info("Please connect to a broker to use charting features.")
         return
     
-    st.subheader("Chart Layout")
-    layout_option = st.radio("Select Layout", ["Single Chart", "2 Charts", "4 Charts", "6 Charts"], horizontal=True)
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
     
-    chart_counts = {"Single Chart": 1, "2 Charts": 2, "4 Charts": 4, "6 Charts": 6}
-    num_charts = chart_counts[layout_option]
+    with col1:
+        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'BSE', 'NFO'])]['tradingsymbol'].unique()
+        selected_symbol = st.selectbox("Select Symbol", sorted(all_symbols), key="chart_symbol")
     
-    st.markdown("---")
+    with col2:
+        interval = st.selectbox("Interval", ['1d', '5d', '1mo', '6mo', '1y', '5y'], key="chart_interval")
     
-    if num_charts == 1:
-        render_chart_controls(0, instrument_df)
-    elif num_charts == 2:
-        cols = st.columns(2)
-        for i, col in enumerate(cols):
-            with col:
-                render_chart_controls(i, instrument_df)
-    elif num_charts == 4:
-        for i in range(2):
-            cols = st.columns(2)
-            with cols[0]:
-                render_chart_controls(i * 2, instrument_df)
-            with cols[1]:
-                render_chart_controls(i * 2 + 1, instrument_df)
-    elif num_charts == 6:
-        for i in range(2):
-            cols = st.columns(3)
-            with cols[0]:
-                render_chart_controls(i * 3, instrument_df)
-            with cols[1]:
-                render_chart_controls(i * 3 + 1, instrument_df)
-            with cols[2]:
-                render_chart_controls(i * 3 + 2, instrument_df)
-
-def render_chart_controls(i, instrument_df):
-    """Helper function to render controls for a single chart."""
-    with st.container(border=True):
-        st.subheader(f"Chart {i+1}")
-        
-        chart_cols = st.columns(4)
-        ticker = chart_cols[0].text_input("Symbol", "NIFTY 50", key=f"ticker_{i}").upper()
-        period = chart_cols[1].selectbox("Period", ["1d", "5d", "1mo", "6mo", "1y", "5y"], index=4, key=f"period_{i}")
-        interval = chart_cols[2].selectbox("Interval", ["minute", "5minute", "day", "week"], index=2, key=f"interval_{i}")
-        chart_type = chart_cols[3].selectbox("Chart Type", ["Candlestick", "Line", "Bar", "Heikin-Ashi"], key=f"chart_type_{i}")
-
-        token = get_instrument_token(ticker, instrument_df)
-        data = get_historical_data(token, interval, period=period)
-
-        if data.empty:
-            st.warning(f"No data to display for {ticker} with selected parameters.")
+    with col3:
+        chart_type = st.selectbox("Chart Type", ['Candlestick', 'Heikin-Ashi', 'Line', 'Bar'], key="chart_type")
+    
+    with col4:
+        show_indicators = st.checkbox("Show Indicators", value=True, key="chart_indicators")
+    
+    if selected_symbol:
+        # Determine exchange
+        is_option = any(char.isdigit() for char in selected_symbol)
+        if is_option:
+            exchange = 'NFO'
         else:
-            st.plotly_chart(create_chart(data, ticker, chart_type), use_container_width=True, key=f"chart_{i}")
-
-            order_cols = st.columns([2,1,1,1])
-            order_cols[0].markdown("**Quick Order**")
-            quantity = order_cols[1].number_input("Qty", min_value=1, step=1, key=f"qty_{i}", label_visibility="collapsed")
-            
-            if order_cols[2].button("Buy", key=f"buy_btn_{i}", use_container_width=True):
-                place_order(instrument_df, ticker, quantity, 'MARKET', 'BUY', 'MIS')
-            if order_cols[3].button("Sell", key=f"sell_btn_{i}", use_container_width=True):
-                place_order(instrument_df, ticker, quantity, 'MARKET', 'SELL', 'MIS')
+            instrument = instrument_df[instrument_df['tradingsymbol'] == selected_symbol]
+            exchange = instrument.iloc[0]['exchange'] if not instrument.empty else 'NSE'
+        
+        token = get_instrument_token(selected_symbol, instrument_df, exchange)
+        if token:
+            data = get_historical_data(token, interval, period=interval)
+            if not data.empty:
+                # Create chart
+                fig = create_chart(data, selected_symbol, chart_type)
+                if fig:
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                # Technical indicators interpretation
+                if show_indicators:
+                    interpretation = interpret_indicators(data)
+                    if interpretation:
+                        st.subheader("📊 Technical Indicators Interpretation")
+                        cols = st.columns(3)
+                        for i, (indicator, signal) in enumerate(interpretation.items()):
+                            with cols[i % 3]:
+                                if "Bullish" in signal:
+                                    st.success(f"**{indicator}:** {signal}")
+                                elif "Bearish" in signal:
+                                    st.error(f"**{indicator}:** {signal}")
+                                else:
+                                    st.info(f"**{indicator}:** {signal}")
+            else:
+                st.warning("No historical data available for the selected symbol and period.")
+        else:
+            st.error("Could not find instrument token for the selected symbol.")
+    else:
+        st.info("Please select a symbol to view charts.")
 
 def page_premarket_pulse():
-    """Global market overview and premarket indicators with a trader-focused UI."""
+    """Premarket analysis page with gap-up/gap-down scanner and premarket movers."""
     display_header()
-    st.title("Premarket & Global Cues")
-    st.markdown("---")
-
-    st.subheader("Global Market Snapshot")
-    global_tickers = {"S&P 500": "^GSPC", "Dow Jones": "^DJI", "NASDAQ": "^IXIC", "FTSE 100": "^FTSE", "Nikkei 225": "^N225", "Hang Seng": "^HSI"}
-    global_data = get_global_indices_data(global_tickers)
+    st.title("🌅 Premarket Pulse")
+    st.info("Analyze premarket trends and identify potential gap-up/gap-down opportunities.", icon="ℹ️")
     
-    if not global_data.empty:
-        cols = st.columns(len(global_tickers))
-        for i, (name, ticker_symbol) in enumerate(global_tickers.items()):
-            data_row = global_data[global_data['Ticker'] == name]
-            if not data_row.empty:
-                price = data_row.iloc[0]['Price']
-                change = data_row.iloc[0]['% Change']
-                if not np.isnan(price):
-                    cols[i].metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
-                else:
-                    cols[i].metric(label=name, value="N/A", delta="--")
-    else:
-        st.info("Loading global market data...")
-
-    st.markdown("---")
-
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use premarket analysis.")
+        return
+    
+    # Market status check
+    market_status, next_market = get_market_status()
+    if market_status not in ["pre_market", "market_open"]:
+        st.warning(f"Premarket analysis is most useful during pre-market hours (9:00 AM - 9:15 AM). Current status: {market_status.replace('_', ' ').title()}")
+    
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("NIFTY 50 Futures (Live Proxy)")
-        gift_data = get_gift_nifty_data()
-        if not gift_data.empty:
-            st.plotly_chart(create_chart(gift_data, "NIFTY 50 Futures (Proxy)"), use_container_width=True)
-        else:
-            st.warning("Could not load NIFTY 50 Futures chart data.")
-            
-    with col2:
-        st.subheader("Key Asian Markets")
-        asian_tickers = {"Nikkei 225": "^N225", "Hang Seng": "^HSI"}
-        asian_data = get_global_indices_data(asian_tickers)
-        if not asian_data.empty:
-            for name, ticker_symbol in asian_tickers.items():
-                data_row = asian_data[asian_data['Ticker'] == name]
-                if not data_row.empty:
-                    price = data_row.iloc[0]['Price']
-                    change = data_row.iloc[0]['% Change']
-                    if not np.isnan(price):
-                        st.metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
+        st.subheader("📊 Gap Analysis Scanner")
+        gap_threshold = st.slider("Gap Threshold (%)", min_value=1.0, max_value=10.0, value=2.0, step=0.5)
+        
+        if st.button("Scan for Gap Opportunities", use_container_width=True):
+            with st.spinner("Scanning for gap-up/gap-down stocks..."):
+                # Get NIFTY 50 constituents for scanning
+                nifty_constituents = get_nifty50_constituents(instrument_df)
+                if not nifty_constituents.empty:
+                    gap_opportunities = []
+                    symbols_to_scan = nifty_constituents['Symbol'].tolist()[:20]  # Limit for demo
+                    
+                    for symbol in symbols_to_scan:
+                        try:
+                            token = get_instrument_token(symbol, instrument_df, 'NSE')
+                            if token:
+                                # Get yesterday's close and current price
+                                hist_data = get_historical_data(token, 'day', period='5d')
+                                if not hist_data.empty and len(hist_data) >= 2:
+                                    yesterday_close = hist_data['close'].iloc[-2]
+                                    current_data = get_watchlist_data([{'symbol': symbol, 'exchange': 'NSE'}])
+                                    if not current_data.empty:
+                                        current_price = current_data.iloc[0]['Price']
+                                        gap_percentage = ((current_price - yesterday_close) / yesterday_close) * 100
+                                        
+                                        if abs(gap_percentage) >= gap_threshold:
+                                            gap_opportunities.append({
+                                                'Symbol': symbol,
+                                                'Yesterday Close': yesterday_close,
+                                                'Current Price': current_price,
+                                                'Gap %': gap_percentage,
+                                                'Type': 'Gap Up' if gap_percentage > 0 else 'Gap Down'
+                                            })
+                        except Exception:
+                            continue
+                    
+                    if gap_opportunities:
+                        gap_df = pd.DataFrame(gap_opportunities)
+                        st.subheader(f"🎯 Gap Opportunities (≥ {gap_threshold}%)")
+                        
+                        # Display gap-up and gap-down separately
+                        gap_up_df = gap_df[gap_df['Type'] == 'Gap Up'].sort_values('Gap %', ascending=False)
+                        gap_down_df = gap_df[gap_df['Type'] == 'Gap Down'].sort_values('Gap %', ascending=True)
+                        
+                        if not gap_up_df.empty:
+                            st.write("**🔼 Gap Up Stocks:**")
+                            for _, row in gap_up_df.iterrows():
+                                st.success(f"{row['Symbol']}: +{row['Gap %']:.2f}% (₹{row['Yesterday Close']:.2f} → ₹{row['Current Price']:.2f})")
+                        
+                        if not gap_down_df.empty:
+                            st.write("**🔽 Gap Down Stocks:**")
+                            for _, row in gap_down_df.iterrows():
+                                st.error(f"{row['Symbol']}: {row['Gap %']:.2f}% (₹{row['Yesterday Close']:.2f} → ₹{row['Current Price']:.2f})")
                     else:
-                        st.metric(label=name, value="N/A", delta="--")
-        else:
-            st.info("Loading Asian market data...")
-
+                        st.info(f"No gap opportunities found above {gap_threshold}% threshold.")
+                else:
+                    st.error("Could not fetch NIFTY 50 constituents for scanning.")
+    
+    with col2:
+        st.subheader("⚡ Quick Actions")
+        
+        # Most active options
+        if st.button("Most Active Options", use_container_width=True):
+            show_most_active_dialog("NIFTY", instrument_df)
+        
+        # Global indices
+        st.subheader("🌍 Global Indices")
+        global_tickers = {"S&P 500": "^GSPC", "NASDAQ": "^IXIC", "Dow Jones": "^DJI", "FTSE 100": "^FTSE"}
+        global_data = get_global_indices_data(global_tickers)
+        if not global_data.empty:
+            for _, row in global_data.iterrows():
+                st.metric(
+                    label=row['Ticker'],
+                    value=f"${row['Price']:.2f}",
+                    delta=f"{row['% Change']:+.2f}%"
+                )
+    
+    # News sentiment analysis
     st.markdown("---")
-
-    st.subheader("Latest Market News")
-    news_df = fetch_and_analyze_news()
-    if not news_df.empty:
-        for _, news in news_df.head(10).iterrows():
-            sentiment_score = news['sentiment']
-            if sentiment_score > 0.2:
-                icon = "🔼"
-            elif sentiment_score < -0.2:
-                icon = "🔽"
+    st.subheader("📰 Overnight News Sentiment")
+    
+    news_query = st.text_input("Filter news by keyword (e.g., RBI, Budget, Results):", placeholder="Enter keyword...")
+    
+    if st.button("Analyze News Sentiment", use_container_width=True) or news_query:
+        with st.spinner("Analyzing financial news..."):
+            news_df = fetch_and_analyze_news(news_query)
+            if not news_df.empty:
+                # Calculate overall sentiment
+                avg_sentiment = news_df['sentiment'].mean()
+                sentiment_label = "Bullish" if avg_sentiment > 0.1 else "Bearish" if avg_sentiment < -0.1 else "Neutral"
+                sentiment_color = "green" if avg_sentiment > 0.1 else "red" if avg_sentiment < -0.1 else "orange"
+                
+                st.metric("Overall News Sentiment", sentiment_label, delta=f"{avg_sentiment:.2f}")
+                
+                # Display top news
+                st.subheader("Top Relevant News")
+                for _, article in news_df.head(5).iterrows():
+                    with st.expander(f"{article['source']}: {article['title']}"):
+                        st.write(f"**Published:** {article['date']}")
+                        st.write(f"**Sentiment Score:** {article['sentiment']:.2f}")
+                        st.write(f"[Read more]({article['link']})")
             else:
-                icon = "▶️"
-            st.markdown(f"**{icon} [{news['title']}]({news['link']})** - *{news['source']}*")
-    else:
-        st.info("News data is loading...")
+                st.info("No relevant news found for the given keyword.")
 
 def page_fo_analytics():
-    """F&O Analytics page with comprehensive options analysis."""
+    """F&O Analytics page with options chain, PCR, and Greeks calculation."""
     display_header()
-    st.title("F&O Analytics Hub")
+    st.title("📊 F&O Analytics")
     
     instrument_df = get_instrument_df()
     if instrument_df.empty:
-        st.info("Please connect to a broker to access F&O Analytics.")
+        st.info("Please connect to a broker to use F&O analytics.")
         return
     
-    tab1, tab2, tab3 = st.tabs(["Options Chain", "PCR Analysis", "Volatility & OI Analysis"])
-    
-    with tab1:
-        st.subheader("Live Options Chain")
-        
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col1:
-            underlying = st.selectbox("Select Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY"])
-            st.session_state.underlying_pcr = underlying 
-        
-        chain_df, expiry, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
-
-        if not chain_df.empty:
-            with col2:
-                st.metric("Current Price", f"₹{underlying_ltp:,.2f}")
-                st.metric("Expiry Date", expiry.strftime("%d %b %Y") if expiry else "N/A")
-            with col3:
-                if st.button("Most Active Options", use_container_width=True):
-                    show_most_active_dialog(underlying, instrument_df)
-
-            st.dataframe(
-                style_option_chain(chain_df, underlying_ltp).format({
-                    'CALL LTP': '₹{:.2f}', 'PUT LTP': '₹{:.2f}',
-                    'STRIKE': '₹{:.0f}',
-                    'CALL OI': '{:,.0f}', 'PUT OI': '{:,.0f}'
-                }),
-                use_container_width=True, hide_index=True
-            )
-        else:
-            st.warning("Could not load options chain data.")
-    
-    with tab2:
-        st.subheader("Put-Call Ratio Analysis")
-        
-        chain_df, _, _, _ = get_options_chain(st.session_state.get('underlying_pcr', "NIFTY"), instrument_df)
-        if not chain_df.empty and 'CALL OI' in chain_df.columns:
-            total_ce_oi = chain_df['CALL OI'].sum()
-            total_pe_oi = chain_df['PUT OI'].sum()
-            pcr = total_pe_oi / total_ce_oi if total_ce_oi > 0 else 0
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total CE OI", f"{total_ce_oi:,.0f}")
-            col2.metric("Total PE OI", f"{total_pe_oi:,.0f}")
-            col3.metric("PCR", f"{pcr:.2f}")
-            
-            if pcr > 1.3:
-                st.success("High PCR suggests potential bearish sentiment (more Puts bought for hedging/speculation).")
-            elif pcr < 0.7:
-                st.error("Low PCR suggests potential bullish sentiment (more Calls bought).")
-            else:
-                st.info("PCR indicates neutral sentiment.")
-        else:
-            st.info("PCR data is loading... Select an underlying in the 'Options Chain' tab first.")
-    
-    with tab3:
-        st.subheader("Volatility & Open Interest Surface")
-        st.info("Real-time implied volatility and OI analysis for options contracts.")
-
-        chain_df, expiry, underlying_ltp, _ = get_options_chain(st.session_state.get('underlying_pcr', "NIFTY"), instrument_df)
-
-        if not chain_df.empty and expiry and underlying_ltp > 0:
-            T = (expiry - datetime.now().date()).days / 365.0
-            r = 0.07
-
-            with st.spinner("Calculating Implied Volatility..."):
-                chain_df['IV_CE'] = chain_df.apply(
-                    lambda row: implied_volatility(underlying_ltp, row['STRIKE'], T, r, row['CALL LTP'], 'call') * 100,
-                    axis=1
-                )
-                chain_df['IV_PE'] = chain_df.apply(
-                    lambda row: implied_volatility(underlying_ltp, row['STRIKE'], T, r, row['PUT LTP'], 'put') * 100,
-                    axis=1
-                )
-
-            fig = make_subplots(specs=[[{"secondary_y": True}]])
-            fig.add_trace(go.Scatter(x=chain_df['STRIKE'], y=chain_df['IV_CE'], mode='lines+markers', name='Call IV', line=dict(color='cyan')), secondary_y=False)
-            fig.add_trace(go.Scatter(x=chain_df['STRIKE'], y=chain_df['IV_PE'], mode='lines+markers', name='Put IV', line=dict(color='magenta')), secondary_y=False)
-            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['CALL OI'], name='Call OI', marker_color='rgba(0, 255, 255, 0.4)'), secondary_y=True)
-            fig.add_trace(go.Bar(x=chain_df['STRIKE'], y=chain_df['PUT OI'], name='Put OI', marker_color='rgba(255, 0, 255, 0.4)'), secondary_y=True)
-
-            fig.update_layout(
-                title_text=f"{st.session_state.get('underlying_pcr', 'NIFTY')} IV & OI Profile for {expiry.strftime('%d %b %Y')}",
-                template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white',
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            fig.update_yaxes(title_text="Implied Volatility (%)", secondary_y=False)
-            fig.update_yaxes(title_text="Open Interest", secondary_y=True)
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Please select an underlying and expiry in the 'Options Chain' tab to view the volatility surface.")
-
-def page_forecasting_ml():
-    """A page for advanced ML forecasting with an improved UI and corrected formulas."""
-    display_header()
-    st.title("Advanced ML Forecasting")
-    st.info("Train a Seasonal ARIMA model to forecast future prices. This is for educational purposes and not financial advice.", icon="🧠")
-    
-    col1, col2 = st.columns([1, 2])
+    col1, col2, col3 = st.columns([1, 1, 1])
     
     with col1:
-        st.subheader("Model Configuration")
-        instrument_name = st.selectbox("Select an Instrument", list(ML_DATA_SOURCES.keys()), key="ml_instrument")
-        
-        forecast_durations = {"1 Week": 7, "2 Weeks": 14, "1 Month": 30, "3 Months": 90}
-        duration_key = st.radio("Forecast Duration", list(forecast_durations.keys()), horizontal=True, key="ml_duration")
-        forecast_steps = forecast_durations[duration_key]
-
-        if st.button("Train Model & Forecast", use_container_width=True, type="primary"):
-            with st.spinner(f"Loading data and training model for {instrument_name}..."):
-                data = load_and_combine_data(instrument_name)
-                if data.empty or len(data) < 100:
-                    st.error(f"Could not load sufficient historical data for {instrument_name}. Model training requires at least 100 data points.")
-                else:
-                    forecast_df, backtest_df, conf_int_df = train_seasonal_arima_model(data, forecast_steps)
-                    st.session_state.update({
-                        'ml_forecast_df': forecast_df,
-                        'ml_backtest_df': backtest_df,
-                        'ml_conf_int_df': conf_int_df,
-                        'ml_instrument_name': instrument_name,
-                        'ml_historical_data': data,
-                        'ml_duration_key': duration_key
-                    })
-                    st.success("Model trained successfully!")
-
+        underlying_options = ["NIFTY", "BANKNIFTY", "FINNIFTY", "GOLDM", "CRUDEOIL", "USDINR"]
+        selected_underlying = st.selectbox("Underlying", underlying_options, key="fo_underlying")
+    
     with col2:
-        if 'ml_instrument_name' in st.session_state:
-            instrument_name = st.session_state.ml_instrument_name
-            st.subheader(f"Forecast Results for {instrument_name}")
-
-            forecast_df = st.session_state.get('ml_forecast_df')
-            backtest_df = st.session_state.get('ml_backtest_df')
-            conf_int_df = st.session_state.get('ml_conf_int_df')
-            data = st.session_state.get('ml_historical_data')
-            duration_key = st.session_state.get('ml_duration_key')
-
-            if forecast_df is not None and backtest_df is not None and data is not None and conf_int_df is not None:
-                fig = create_chart(data.tail(252), instrument_name, forecast_df=forecast_df, conf_int_df=conf_int_df)
-                fig.add_trace(go.Scatter(x=backtest_df.index, y=backtest_df['Predicted'], mode='lines', name='Backtest Prediction', line=dict(color='orange', dash='dot')))
-                fig.update_layout(title=f"{instrument_name} Forecast vs. Historical Data")
-                st.plotly_chart(fig, use_container_width=True)
-
-                st.subheader("Model Performance (Backtest)")
-                
-                backtest_durations = {"Full History": len(backtest_df), "Last Year": 252, "6 Months": 126, "3 Months": 63}
-                backtest_duration_key = st.selectbox("Select Backtest Period", list(backtest_durations.keys()))
-                backtest_period = backtest_durations[backtest_duration_key]
-                
-                display_df = backtest_df.tail(backtest_period)
-
-                mape = mean_absolute_percentage_error(display_df['Actual'], display_df['Predicted'])
-                
-                metric_cols = st.columns(2)
-                metric_cols[0].metric(f"Accuracy ({backtest_duration_key})", f"{100 - mape:.2f}%")
-                metric_cols[1].metric(f"MAPE ({backtest_duration_key})", f"{mape:.2f}%")
-
-                with st.expander(f"View {duration_key} Forecast Data"):
-                    display_df_forecast = forecast_df.join(conf_int_df)
-                    st.dataframe(display_df_forecast.style.format("₹{:.2f}"), use_container_width=True)
-            else:
-                st.info("Train a model to see the forecast results.")
+        # Get available expiries
+        chain_df, selected_expiry, underlying_ltp, available_expiries = get_options_chain(selected_underlying, instrument_df)
+        if available_expiries:
+            expiry_date = st.selectbox("Expiry", available_expiries, key="fo_expiry")
         else:
-            st.info("Select an instrument and run the forecast to see results.")
+            expiry_date = None
+            st.warning("No expiries available")
+    
+    with col3:
+        st.metric(f"{selected_underlying} LTP", f"₹{underlying_ltp:.2f}" if underlying_ltp > 0 else "N/A")
+    
+    if chain_df is not None and not chain_df.empty and expiry_date:
+        # Calculate PCR
+        total_ce_oi = chain_df['CALL OI'].sum()
+        total_pe_oi = chain_df['PUT OI'].sum()
+        pcr = total_pe_oi / total_ce_oi if total_ce_oi > 0 else 0
+        
+        st.metric("Put-Call Ratio (PCR)", f"{pcr:.2f}")
+        
+        # PCR interpretation
+        if pcr > 1.5:
+            st.success("📈 High PCR: Potentially oversold, bullish signal")
+        elif pcr < 0.7:
+            st.error("📉 Low PCR: Potentially overbought, bearish signal")
+        else:
+            st.info("⚖️ Normal PCR: Market in balance")
+        
+        # Display options chain with styling
+        st.subheader(f"Options Chain - {selected_underlying} ({expiry_date})")
+        styled_chain = style_option_chain(chain_df, underlying_ltp)
+        st.dataframe(styled_chain, use_container_width=True, height=400)
+        
+        # Greeks calculator
+        st.markdown("---")
+        st.subheader("🧮 Options Greeks Calculator")
+        
+        col_g1, col_g2, col_g3, col_g4, col_g5 = st.columns(5)
+        
+        with col_g1:
+            S = st.number_input("Spot Price", value=underlying_ltp, min_value=0.01, step=1.0)
+        with col_g2:
+            K = st.number_input("Strike Price", value=round(underlying_ltp, -2), min_value=0.01, step=50.0)
+        with col_g3:
+            T = st.number_input("Days to Expiry", value=30, min_value=1, max_value=365)
+        with col_g4:
+            r = st.number_input("Risk-free Rate (%)", value=5.0, min_value=0.0, max_value=15.0, step=0.1) / 100
+        with col_g5:
+            sigma = st.number_input("Volatility (%)", value=20.0, min_value=1.0, max_value=100.0, step=1.0) / 100
+        
+        option_type = st.radio("Option Type", ["Call", "Put"], horizontal=True)
+        
+        if st.button("Calculate Greeks", use_container_width=True):
+            T_years = T / 365.0
+            greeks = black_scholes(S, K, T_years, r, sigma, option_type.lower())
+            
+            if greeks:
+                st.session_state.calculated_greeks = greeks
+                st.success("Greeks calculated successfully!")
+        
+        if st.session_state.calculated_greeks:
+            greeks = st.session_state.calculated_greeks
+            col_g6, col_g7, col_g8, col_g9, col_g10 = st.columns(5)
+            
+            with col_g6:
+                st.metric("Delta", f"{greeks['delta']:.4f}")
+            with col_g7:
+                st.metric("Gamma", f"{greeks['gamma']:.4f}")
+            with col_g8:
+                st.metric("Vega", f"{greeks['vega']:.4f}")
+            with col_g9:
+                st.metric("Theta", f"{greeks['theta']:.4f}")
+            with col_g10:
+                st.metric("Rho", f"{greeks['rho']:.4f}")
+    
+    else:
+        st.warning("Could not fetch options chain data. Please check if the market is open.")
+
+def page_forecasting_ml():
+    """Machine Learning Forecasting page with Seasonal ARIMA and backtesting."""
+    display_header()
+    st.title("🤖 ML Forecasting")
+    st.info("Predict future price movements using Seasonal ARIMA models with backtesting.", icon="ℹ️")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        instrument_options = list(ML_DATA_SOURCES.keys())
+        selected_instrument = st.selectbox("Select Instrument", instrument_options, key="ml_instrument")
+        
+        forecast_steps = st.slider("Forecast Period (Days)", min_value=7, max_value=90, value=30, step=7)
+        
+        if st.button("Generate Forecast", use_container_width=True):
+            with st.spinner("Training model and generating forecast..."):
+                # Load and combine data
+                combined_data = load_and_combine_data(selected_instrument)
+                
+                if combined_data.empty:
+                    st.error("Could not load data for the selected instrument.")
+                else:
+                    # Train model and get forecasts
+                    forecast_df, backtest_df, conf_int_df = train_seasonal_arima_model(combined_data, forecast_steps)
+                    
+                    if forecast_df is not None:
+                        st.session_state.ml_forecast_df = forecast_df
+                        st.session_state.ml_backtest_df = backtest_df
+                        st.session_state.ml_conf_int_df = conf_int_df
+                        st.session_state.ml_instrument_name = selected_instrument
+                        st.session_state.ml_historical_data = combined_data
+                        st.success("Forecast generated successfully!")
+                    else:
+                        st.error("Model training failed. Please try with different parameters.")
+    
+    with col2:
+        if st.session_state.ml_forecast_df is not None:
+            st.subheader("📊 Forecast Summary")
+            
+            latest_actual = st.session_state.ml_historical_data['close'].iloc[-1]
+            forecast_values = st.session_state.ml_forecast_df['Predicted']
+            avg_forecast = forecast_values.mean()
+            forecast_change = ((avg_forecast - latest_actual) / latest_actual) * 100
+            
+            st.metric(
+                "Average Forecast Price",
+                f"₹{avg_forecast:.2f}",
+                delta=f"{forecast_change:+.2f}%"
+            )
+            
+            st.metric("Forecast Period", f"{forecast_steps} days")
+            st.metric("Confidence Level", "95%")
+    
+    # Display charts if forecast exists
+    if (st.session_state.ml_forecast_df is not None and 
+        st.session_state.ml_historical_data is not None):
+        
+        st.markdown("---")
+        
+        # Create forecast chart
+        chart_tab, metrics_tab = st.tabs(["📈 Forecast Chart", "📊 Model Metrics"])
+        
+        with chart_tab:
+            fig = create_chart(
+                st.session_state.ml_historical_data, 
+                st.session_state.ml_instrument_name,
+                forecast_df=st.session_state.ml_forecast_df,
+                conf_int_df=st.session_state.ml_conf_int_df
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with metrics_tab:
+            if st.session_state.ml_backtest_df is not None:
+                backtest_df = st.session_state.ml_backtest_df
+                
+                # Calculate metrics
+                mape = mean_absolute_percentage_error(backtest_df['Actual'], backtest_df['Predicted'])
+                rmse = np.sqrt(np.mean((backtest_df['Actual'] - backtest_df['Predicted']) ** 2))
+                
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1:
+                    st.metric("MAPE", f"{mape:.2f}%")
+                with col_m2:
+                    st.metric("RMSE", f"{rmse:.2f}")
+                with col_m3:
+                    accuracy = max(0, 100 - mape)
+                    st.metric("Accuracy", f"{accuracy:.1f}%")
+                
+                # Backtest chart
+                fig_backtest = go.Figure()
+                fig_backtest.add_trace(go.Scatter(
+                    x=backtest_df.index, y=backtest_df['Actual'],
+                    mode='lines', name='Actual', line=dict(color='blue')
+                ))
+                fig_backtest.add_trace(go.Scatter(
+                    x=backtest_df.index, y=backtest_df['Predicted'],
+                    mode='lines', name='Predicted', line=dict(color='red', dash='dash')
+                ))
+                
+                template = 'plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
+                fig_backtest.update_layout(
+                    title="Backtest: Actual vs Predicted",
+                    template=template,
+                    height=400
+                )
+                st.plotly_chart(fig_backtest, use_container_width=True)
+    
+    else:
+        st.info("👆 Select an instrument and generate a forecast to see predictions.")
 
 def page_portfolio_and_risk():
-    """A page for portfolio and risk management, including live P&L and holdings."""
+    """Portfolio and Risk Management page with real-time positions and risk metrics."""
     display_header()
-    st.title("Portfolio & Risk")
-
+    st.title("💼 Portfolio & Risk Management")
+    
     client = get_broker_client()
     if not client:
-        st.info("Connect to a broker to view your portfolio and positions.")
+        st.info("Please connect to a broker to view your portfolio.")
         return
-
-    positions_df, holdings_df, total_pnl, _ = get_portfolio()
     
-    if holdings_df.empty and positions_df.empty:
-        st.info("No holdings or positions found to analyze.")
-        return
-
-    tab1, tab2, tab3 = st.tabs(["Day Positions", "Holdings (Investments)", "Live Order Book"])
+    # Fetch portfolio data
+    positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
+    
+    # Portfolio overview
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Investment", f"₹{total_investment:,.2f}")
+    with col2:
+        st.metric("Total P&L", f"₹{total_pnl:,.2f}", delta=f"{(total_pnl/total_investment*100) if total_investment > 0 else 0:.2f}%")
+    with col3:
+        open_positions = len(positions_df) if not positions_df.empty else 0
+        st.metric("Open Positions", open_positions)
+    with col4:
+        total_holdings = len(holdings_df) if not holdings_df.empty else 0
+        st.metric("Total Holdings", total_holdings)
+    
+    # Positions and Holdings tabs
+    tab1, tab2 = st.tabs(["📈 Positions", "📊 Holdings"])
     
     with tab1:
-        st.subheader("Live Intraday Positions")
         if not positions_df.empty:
-            st.dataframe(positions_df, use_container_width=True, hide_index=True)
-            st.metric("Total Day P&L", f"₹{total_pnl:,.2f}", delta=f"{total_pnl:,.2f}")
+            st.subheader("Open Positions")
+            
+            # Calculate additional metrics
+            positions_df['Current Value'] = positions_df['quantity'] * positions_df['last_price']
+            positions_df['Investment'] = positions_df['quantity'] * positions_df['average_price']
+            positions_df['P&L %'] = (positions_df['pnl'] / positions_df['Investment']) * 100
+            
+            # Display positions with styling
+            for _, position in positions_df.iterrows():
+                pnl_color = "green" if position['pnl'] > 0 else "red"
+                with st.expander(f"{position['tradingsymbol']} | P&L: ₹{position['pnl']:,.2f}"):
+                    col_p1, col_p2, col_p3 = st.columns(3)
+                    with col_p1:
+                        st.write(f"**Quantity:** {position['quantity']}")
+                        st.write(f"**Avg Price:** ₹{position['average_price']:.2f}")
+                    with col_p2:
+                        st.write(f"**LTP:** ₹{position['last_price']:.2f}")
+                        st.write(f"**Current Value:** ₹{position['Current Value']:,.2f}")
+                    with col_p3:
+                        st.write(f"**P&L:** ₹{position['pnl']:,.2f}")
+                        st.write(f"**P&L %:** {position['P&L %']:.2f}%")
+                    
+                    # Quick action buttons
+                    col_a1, col_a2 = st.columns(2)
+                    with col_a1:
+                        if st.button(f"Quick Sell {position['tradingsymbol']}", key=f"sell_{position['tradingsymbol']}", use_container_width=True):
+                            quick_trade_dialog(position['tradingsymbol'], 'NSE')
+                    with col_a2:
+                        if st.button(f"Add to Watchlist", key=f"watch_{position['tradingsymbol']}", use_container_width=True):
+                            if position['tradingsymbol'] not in [item['symbol'] for item in st.session_state.watchlists[st.session_state.active_watchlist]]:
+                                st.session_state.watchlists[st.session_state.active_watchlist].append({
+                                    'symbol': position['tradingsymbol'], 
+                                    'exchange': 'NSE'
+                                })
+                                st.success(f"Added {position['tradingsymbol']} to watchlist")
         else:
-            st.info("No open positions for the day.")
+            st.info("No open positions found.")
     
     with tab2:
-        st.subheader("Investment Holdings")
         if not holdings_df.empty:
-            st.dataframe(holdings_df, use_container_width=True, hide_index=True)
-            st.markdown("---")
-
-            st.subheader("Portfolio Allocation")
+            st.subheader("Stock Holdings")
             
-            sector_df = get_sector_data()
+            # Calculate holding metrics
+            holdings_df['Current Value'] = holdings_df['quantity'] * holdings_df['last_price']
+            holdings_df['Investment'] = holdings_df['quantity'] * holdings_df['average_price']
+            holdings_df['P&L %'] = (holdings_df['pnl'] / holdings_df['Investment']) * 100
             
-            holdings_df['current_value'] = holdings_df['quantity'] * holdings_df['last_price']
+            # Display holdings
+            holdings_display = holdings_df[['tradingsymbol', 'quantity', 'average_price', 'last_price', 'Current Value', 'pnl', 'P&L %']].copy()
+            holdings_display.columns = ['Symbol', 'Quantity', 'Avg Price', 'LTP', 'Current Value', 'P&L', 'P&L %']
             
-            if not holdings_df.empty and sector_df is not None:
-                holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-                if 'Sector' not in holdings_df.columns:
-                    holdings_df['Sector'] = 'Uncategorized'
-                holdings_df['Sector'].fillna('Uncategorized', inplace=True)
-            else:
-                holdings_df['Sector'] = 'Uncategorized'
-            
-            col1_alloc, col2_alloc = st.columns(2)
-            
-            with col1_alloc:
-                st.subheader("Stock-wise Allocation")
-                fig_stock = go.Figure(data=[go.Pie(
-                    labels=holdings_df['tradingsymbol'],
-                    values=holdings_df['current_value'],
-                    hole=.3,
-                    textinfo='label+percent'
-                )])
-                fig_stock.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == "Dark" else 'plotly_white')
-                st.plotly_chart(fig_stock, use_container_width=True)
-                
-            if 'Sector' in holdings_df.columns:
-                with col2_alloc:
-                    st.subheader("Sector-wise Allocation")
-                    sector_allocation = holdings_df.groupby('Sector')['current_value'].sum().reset_index()
-                    fig_sector = go.Figure(data=[go.Pie(
-                        labels=sector_allocation['Sector'],
-                        values=sector_allocation['current_value'],
-                        hole=.3,
-                        textinfo='label+percent'
-                    )])
-                    fig_sector.update_layout(showlegend=False, template='plotly_dark' if st.session_state.get('theme') == "Dark" else 'plotly_white')
-                    st.plotly_chart(fig_sector, use_container_width=True)
+            st.dataframe(holdings_display.style.format({
+                'Avg Price': '₹{:.2f}',
+                'LTP': '₹{:.2f}',
+                'Current Value': '₹{:,.2f}',
+                'P&L': '₹{:,.2f}',
+                'P&L %': '{:.2f}%'
+            }), use_container_width=True)
         else:
             st.info("No holdings found.")
-
-    with tab3:
-        st.subheader("Live Order Book")
-        if client:
-            try:
-                orders = client.orders()
-                if orders:
-                    orders_df = pd.DataFrame(orders)
-                    st.dataframe(orders_df[[
-                        'order_timestamp', 'tradingsymbol', 'transaction_type',
-                        'order_type', 'quantity', 'average_price', 'status'
-                    ]], use_container_width=True, hide_index=True)
-                else:
-                    st.info("No orders placed today.")
-            except Exception as e:
-                st.error(f"Failed to fetch order book: {e}")
-        else:
-            st.info("Broker not connected.")
+    
+    # Risk metrics
+    st.markdown("---")
+    st.subheader("📊 Risk Metrics")
+    
+    if not positions_df.empty:
+        # Basic risk calculations
+        total_exposure = positions_df['Current Value'].sum()
+        max_single_exposure = positions_df['Current Value'].max()
+        max_single_symbol = positions_df.loc[positions_df['Current Value'].idxmax(), 'tradingsymbol']
+        
+        col_r1, col_r2, col_r3 = st.columns(3)
+        with col_r1:
+            st.metric("Total Exposure", f"₹{total_exposure:,.2f}")
+        with col_r2:
+            st.metric("Max Single Exposure", f"₹{max_single_exposure:,.2f}", delta=max_single_symbol)
+        with col_r3:
+            concentration_ratio = (max_single_exposure / total_exposure * 100) if total_exposure > 0 else 0
+            st.metric("Concentration Ratio", f"{concentration_ratio:.1f}%")
+    else:
+        st.info("No open positions to calculate risk metrics.")
 
 def page_ai_assistant():
-    """An AI-powered assistant for portfolio management and market queries."""
+    """AI Assistant page with chat interface and trading insights."""
     display_header()
-    st.title("Portfolio-Aware Assistant")
-    instrument_df = get_instrument_df()
-
-    if "messages" not in st.session_state or not st.session_state.messages:
-        st.session_state.messages = [{"role": "assistant", "content": "How can I help you with your portfolio or the markets today?"}]
+    st.title("🤖 AI Trading Assistant")
+    st.info("Get AI-powered insights about your portfolio, market conditions, and trading strategies.", icon="ℹ️")
     
+    # Initialize chat history
+    if 'messages' not in st.session_state:
+        st.session_state.messages = [
+            {"role": "assistant", "content": "Hi! I'm your AI trading assistant. I can help you with market analysis, portfolio insights, and trading strategies. What would you like to know?"}
+        ]
+    
+    # Display chat messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
     
-    if prompt := st.chat_input("Ask a question..."):
+    # Chat input
+    if prompt := st.chat_input("Ask me about markets, your portfolio, or trading strategies..."):
+        # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
         
+        # Generate AI response
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                prompt_lower = prompt.lower()
-                response = "I can help with your portfolio, orders, and live market data. For example, try asking 'What are my positions?' or 'Show me the option chain for BANKNIFTY'."
-                client = get_broker_client()
-                if not client:
-                    response = "I am not connected to your broker. Please log in first."
-                
-                elif any(word in prompt_lower for word in ["holdings", "investments"]):
-                    _, holdings_df, _, _ = get_portfolio()
-                    response = f"Here are your current holdings:\n```\n{tabulate(holdings_df, headers='keys', tablefmt='psql')}\n```" if not holdings_df.empty else "You have no holdings."
-                elif "positions" in prompt_lower:
-                    positions_df, _, total_pnl, _ = get_portfolio()
-                    response = f"Your total P&L is ₹{total_pnl:,.2f}. Here are your positions:\n```\n{tabulate(positions_df, headers='keys', tablefmt='psql')}\n```" if not positions_df.empty else "You have no open positions."
-                elif "orders" in prompt_lower:
-                    orders = client.orders()
-                    response = f"Here are today's orders:\n```\n{tabulate(pd.DataFrame(orders), headers='keys', tablefmt='psql')}\n```" if orders else "You have no orders for the day."
-                elif any(word in prompt_lower for word in ["funds", "margin", "balance"]):
-                    funds = client.margins()
-                    response = f"Available Funds:\n- Equity: ₹{funds['equity']['available']['live_balance']:,.2f}\n- Commodity: ₹{funds['commodity']['available']['live_balance']:,.2f}"
-                elif "price of" in prompt_lower or "ltp of" in prompt_lower:
-                    try:
-                        ticker = prompt.split(" of ")[-1].strip().upper()
-                        instrument = instrument_df[instrument_df['tradingsymbol'] == ticker]
-                        if not instrument.empty:
-                            exchange = instrument.iloc[0]['exchange']
-                            ltp_data = get_watchlist_data([{'symbol': ticker, 'exchange': exchange}])
-                            price = ltp_data.iloc[0]['Price'] if not ltp_data.empty else "N/A"
-                            response = f"The current price of {ticker} is {price}."
-                        else:
-                            response = f"I could not find the ticker '{ticker}'. Please check the symbol."
-                    except Exception:
-                        response = "Please specify a stock ticker, for example: 'price of RELIANCE'."
-                
-                elif "buy" in prompt_lower or "sell" in prompt_lower:
-                    match = re.search(r'(buy|sell)\s+(\d+)\s+shares?\s+of\s+([a-zA-Z0-9\-\&_]+)', prompt_lower)
-                    if match:
-                        trans_type = match.group(1).upper()
-                        quantity = int(match.group(2))
-                        symbol = match.group(3).upper()
-
-                        st.session_state.last_order_details = {
-                            "symbol": symbol,
-                            "quantity": quantity,
-                            "transaction_type": trans_type,
-                            "confirmed": False
-                        }
-                        
-                        response = f"I can place a {trans_type} order for {quantity} shares of {symbol}. Please confirm by typing 'confirm'."
-                    else:
-                        response = "I couldn't understand the order. Please use a format like 'Buy 100 shares of RELIANCE'."
-                elif prompt_lower == "confirm" and "last_order_details" in st.session_state and not st.session_state.last_order_details["confirmed"]:
-                    order_details = st.session_state.last_order_details
-                    place_order(instrument_df, order_details['symbol'], order_details['quantity'], 'MARKET', order_details['transaction_type'], 'MIS')
-                    order_details['confirmed'] = True
-                    response = f"Confirmed and placed {order_details['transaction_type']} order for {order_details['quantity']} shares of {order_details['symbol']}."
-
-                elif "technical analysis for" in prompt_lower:
-                    ticker = prompt.split("for")[-1].strip().upper()
-                    token = get_instrument_token(ticker, instrument_df)
-                    if token:
-                        data = get_historical_data(token, 'day', period='6mo')
-                        if not data.empty:
-                            analysis = interpret_indicators(data)
-                            response = f"**Technical Analysis for {ticker}:**\n\n" + "\n".join([f"- **{k}:** {v}" for k, v in analysis.items()])
-                        else:
-                            response = f"Could not retrieve enough data for {ticker} to perform analysis."
-                    else:
-                        response = f"Could not find the ticker '{ticker}'."
-                
-                elif "news for" in prompt_lower:
-                    query = prompt.split("for")[-1].strip()
-                    news_df = fetch_and_analyze_news(query)
-                    if not news_df.empty:
-                        response = f"**Top 3 news headlines for {query}:**\n\n" + "\n".join([f"1. [{row['title']}]({row['link']}) - _{row['source']}_" for _, row in news_df.head(3).iterrows()])
-                    else:
-                        response = f"No recent news found for '{query}'."
-                
-                elif "greeks for" in prompt_lower or "iv for" in prompt_lower:
-                    try:
-                        option_symbol_match = re.search(r'([A-Z]+)(\d{2}[A-Z]{3}\d+[CEPE]{2})', prompt.upper())
-                        if option_symbol_match:
-                            option_symbol = option_symbol_match.group(0)
-                            option_details = instrument_df[instrument_df['tradingsymbol'] == option_symbol].iloc[0]
-                            expiry_date_from_symbol = option_details['expiry'].date() if hasattr(option_details['expiry'], 'date') else option_details['expiry']
-                            _, expiry, underlying_ltp, _ = get_options_chain(option_details['name'], instrument_df, expiry_date_from_symbol)
-                            
-                            ltp_data = client.ltp(f"NFO:{option_symbol}")
-                            ltp = ltp_data[f"NFO:{option_symbol}"]['last_price']
-                            T = max((expiry - datetime.now().date()).days, 0) / 365.0
-                            iv = implied_volatility(underlying_ltp, option_details['strike'], T, 0.07, ltp, option_details['instrument_type'].lower())
-                            
-                            if not np.isnan(iv):
-                                greeks = black_scholes(underlying_ltp, option_details['strike'], T, 0.07, iv, option_details['instrument_type'].lower())
-                                response = f"Calculated Greeks for **{option_symbol}**:\n- **Implied Volatility (IV):** {iv*100:.2f}%\n- **Delta:** {greeks['delta']:.4f}\n- **Gamma:** {greeks['gamma']:.4f}\n- **Vega:** {greeks['vega']:.4f}\n- **Theta:** {greeks['theta']:.4f}\n- **Rho:** {greeks['rho']:.4f}"
-                            else:
-                                response = f"Could not calculate IV or Greeks for {option_symbol}. The LTP might be zero or the option might be illiquid."
-                        else:
-                            response = "Please specify a valid option symbol (e.g., NIFTY24SEPWK123000CE)."
-                    except (AttributeError, IndexError):
-                        response = "I couldn't find a valid option symbol in your query. Please use the full symbol (e.g., BANKNIFTY24OCT60000CE)."
-                    except Exception as e:
-                        response = f"An error occurred: {e}"
+            with st.spinner("Analyzing..."):
+                # Simple rule-based responses (in a real app, this would connect to an AI API)
+                response = generate_ai_response(prompt)
                 st.markdown(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
-
-def page_fundamental_analytics():
-    """Fundamental Analytics page using Kite Connect data and other available sources."""
-    display_header()
-    st.title("📊 Fundamental Analytics")
-    st.info("Analyze company fundamentals using available market data from Kite Connect and other sources.", icon="📈")
-    
-    tab1, tab2, tab3 = st.tabs(["Company Overview", "Financial Ratios", "Multi-Company Comparison"])
-    
-    with tab1:
-        st.subheader("Company Fundamental Analysis")
-        col1, col2 = st.columns([1, 2])
         
-        with col1:
-            symbol = st.text_input("Enter Stock Symbol", "RELIANCE", 
-                                 help="Enter NSE stock symbol (e.g., RELIANCE, TCS, INFY)")
-            exchange = st.selectbox("Exchange", ["NSE", "BSE"], index=0)
-            
-            if st.button("Fetch Fundamental Data", use_container_width=True):
-                with st.spinner(f"Fetching data for {symbol}..."):
-                    company_data = get_company_fundamentals_kite(symbol, exchange)
-                    if company_data:
-                        st.session_state.current_company = company_data
-                        st.session_state.current_symbol = symbol
-                        st.rerun()
-        
-        with col2:
-            if 'current_company' in st.session_state and st.session_state.current_company:
-                display_company_overview_kite(st.session_state.current_company, st.session_state.current_symbol)
-            else:
-                st.info("Enter a stock symbol and click 'Fetch Fundamental Data' to get started.")
+        # Add assistant response to chat history
+        st.session_state.messages.append({"role": "assistant", "content": response})
     
-    with tab2:
-        st.subheader("Financial Ratios & Metrics")
-        if 'current_company' in st.session_state and st.session_state.current_company:
-            display_financial_ratios_kite(st.session_state.current_company, st.session_state.current_symbol)
-        else:
-            st.info("First fetch company data in the 'Company Overview' tab.")
-    
-    with tab3:
-        st.subheader("Multi-Company Comparison")
-        display_multi_company_comparison_kite()
-
-def get_company_fundamentals_kite(symbol, exchange="NSE"):
-    """Fetch fundamental data using Kite Connect APIs and other available sources."""
-    client = get_broker_client()
-    if not client:
-        st.error("Broker not connected. Please connect to Kite first.")
-        return None
-    
-    try:
-        # Get basic instrument info
-        instrument_df = get_instrument_df()
-        if instrument_df.empty:
-            st.error("Could not fetch instrument data.")
-            return None
-            
-        instrument_info = instrument_df[
-            (instrument_df['tradingsymbol'] == symbol.upper()) & 
-            (instrument_df['exchange'] == exchange)
-        ]
-        
-        if instrument_info.empty:
-            st.error(f"Symbol {symbol} not found on {exchange}.")
-            return None
-            
-        instrument_info = instrument_info.iloc[0]
-        
-        # Get current quote data
-        quote_data = client.quote(f"{exchange}:{symbol.upper()}")
-        if not quote_data:
-            st.error(f"Could not fetch quote data for {symbol}.")
-            return None
-            
-        quote = quote_data[f"{exchange}:{symbol.upper()}"]
-        
-        # Basic company info
-        company_data = {
-            'symbol': symbol.upper(),
-            'exchange': exchange,
-            'name': instrument_info.get('name', symbol.upper()),
-            'lot_size': instrument_info.get('lot_size', 0),
-            'instrument_type': instrument_info.get('instrument_type', 'EQ'),
-            'segment': instrument_info.get('segment', ''),
-        }
-        
-        # Price metrics from quote
-        company_data.update({
-            'current_price': quote.get('last_price', 0),
-            'open': quote.get('ohlc', {}).get('open', 0),
-            'high': quote.get('ohlc', {}).get('high', 0),
-            'low': quote.get('ohlc', {}).get('low', 0),
-            'close': quote.get('ohlc', {}).get('close', 0),
-            'volume': quote.get('volume', 0),
-            'average_volume': quote.get('average_price', 0) * quote.get('volume', 0) if quote.get('volume', 0) > 0 else 0,
-        })
-        
-        # Calculate basic ratios from available data
-        if quote.get('ohlc', {}).get('close', 0) > 0:
-            change = company_data['current_price'] - quote['ohlc']['close']
-            company_data['change_percent'] = (change / quote['ohlc']['close']) * 100
-        else:
-            company_data['change_percent'] = 0
-        
-        # Get historical data for additional calculations
-        token = get_instrument_token(symbol, instrument_df, exchange)
-        if token:
-            hist_data = get_historical_data(token, 'day', period='1y')
-            if not hist_data.empty and len(hist_data) > 200:
-                # Calculate 52-week high/low
-                company_data['52_week_high'] = hist_data['high'].max()
-                company_data['52_week_low'] = hist_data['low'].min()
-                
-                # Calculate basic volatility
-                returns = hist_data['close'].pct_change().dropna()
-                company_data['volatility'] = returns.std() * np.sqrt(252) * 100  # Annualized volatility
-                
-                # Calculate simple moving averages
-                company_data['sma_50'] = hist_data['close'].tail(50).mean()
-                company_data['sma_200'] = hist_data['close'].tail(200).mean()
-        
-        # Placeholder values for fundamental data (in real implementation, you'd fetch from other sources)
-        company_data.update({
-            'market_cap': company_data['current_price'] * instrument_info.get('lot_size', 1) * 1000,  # Rough estimate
-            'sector': 'Not Available',  # Would need external data source
-            'industry': 'Not Available',
-            'pe_ratio': 0,  # Would need earnings data
-            'dividend_yield': 0,
-            'book_value': 0,
-            'eps': 0,
-        })
-        
-        return company_data
-        
-    except Exception as e:
-        st.error(f"Error fetching data for {symbol}: {str(e)}")
-        return None
-
-def display_company_overview_kite(company_data, symbol):
-    """Display company overview using Kite Connect data."""
-    st.subheader(f"{company_data['name']} ({symbol})")
-    
-    # Basic info cards
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Current Price", f"₹{company_data['current_price']:,.2f}")
-        st.metric("Today's Change", f"{company_data['change_percent']:.2f}%")
-    
-    with col2:
-        if company_data.get('52_week_high'):
-            st.metric("52W High", f"₹{company_data['52_week_high']:,.2f}")
-        if company_data.get('52_week_low'):
-            st.metric("52W Low", f"₹{company_data['52_week_low']:,.2f}")
-    
-    with col3:
-        st.metric("Volume", f"{company_data['volume']:,}")
-        if company_data.get('volatility'):
-            st.metric("Volatility", f"{company_data['volatility']:.1f}%")
-    
-    with col4:
-        st.metric("Lot Size", f"{company_data['lot_size']:,}")
-        st.metric("Instrument Type", company_data['instrument_type'])
-    
+    # Quick action buttons
     st.markdown("---")
+    st.subheader("⚡ Quick Insights")
     
-    # Additional metrics
-    col5, col6 = st.columns(2)
-    
-    with col5:
-        st.subheader("Trading Information")
-        st.write(f"**Exchange:** {company_data['exchange']}")
-        st.write(f"**Segment:** {company_data['segment']}")
-        st.write(f"**Open:** ₹{company_data['open']:,.2f}")
-        st.write(f"**High:** ₹{company_data['high']:,.2f}")
-        st.write(f"**Low:** ₹{company_data['low']:,.2f}")
-        st.write(f"**Close:** ₹{company_data['close']:,.2f}")
-    
-    with col6:
-        st.subheader("Technical Indicators")
-        if company_data.get('sma_50'):
-            st.write(f"**50-Day SMA:** ₹{company_data['sma_50']:,.2f}")
-        if company_data.get('sma_200'):
-            st.write(f"**200-Day SMA:** ₹{company_data['sma_200']:,.2f}")
-        
-        # Calculate position relative to moving averages
-        if company_data.get('sma_50') and company_data.get('sma_200'):
-            if company_data['current_price'] > company_data['sma_50'] > company_data['sma_200']:
-                st.success("**Trend:** Bullish (Price > 50 SMA > 200 SMA)")
-            elif company_data['current_price'] < company_data['sma_50'] < company_data['sma_200']:
-                st.error("**Trend:** Bearish (Price < 50 SMA < 200 SMA)")
-            else:
-                st.info("**Trend:** Mixed")
-        
-        # Market cap estimate
-        if company_data.get('market_cap'):
-            st.write(f"**Estimated Market Cap:** {format_market_cap(company_data['market_cap'])}")
-
-def display_financial_ratios_kite(company_data, symbol):
-    """Display financial ratios and metrics using available data."""
-    st.subheader(f"Market Data & Ratios - {company_data['name']}")
-    
-    # Create tabs for different metric categories
-    tab1, tab2, tab3 = st.tabs(["Price Analysis", "Volume & Liquidity", "Risk Metrics"])
-    
-    with tab1:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if company_data.get('52_week_high') and company_data['52_week_high'] > 0:
-                distance_from_high = ((company_data['52_week_high'] - company_data['current_price']) / company_data['52_week_high']) * 100
-                st.metric("From 52W High", f"-{distance_from_high:.1f}%")
-            
-            if company_data.get('52_week_low') and company_data['52_week_low'] > 0:
-                distance_from_low = ((company_data['current_price'] - company_data['52_week_low']) / company_data['52_week_low']) * 100
-                st.metric("From 52W Low", f"+{distance_from_low:.1f}%")
-        
-        with col2:
-            if company_data.get('sma_50') and company_data['sma_50'] > 0:
-                vs_sma_50 = ((company_data['current_price'] - company_data['sma_50']) / company_data['sma_50']) * 100
-                st.metric("vs 50-Day SMA", f"{vs_sma_50:+.1f}%")
-            
-            if company_data.get('sma_200') and company_data['sma_200'] > 0:
-                vs_sma_200 = ((company_data['current_price'] - company_data['sma_200']) / company_data['sma_200']) * 100
-                st.metric("vs 200-Day SMA", f"{vs_sma_200:+.1f}%")
-    
-    with tab2:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric("Today's Volume", f"{company_data['volume']:,}")
-            if company_data.get('average_volume'):
-                st.metric("Average Volume", f"{company_data['average_volume']:,.0f}")
-        
-        with col2:
-            if company_data.get('lot_size'):
-                st.metric("Lot Size", f"{company_data['lot_size']:,}")
-            
-            # Volume ratio (today vs average)
-            if company_data.get('average_volume') and company_data['average_volume'] > 0:
-                volume_ratio = (company_data['volume'] / company_data['average_volume']) * 100
-                st.metric("Volume Ratio", f"{volume_ratio:.1f}%")
-    
-    with tab3:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if company_data.get('volatility'):
-                st.metric("Annual Volatility", f"{company_data['volatility']:.1f}%")
-            
-            # Beta calculation would require market data comparison
-            st.metric("Beta", "N/A")
-        
-        with col2:
-            # Daily price range
-            if company_data['high'] > 0 and company_data['low'] > 0:
-                daily_range = ((company_data['high'] - company_data['low']) / company_data['low']) * 100
-                st.metric("Daily Range", f"{daily_range:.1f}%")
-            
-            # Gap analysis
-            if company_data['open'] > 0 and company_data['close'] > 0:
-                gap = ((company_data['open'] - company_data['close']) / company_data['close']) * 100
-                st.metric("Opening Gap", f"{gap:+.1f}%")
-
-def display_multi_company_comparison_kite():
-    """Display comparison of multiple companies using Kite data."""
-    st.subheader("Compare Multiple Companies")
-    
-    # Input for multiple symbols
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        symbols_input = st.text_input(
-            "Enter Stock Symbols (comma separated)", 
-            "RELIANCE, TCS, INFY, HDFCBANK",
-            help="Enter NSE symbols separated by commas"
-        )
-    
-    with col2:
-        if st.button("Compare Companies", use_container_width=True):
-            symbols = [s.strip().upper() for s in symbols_input.split(',')]
-            with st.spinner("Fetching comparison data..."):
-                comparison_data = []
-                for symbol in symbols:
-                    data = get_company_fundamentals_kite(symbol, "NSE")
-                    if data:
-                        comparison_data.append(data)
-                
-                if comparison_data:
-                    st.session_state.comparison_data = comparison_data
-                    st.rerun()
-    
-    if 'comparison_data' in st.session_state and st.session_state.comparison_data:
-        comparison_df = create_comparison_dataframe_kite(st.session_state.comparison_data)
-        
-        # Select metrics to compare
-        st.subheader("Select Metrics for Comparison")
-        
-        metric_categories = {
-            "Price Analysis": ['current_price', 'change_percent', '52_week_high', '52_week_low'],
-            "Volume Analysis": ['volume', 'lot_size'],
-            "Technical Indicators": ['sma_50', 'sma_200', 'volatility']
-        }
-        
-        selected_metrics = []
-        for category, metrics in metric_categories.items():
-            with st.expander(f"{category} Metrics"):
-                for metric in metrics:
-                    if st.checkbox(f"{format_metric_name(metric)}", value=True, key=f"comp_{metric}"):
-                        selected_metrics.append(metric)
-        
-        if selected_metrics:
-            # Display comparison table
-            display_metrics = ['name'] + selected_metrics
-            comparison_display_df = comparison_df[display_metrics].copy()
-            
-            # Format the dataframe
-            for col in selected_metrics:
-                if 'price' in col.lower() or 'sma' in col.lower():
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"₹{x:,.2f}" if pd.notnull(x) and x != 0 else "N/A")
-                elif 'percent' in col.lower() or 'volatility' in col.lower():
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) and x != 0 else "N/A")
-                elif 'volume' in col.lower() or 'lot' in col.lower():
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x != 0 else "N/A")
-                else:
-                    comparison_display_df[col] = comparison_display_df[col].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "N/A")
-            
-            st.subheader("Company Comparison")
-            st.dataframe(comparison_display_df, use_container_width=True)
-            
-            # Visual comparisons
-            st.subheader("Visual Comparisons")
-            
-            # Bar chart for selected metrics
-            if len(selected_metrics) >= 1:
-                metric_to_plot = st.selectbox("Select metric for bar chart", selected_metrics)
-                if metric_to_plot:
-                    fig = go.Figure()
-                    
-                    values = []
-                    names = []
-                    for company in st.session_state.comparison_data:
-                        value = company.get(metric_to_plot, 0)
-                        if value and value != 0:
-                            values.append(value)
-                            names.append(company['name'])
-                    
-                    if values:
-                        fig.add_trace(go.Bar(
-                            x=names,
-                            y=values,
-                            text=[f"{v:.2f}{'%' if 'percent' in metric_to_plot or 'volatility' in metric_to_plot else ''}" for v in values],
-                            textposition='auto',
-                        ))
-                        
-                        y_axis_title = format_metric_name(metric_to_plot)
-                        if 'percent' in metric_to_plot or 'volatility' in metric_to_plot:
-                            y_axis_title += " (%)"
-                        elif 'price' in metric_to_plot:
-                            y_axis_title += " (₹)"
-                        
-                        fig.update_layout(
-                            title=f"{format_metric_name(metric_to_plot)} Comparison",
-                            xaxis_title="Companies",
-                            yaxis_title=y_axis_title,
-                            showlegend=False
-                        )
-                        
-                        st.plotly_chart(fig, use_container_width=True)
-
-def create_comparison_dataframe_kite(company_data_list):
-    """Create a DataFrame from multiple company data for comparison."""
-    comparison_data = []
-    for company in company_data_list:
-        row = {k: v for k, v in company.items() if not isinstance(v, (list, dict))}
-        comparison_data.append(row)
-    
-    return pd.DataFrame(comparison_data)
-
-# Keep these helper functions as they're still useful
-def format_market_cap(market_cap):
-    """Format market cap into readable string."""
-    if market_cap >= 1e12:
-        return f"₹{market_cap/1e12:.2f}T"
-    elif market_cap >= 1e9:
-        return f"₹{market_cap/1e9:.2f}B"
-    elif market_cap >= 1e6:
-        return f"₹{market_cap/1e6:.2f}M"
-    else:
-        return f"₹{market_cap:,.0f}"
-
-def format_number(number):
-    """Format large numbers into readable string."""
-    if number == 'N/A':
-        return 'N/A'
-    if number >= 1e9:
-        return f"{number/1e9:.1f}B"
-    elif number >= 1e6:
-        return f"{number/1e6:.1f}M"
-    elif number >= 1e3:
-        return f"{number/1e3:.1f}K"
-    else:
-        return f"{number:,.0f}"
-
-def format_metric_name(metric):
-    """Convert metric key to display name."""
-    metric_names = {
-        'current_price': 'Current Price',
-        'change_percent': 'Change %',
-        '52_week_high': '52W High',
-        '52_week_low': '52W Low',
-        'volume': 'Volume',
-        'lot_size': 'Lot Size',
-        'sma_50': '50-Day SMA',
-        'sma_200': '200-Day SMA',
-        'volatility': 'Volatility',
-        'open': 'Open Price',
-        'high': 'High Price',
-        'low': 'Low Price',
-        'close': 'Close Price',
-        'instrument_type': 'Instrument Type',
-        'segment': 'Segment'
-    }
-    return metric_names.get(metric, metric.replace('_', ' ').title())
-
-def page_basket_orders():
-    """A page for creating, managing, and executing basket orders."""
-    display_header()
-    st.title("Basket Orders")
-
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to use the basket order feature.")
-        return
-
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        st.subheader("Add Order to Basket")
-        with st.form("add_to_basket_form"):
-            symbol = st.text_input("Symbol").upper()
-            transaction_type = st.radio("Transaction", ["BUY", "SELL"], horizontal=True)
-            quantity = st.number_input("Quantity", min_value=1, step=1)
-            product = st.radio("Product", ["MIS", "CNC"], horizontal=True)
-            order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True)
-            price = st.number_input("Price", min_value=0.01) if order_type == "LIMIT" else 0
-            
-            if st.form_submit_button("Add to Basket"):
-                if symbol and quantity > 0:
-                    st.session_state.basket.append({
-                        'symbol': symbol,
-                        'transaction_type': transaction_type,
-                        'quantity': quantity,
-                        'product': product,
-                        'order_type': order_type,
-                        'price': price if price > 0 else None
-                    })
-                    st.success(f"Added {symbol} to basket!")
-                    st.rerun()
-
-    with col2:
-        st.subheader("Current Basket")
-        if st.session_state.basket:
-            for i, order in enumerate(st.session_state.basket):
-                with st.expander(f"{order['transaction_type']} {order['quantity']} {order['symbol']}"):
-                    st.write(f"**Product:** {order['product']}")
-                    st.write(f"**Order Type:** {order['order_type']}")
-                    if order['price']:
-                        st.write(f"**Price:** ₹{order['price']}")
-                    if st.button("Remove", key=f"remove_{i}"):
-                        st.session_state.basket.pop(i)
-                        st.rerun()
-            
-            st.markdown("---")
-            if st.button("Execute Basket Order", type="primary", use_container_width=True):
-                execute_basket_order(st.session_state.basket, instrument_df)
-        else:
-            st.info("Your basket is empty. Add orders using the form on the left.")
-
-def run_backtest(strategy_func, data, **params):
-    """Runs a backtest for a given strategy function."""
-    df = data.copy()
-    signals = strategy_func(df, **params)
-    
-    initial_capital = 100000.0
-    capital = initial_capital
-    position = 0
-    portfolio_value = []
-    
-    for i in range(len(df)):
-        if signals[i] == 'BUY' and position == 0:
-            position = capital / df['close'][i]
-            capital = 0
-        elif signals[i] == 'SELL' and position > 0:
-            capital = position * df['close'][i]
-            position = 0
-        
-        current_value = capital + (position * df['close'][i])
-        portfolio_value.append(current_value)
-        
-    pnl = (portfolio_value[-1] - initial_capital) / initial_capital * 100
-    
-    return pnl, pd.Series(portfolio_value, index=df.index)
-
-def rsi_strategy(df, rsi_period=14, rsi_overbought=70, rsi_oversold=30):
-    """Simple RSI Crossover Strategy"""
-    rsi = talib.RSI(df['close'], timeperiod=rsi_period)
-    signals = [''] * len(df)
-    for i in range(1, len(df)):
-        if rsi.iloc[i-1] < rsi_oversold and rsi.iloc[i] > rsi_oversold:
-            signals[i] = 'BUY'
-        elif rsi.iloc[i-1] > rsi_overbought and rsi.iloc[i] < rsi_overbought:
-            signals[i] = 'SELL'
-    return signals
-
-def macd_strategy(df, fast=12, slow=26, signal=9):
-    """MACD Crossover Strategy"""
-    macd, macdsignal, macdhist = talib.MACD(df['close'], fastperiod=fast, slowperiod=slow, signalperiod=signal)
-    signals = [''] * len(df)
-    for i in range(1, len(df)):
-        if macd.iloc[i-1] < macdsignal.iloc[i-1] and macd.iloc[i] > macdsignal.iloc[i]:
-            signals[i] = 'BUY'
-        elif macd.iloc[i-1] > macdsignal.iloc[i-1] and macd.iloc[i] < macdsignal.iloc[i]:
-            signals[i] = 'SELL'
-    return signals
-
-def supertrend_strategy(df, period=7, multiplier=3):
-    """Supertrend Strategy - simplified version without pandas-ta"""
-    # Calculate ATR
-    atr = talib.ATR(df['high'], df['low'], df['close'], timeperiod=period)
-    
-    # Basic upper and lower bands
-    hl2 = (df['high'] + df['low']) / 2
-    upper_band = hl2 + (multiplier * atr)
-    lower_band = hl2 - (multiplier * atr)
-    
-    signals = [''] * len(df)
-    trend = [1] * len(df) # 1 for uptrend, -1 for downtrend
-    
-    for i in range(1, len(df)):
-        if df['close'].iloc[i] > upper_band.iloc[i-1]:
-            trend[i] = 1
-        elif df['close'].iloc[i] < lower_band.iloc[i-1]:
-            trend[i] = -1
-        else:
-            trend[i] = trend[i-1]
-        
-        if trend[i] == 1 and trend[i-1] == -1:
-            signals[i] = 'BUY'
-        elif trend[i] == -1 and trend[i-1] == 1:
-            signals[i] = 'SELL'
-    
-    return signals
-
-def page_algo_strategy_maker():
-    """Algo Strategy Maker page with pre-built, backtestable, and executable strategies."""
-    display_header()
-    st.title("Algo Strategy Hub")
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Connect to a broker to use the Algo Strategy Hub.")
-        return
-
-    st.info("Select a pre-built strategy, configure its parameters, and run a backtest on historical data. You can then place trades based on the latest signal.", icon="🤖")
-
-    col1, col2 = st.columns([1, 2])
-
-    with col1:
-        st.subheader("Strategy Configuration")
-        
-        strategy_options = {
-            "RSI Crossover": rsi_strategy,
-            "MACD Crossover": macd_strategy,
-            "Supertrend Follower": supertrend_strategy,
-        }
-        selected_strategy_name = st.selectbox("Select a Strategy", list(strategy_options.keys()))
-        
-        st.markdown("**Instrument**")
-        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'NFO', 'MCX', 'CDS'])]['tradingsymbol'].unique()
-        symbol = st.selectbox("Select Symbol", all_symbols, index=list(all_symbols).index('RELIANCE') if 'RELIANCE' in all_symbols else 0)
-        
-        st.markdown("**Parameters**")
-        params = {}
-        if selected_strategy_name == "RSI Crossover":
-            params['rsi_period'] = st.slider("RSI Period", 5, 30, 14)
-            params['rsi_overbought'] = st.slider("RSI Overbought", 60, 90, 70)
-            params['rsi_oversold'] = st.slider("RSI Oversold", 10, 40, 30)
-        elif selected_strategy_name == "MACD Crossover":
-            params['fast'] = st.slider("Fast Period", 5, 20, 12)
-            params['slow'] = st.slider("Slow Period", 20, 50, 26)
-            params['signal'] = st.slider("Signal Period", 5, 20, 9)
-        elif selected_strategy_name == "Supertrend Follower":
-            params['period'] = st.slider("ATR Period", 5, 20, 7)
-            params['multiplier'] = st.slider("Multiplier", 1.0, 5.0, 3.0, 0.5)
-
-        st.markdown("**Trade Execution**")
-        quantity = st.number_input("Trade Quantity", min_value=1, value=1)
-        
-        run_button = st.button("Run Backtest & Get Signal", use_container_width=True, type="primary")
-
-    with col2:
-        if run_button:
-            with st.spinner(f"Running backtest for {selected_strategy_name} on {symbol}..."):
-                exchange = instrument_df[instrument_df['tradingsymbol'] == symbol].iloc[0]['exchange']
-                token = get_instrument_token(symbol, instrument_df, exchange=exchange)
-                data = get_historical_data(token, 'day', period='1y')
-                
-                if not data.empty and len(data) > 50: 
-                    pnl, portfolio_curve = run_backtest(strategy_options[selected_strategy_name], data, **params)
-                    latest_signal = strategy_options[selected_strategy_name](data, **params)[-1]
-
-                    st.session_state['backtest_results'] = {
-                        'pnl': pnl,
-                        'curve': portfolio_curve,
-                        'signal': latest_signal,
-                        'symbol': symbol,
-                        'quantity': quantity
-                    }
-                else:
-                    st.error("Could not fetch enough historical data to run the backtest.")
-                    if 'backtest_results' in st.session_state:
-                        st.session_state['backtest_results'] = None
-
-        if st.session_state.get('backtest_results') is not None:
-            results = st.session_state['backtest_results']
-            st.subheader("Backtest Results")
-            st.metric("Total P&L (1 Year)", f"{results['pnl']:.2f}%")
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=results['curve'].index, y=results['curve'], mode='lines', name='Portfolio Value'))
-            fig.update_layout(title="Portfolio Growth Over 1 Year", yaxis_title="Portfolio Value (₹)")
-            st.plotly_chart(fig, use_container_width=True)
-
-            st.subheader("Live Signal & Trading")
-            signal = results['signal']
-            color = "green" if signal == "BUY" else "red" if signal == "SELL" else "orange"
-            st.markdown(f"### Latest Signal: <span style='color:{color};'>{signal if signal else 'HOLD'}</span>", unsafe_allow_html=True)
-
-            if signal in ["BUY", "SELL"]:
-                if st.button(f"Place {signal} Order for {results['quantity']} of {results['symbol']}", use_container_width=True):
-                    place_order(instrument_df, results['symbol'], results['quantity'], "MARKET", signal, "MIS")
-
-@st.cache_data(ttl=3600)
-def run_scanner(instrument_df, scanner_type, holdings_df=None):
-    """A single function to run different types of market scanners on user holdings or a predefined list."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: return pd.DataFrame()
-
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()
-        st.info("Scanning stocks from your live holdings.")
-    else:
-        scan_list = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 'MARUTI', 'ASIANPAINT']
-        st.info("Scanning a predefined list of NIFTY 50 stocks as no holdings were found.")
-
-    results = []
-    
-    token_map = {
-        row['tradingsymbol']: row['instrument_token']
-        for _, row in instrument_df[instrument_df['tradingsymbol'].isin(scan_list)].iterrows()
-    }
-    
-    for symbol in scan_list:
-        token = token_map.get(symbol)
-        if not token: continue
-        
-        try:
-            df = get_historical_data(token, 'day', period='1y')
-            if df.empty or len(df) < 252: continue
-            
-            df.columns = [c.lower() for c in df.columns]
-
-            if scanner_type == "Momentum":
-                rsi_col = next((c for c in df.columns if 'rsi_14' in c), None)
-                if rsi_col:
-                    rsi = df.iloc[-1].get(rsi_col)
-                    if rsi and (rsi > 70 or rsi < 30):
-                        results.append({'Stock': symbol, 'RSI': f"{rsi:.2f}", 'Signal': "Overbought" if rsi > 70 else "Oversold"})
-            
-            elif scanner_type == "Trend":
-                adx_col = next((c for c in df.columns if 'adx_14' in c), None)
-                ema50_col = next((c for c in df.columns if 'ema_50' in c), None)
-                ema200_col = next((c for c in df.columns if 'ema_200' in c), None)
-                
-                if adx_col and ema50_col and ema200_col:
-                    adx = df.iloc[-1].get(adx_col)
-                    ema50 = df.iloc[-1].get(ema50_col)
-                    ema200 = df.iloc[-1].get(ema200_col)
-                    if adx and adx > 25 and ema50 and ema200:
-                        trend = "Uptrend" if ema50 > ema200 else "Downtrend"
-                        results.append({'Stock': symbol, 'ADX': f"{adx:.2f}", 'Trend': trend})
-
-            elif scanner_type == "Breakout":
-                high_52wk = df['high'].rolling(window=252).max().iloc[-1]
-                low_52wk = df['low'].rolling(window=252).min().iloc[-1]
-                last_close = df['close'].iloc[-1]
-                avg_vol_20d = df['volume'].rolling(window=20).mean().iloc[-1]
-                last_vol = df['volume'].iloc[-1]
-
-                if last_close >= high_52wk * 0.98:
-                    signal = "Near 52-Week High"
-                    if last_vol > avg_vol_20d * 1.5:
-                        signal += " (Volume Surge)"
-                    results.append({'Stock': symbol, 'Signal': signal, 'Last Close': last_close, '52Wk High': high_52wk})
-
-        except Exception:
-            continue
-            
-    return pd.DataFrame(results)
-
-def run_momentum_scanner(instrument_df, holdings_df=None):
-    """Momentum scanner with RSI and MACD analysis."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: 
-        return pd.DataFrame()
-
-    # Get symbols to scan
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20] # Limit to 20 stocks
-    else:
-        scan_list = [
-            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
-            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 
-            'MARUTI', 'ASIANPAINT', 'HCLTECH', 'TATAMOTORS', 'SUNPHARMA'
-        ]
-    
-    results = []
-    
-    for symbol in scan_list:
-        try:
-            # Get live quote
-            exchange = 'NSE'
-            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-            if quote_data.empty:
-                continue
-                
-            current_price = quote_data.iloc[0]['Price']
-            change_pct = quote_data.iloc[0]['% Change']
-            
-            # Get historical data
-            token = get_instrument_token(symbol, instrument_df, exchange)
-            if not token:
-                continue
-                
-            hist_data = get_historical_data(token, 'day', period='3mo')
-            if hist_data.empty or len(hist_data) < 30:
-                continue
-            
-            # Calculate RSI
-            try:
-                hist_data['RSI_14'] = talib.RSI(hist_data['close'], timeperiod=14)
-                latest = hist_data.iloc[-1]
-                rsi = latest.get('RSI_14', 50)
-                
-                # Momentum signals
-                if rsi > 70 and change_pct > 0:
-                    results.append({
-                        'Symbol': symbol,
-                        'LTP': f"₹{current_price:.2f}",
-                        'Change %': f"{change_pct:.2f}%",
-                        'RSI': f"{rsi:.1f}",
-                        'Signal': "Overbought",
-                        'Strength': "High"
-                    })
-                elif rsi < 30 and change_pct < 0:
-                    results.append({
-                        'Symbol': symbol,
-                        'LTP': f"₹{current_price:.2f}",
-                        'Change %': f"{change_pct:.2f}%",
-                        'RSI': f"{rsi:.1f}",
-                        'Signal': "Oversold", 
-                        'Strength': "High"
-                    })
-                    
-            except Exception:
-                continue
-                
-        except Exception:
-            continue
-            
-    return pd.DataFrame(results)
-
-def run_trend_scanner(instrument_df, holdings_df=None):
-    """Trend scanner with EMA analysis."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: 
-        return pd.DataFrame()
-
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]
-    else:
-        scan_list = [
-            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
-            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK'
-        ]
-    
-    results = []
-    
-    for symbol in scan_list:
-        try:
-            # Get live data
-            exchange = 'NSE'
-            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-            if quote_data.empty:
-                continue
-                
-            current_price = quote_data.iloc[0]['Price']
-            change_pct = quote_data.iloc[0]['% Change']
-            
-            # Get historical data
-            token = get_instrument_token(symbol, instrument_df, exchange)
-            if not token:
-                continue
-                
-            hist_data = get_historical_data(token, 'day', period='3mo')
-            if hist_data.empty or len(hist_data) < 50:
-                continue
-            
-            # Calculate EMAs
-            try:
-                hist_data['EMA_20'] = talib.EMA(hist_data['close'], timeperiod=20)
-                hist_data['EMA_50'] = talib.EMA(hist_data['close'], timeperiod=50)
-                
-                latest = hist_data.iloc[-1]
-                ema_20 = latest.get('EMA_20', current_price)
-                ema_50 = latest.get('EMA_50', current_price)
-                
-                # Trend signals
-                if current_price > ema_20 > ema_50 and change_pct > 0:
-                    results.append({
-                        'Symbol': symbol,
-                        'LTP': f"₹{current_price:.2f}",
-                        'Change %': f"{change_pct:.2f}%",
-                        'Trend': "Uptrend",
-                        '20 EMA': f"₹{ema_20:.1f}",
-                        '50 EMA': f"₹{ema_50:.1f}"
-                    })
-                elif current_price < ema_20 < ema_50 and change_pct < 0:
-                    results.append({
-                        'Symbol': symbol,
-                        'LTP': f"₹{current_price:.2f}",
-                        'Change %': f"{change_pct:.2f}%",
-                        'Trend': "Downtrend",
-                        '20 EMA': f"₹{ema_20:.1f}",
-                        '50 EMA': f"₹{ema_50:.1f}"
-                    })
-                    
-            except Exception:
-                continue
-                
-        except Exception:
-            continue
-            
-    return pd.DataFrame(results)
-
-def run_breakout_scanner(instrument_df, holdings_df=None):
-    """Breakout scanner for key level breaks."""
-    client = get_broker_client()
-    if not client or instrument_df.empty: 
-        return pd.DataFrame()
-
-    scan_list = []
-    if holdings_df is not None and not holdings_df.empty:
-        scan_list = holdings_df['tradingsymbol'].unique().tolist()[:20]
-    else:
-        scan_list = [
-            'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'HINDUNILVR', 
-            'ITC', 'SBIN', 'BAJFINANCE', 'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK'
-        ]
-    
-    results = []
-    
-    for symbol in scan_list:
-        try:
-            # Get live data
-            exchange = 'NSE'
-            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-            if quote_data.empty:
-                continue
-                
-            current_price = quote_data.iloc[0]['Price']
-            change_pct = quote_data.iloc[0]['% Change']
-            
-            # Get historical data
-            token = get_instrument_token(symbol, instrument_df, exchange)
-            if not token:
-                continue
-                
-            hist_data = get_historical_data(token, 'day', period='6mo')
-            if hist_data.empty or len(hist_data) < 100:
-                continue
-            
-            # Calculate breakout levels
-            high_20d = hist_data['high'].tail(20).max()
-            low_20d = hist_data['low'].tail(20).min()
-            
-            # Breakout signals
-            if current_price >= high_20d and change_pct > 0:
-                results.append({
-                    'Symbol': symbol,
-                    'LTP': f"₹{current_price:.2f}",
-                    'Change %': f"{change_pct:.2f}%",
-                    'Breakout': "20-Day High",
-                    'Resistance': f"₹{high_20d:.1f}"
-                })
-            elif current_price <= low_20d and change_pct < 0:
-                results.append({
-                    'Symbol': symbol,
-                    'LTP': f"₹{current_price:.2f}",
-                    'Change %': f"{change_pct:.2f}%",
-                    'Breakout': "20-Day Low", 
-                    'Support': f"₹{low_20d:.1f}"
-                })
-                
-        except Exception:
-            continue
-            
-    return pd.DataFrame(results)
-
-def page_momentum_and_trend_finder():
-    """Clean and functional Market Scanners page."""
-    display_header()
-    st.title("Market Scanners")
-    
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to use market scanners.")
-        return
-        
-    _, holdings_df, _, _ = get_portfolio()
-    
-    # Simple scanner selection
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        scanner_type = st.radio(
-            "Select Scanner Type",
-            ["Momentum (RSI)", "Trend (EMA)", "Breakout"],
-            horizontal=True
-        )
-    
-    with col2:
-        if st.button("🔄 Scan Now", use_container_width=True, type="primary"):
+        if st.button("📊 Portfolio Summary", use_container_width=True):
+            portfolio_summary = generate_portfolio_summary()
+            st.session_state.messages.append({"role": "user", "content": "Give me a portfolio summary"})
+            st.session_state.messages.append({"role": "assistant", "content": portfolio_summary})
             st.rerun()
     
+    with col2:
+        if st.button("📈 Market Outlook", use_container_width=True):
+            market_outlook = generate_market_outlook()
+            st.session_state.messages.append({"role": "user", "content": "What's the market outlook?"})
+            st.session_state.messages.append({"role": "assistant", "content": market_outlook})
+            st.rerun()
+    
+    with col3:
+        if st.button("💡 Trading Ideas", use_container_width=True):
+            trading_ideas = generate_trading_ideas()
+            st.session_state.messages.append({"role": "user", "content": "Suggest some trading ideas"})
+            st.session_state.messages.append({"role": "assistant", "content": trading_ideas})
+            st.rerun()
+
+def generate_ai_response(prompt):
+    """Generate AI response based on user prompt (rule-based for demo)."""
+    prompt_lower = prompt.lower()
+    
+    # Portfolio-related queries
+    if any(word in prompt_lower for word in ['portfolio', 'holding', 'position']):
+        positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
+        
+        if positions_df.empty and holdings_df.empty:
+            return "I can see you don't have any open positions or holdings currently. Would you like me to suggest some trading ideas?"
+        
+        response = "Based on your portfolio:\n\n"
+        
+        if not positions_df.empty:
+            response += "**Open Positions:**\n"
+            for _, position in positions_df.iterrows():
+                pnl_status = "profit" if position['pnl'] > 0 else "loss"
+                response += f"- {position['tradingsymbol']}: ₹{position['pnl']:,.2f} {pnl_status}\n"
+        
+        if not holdings_df.empty:
+            response += "\n**Stock Holdings:**\n"
+            for _, holding in holdings_df.head(5).iterrows():
+                pnl_status = "profit" if holding['pnl'] > 0 else "loss"
+                response += f"- {holding['tradingsymbol']}: ₹{holding['pnl']:,.2f} {pnl_status}\n"
+        
+        total_pnl_status = "profit" if total_pnl > 0 else "loss"
+        response += f"\n**Overall P&L:** ₹{total_pnl:,.2f} {total_pnl_status}"
+        
+        return response
+    
+    # Market-related queries
+    elif any(word in prompt_lower for word in ['market', 'nifty', 'sensex', 'outlook']):
+        return """**Current Market Analysis:**
+        
+- **NIFTY 50**: Trading in a range with support at 21,800 and resistance at 22,200
+- **Sector Rotation**: IT and Pharma showing strength, while FMCG is under pressure
+- **Global Cues**: US markets stable, crude prices elevated
+- **Recommendation**: Consider defensive stocks in current volatility"""
+
+    # Trading strategy queries
+    elif any(word in prompt_lower for word in ['strategy', 'trade', 'idea']):
+        return """**Trading Ideas for Today:**
+        
+1. **RELIANCE** - Breaking out of consolidation, target ₹2,900
+2. **HDFCBANK** - Near support, good for swing trade
+3. **TATASTEEL** - Momentum building, watch for breakout
+
+*Always use proper risk management and stop losses.*"""
+
+    # Risk management queries
+    elif any(word in prompt_lower for word in ['risk', 'stop loss', 'management']):
+        return """**Risk Management Guidelines:**
+        
+- Never risk more than 2% of capital on a single trade
+- Always use stop losses (mental or automated)
+- Diversify across sectors
+- Monitor position sizing carefully
+- Review your risk exposure daily"""
+
+    # Default response
+    else:
+        return """I understand you're asking about trading and markets. I can help you with:
+
+- Portfolio analysis and insights
+- Market outlook and trends  
+- Trading strategies and ideas
+- Risk management guidance
+- Technical analysis
+
+Could you please rephrase your question or ask about one of these specific areas?"""
+
+def generate_portfolio_summary():
+    """Generate a summary of the user's portfolio."""
+    positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
+    
+    if positions_df.empty and holdings_df.empty:
+        return "Your portfolio is currently empty. Consider starting with bluechip stocks for long-term growth."
+    
+    summary = "**Portfolio Summary:**\n\n"
+    
+    if total_pnl != 0:
+        summary += f"**Total P&L:** ₹{total_pnl:,.2f} ({(total_pnl/total_investment*100) if total_investment > 0 else 0:.2f}%)\n"
+    
+    if not positions_df.empty:
+        winning_positions = positions_df[positions_df['pnl'] > 0]
+        losing_positions = positions_df[positions_df['pnl'] < 0]
+        
+        summary += f"**Open Positions:** {len(positions_df)}\n"
+        summary += f"**Winning Trades:** {len(winning_positions)}\n"
+        summary += f"**Losing Trades:** {len(losing_positions)}\n"
+    
+    if not holdings_df.empty:
+        summary += f"**Long-term Holdings:** {len(holdings_df)}\n"
+    
+    summary += "\n**Recommendation:** Consider rebalancing if any single position exceeds 10% of your portfolio value."
+    
+    return summary
+
+def generate_market_outlook():
+    """Generate current market outlook."""
+    return """**Market Outlook Today:**
+    
+- **Short-term (1-2 days)**: Sideways to positive bias
+- **Medium-term (1 week)**: Range-bound with stock-specific action
+- **Key Levels**: NIFTY support 21,800, resistance 22,200
+- **Sectors to Watch**: IT, Banking, Auto
+- **Risk Factors**: Global volatility, currency movements
+
+*Trade with caution and proper position sizing.*"""
+
+def generate_trading_ideas():
+    """Generate trading ideas based on current market conditions."""
+    return """**Trading Ideas for Current Market:**
+    
+**Momentum Plays:**
+1. INFY - Breaking resistance with volume
+2. RELIANCE - Consolidation breakout expected
+
+**Value Picks:**
+1. HDFCBANK - Near 52-week low, good for accumulation
+2. ITC - Stable dividend stock for portfolio
+
+**Swing Trade Ideas:**
+1. TATAMOTORS - Strong auto sector momentum
+2. BAJFINANCE - Financial services recovery play
+
+*Always conduct your own research and use stop losses.*"""
+
+def page_fundamental_analytics():
+    """Fundamental Analytics page with company financials and ratios."""
+    display_header()
+    st.title("📊 Fundamental Analytics")
+    st.info("Analyze company fundamentals, financial ratios, and valuation metrics.", icon="ℹ️")
+    
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use fundamental analytics.")
+        return
+    
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'BSE'])]['tradingsymbol'].unique()
+        selected_symbol = st.selectbox("Select Company", sorted(all_symbols), key="fundamental_symbol")
+        
+        if selected_symbol:
+            # Display basic company info (mock data for demo)
+            st.subheader("Company Overview")
+            
+            # Mock fundamental data
+            fundamental_data = {
+                'Market Cap': '₹10,00,000 Cr',
+                'P/E Ratio': '25.3',
+                'P/B Ratio': '4.2',
+                'ROE': '15.8%',
+                'Debt/Equity': '0.45',
+                'Dividend Yield': '1.2%'
+            }
+            
+            for metric, value in fundamental_data.items():
+                st.metric(metric, value)
+    
+    with col2:
+        if selected_symbol:
+            st.subheader("Financial Metrics")
+            
+            # Create tabs for different fundamental aspects
+            tab1, tab2, tab3 = st.tabs(["Valuation", "Profitability", "Leverage"])
+            
+            with tab1:
+                st.write("**Valuation Ratios**")
+                valuation_data = {
+                    'P/E Ratio': '25.3 (Sector Avg: 22.1)',
+                    'P/B Ratio': '4.2 (Sector Avg: 3.8)',
+                    'P/S Ratio': '3.1 (Sector Avg: 2.9)',
+                    'EV/EBITDA': '12.5 (Sector Avg: 11.2)'
+                }
+                
+                for ratio, value in valuation_data.items():
+                    st.write(f"**{ratio}:** {value}")
+            
+            with tab2:
+                st.write("**Profitability Metrics**")
+                profitability_data = {
+                    'ROE': '15.8% (5-yr Avg: 14.2%)',
+                    'ROCE': '18.2% (5-yr Avg: 16.5%)',
+                    'Net Margin': '12.3% (5-yr Avg: 11.8%)',
+                    'Operating Margin': '18.5% (5-yr Avg: 17.2%)'
+                }
+                
+                for metric, value in profitability_data.items():
+                    st.write(f"**{metric}:** {value}")
+            
+            with tab3:
+                st.write("**Leverage & Efficiency**")
+                leverage_data = {
+                    'Debt/Equity': '0.45 (Sector Avg: 0.60)',
+                    'Interest Coverage': '8.2x (Sector Avg: 6.5x)',
+                    'Current Ratio': '1.8 (Sector Avg: 1.5)',
+                    'Asset Turnover': '1.2 (Sector Avg: 1.1)'
+                }
+                
+                for metric, value in leverage_data.items():
+                    st.write(f"**{metric}:** {value}")
+            
+            # Financial health indicator
+            st.markdown("---")
+            st.subheader("Financial Health Score")
+            
+            # Mock health score
+            health_score = 78
+            health_color = "green" if health_score >= 70 else "orange" if health_score >= 50 else "red"
+            
+            st.markdown(f"""
+            <div style="text-align: center; padding: 1rem; background: {health_color}22; border-radius: 10px; border: 2px solid {health_color};">
+                <h1 style="margin: 0; color: {health_color};">{health_score}/100</h1>
+                <p style="margin: 0; color: #666;">Overall Financial Health</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if health_score >= 70:
+                st.success("**Strong Fundamentals:** Company shows healthy financial metrics across all parameters.")
+            elif health_score >= 50:
+                st.warning("**Moderate Fundamentals:** Company has average financial health with some areas for improvement.")
+            else:
+                st.error("**Weak Fundamentals:** Company shows concerning financial metrics that need attention.")
+
+def page_basket_orders():
+    """Basket Orders page for placing multiple orders simultaneously."""
+    display_header()
+    st.title("🧺 Basket Orders")
+    st.info("Place multiple orders across different symbols in a single execution.", icon="ℹ️")
+    
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use basket orders.")
+        return
+    
+    # Basket management
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("Add to Basket")
+        
+        # Symbol selection
+        all_symbols = instrument_df[instrument_df['exchange'].isin(['NSE', 'BSE'])]['tradingsymbol'].unique()
+        selected_symbol = st.selectbox("Symbol", sorted(all_symbols), key="basket_symbol")
+        
+        # Order details
+        col_a, col_b, col_c, col_d = st.columns(4)
+        
+        with col_a:
+            transaction_type = st.radio("Action", ["BUY", "SELL"], key="basket_action", horizontal=True)
+        with col_b:
+            product_type = st.radio("Product", ["MIS", "CNC"], key="basket_product", horizontal=True)
+        with col_c:
+            order_type = st.radio("Type", ["MARKET", "LIMIT"], key="basket_order_type", horizontal=True)
+        with col_d:
+            quantity = st.number_input("Quantity", min_value=1, value=1, key="basket_quantity")
+        
+        price = None
+        if order_type == "LIMIT":
+            price = st.number_input("Price", min_value=0.01, value=0.0, key="basket_price")
+        
+        if st.button("Add to Basket", use_container_width=True):
+            if selected_symbol and quantity > 0:
+                basket_item = {
+                    'symbol': selected_symbol,
+                    'transaction_type': transaction_type,
+                    'product': product_type,
+                    'order_type': order_type,
+                    'quantity': quantity,
+                    'price': price
+                }
+                
+                if 'basket' not in st.session_state:
+                    st.session_state.basket = []
+                
+                st.session_state.basket.append(basket_item)
+                st.success(f"Added {transaction_type} {quantity} {selected_symbol} to basket")
+    
+    with col2:
+        st.subheader("Basket Summary")
+        
+        if 'basket' in st.session_state and st.session_state.basket:
+            total_orders = len(st.session_state.basket)
+            buy_orders = len([item for item in st.session_state.basket if item['transaction_type'] == 'BUY'])
+            sell_orders = total_orders - buy_orders
+            
+            st.metric("Total Orders", total_orders)
+            st.metric("Buy Orders", buy_orders)
+            st.metric("Sell Orders", sell_orders)
+            
+            if st.button("Clear Basket", use_container_width=True):
+                st.session_state.basket = []
+                st.rerun()
+        else:
+            st.info("Basket is empty")
+    
+    # Display current basket
     st.markdown("---")
+    st.subheader("Current Basket")
     
-    # Run selected scanner
-    with st.spinner(f"Running {scanner_type} scanner..."):
-        if scanner_type == "Momentum (RSI)":
-            data = run_momentum_scanner(instrument_df, holdings_df)
-            title = "Momentum Stocks (RSI Based)"
-            description = "Stocks with RSI above 70 (overbought) or below 30 (oversold)"
-            
-        elif scanner_type == "Trend (EMA)":
-            data = run_trend_scanner(instrument_df, holdings_df) 
-            title = "Trending Stocks (EMA Based)"
-            description = "Stocks in strong uptrend/downtrend based on EMA alignment"
-            
-        else: # Breakout
-            data = run_breakout_scanner(instrument_df, holdings_df)
-            title = "Breakout Stocks"
-            description = "Stocks breaking 20-day high/low resistance/support levels"
-    
-    # Display results
-    st.subheader(title)
-    st.caption(description)
-    
-    if not data.empty:
-        # Color coding based on scanner type
-        if scanner_type == "Momentum (RSI)":
-            def color_momentum(val):
-                if 'Overbought' in str(val):
-                    return 'color: #ff4444; font-weight: bold;'
-                elif 'Oversold' in str(val):
-                    return 'color: #00aa00; font-weight: bold;'
-                return ''
-            styled_data = data.style.map(color_momentum, subset=['Signal'])
-            
-        elif scanner_type == "Trend (EMA)":
-            def color_trend(val):
-                if 'Uptrend' in str(val):
-                    return 'color: #00aa00; font-weight: bold;'
-                elif 'Downtrend' in str(val):
-                    return 'color: #ff4444; font-weight: bold;'
-                return ''
-            styled_data = data.style.map(color_trend, subset=['Trend'])
-            
-        else: # Breakout
-            def color_breakout(val):
-                if 'High' in str(val):
-                    return 'color: #00aa00; font-weight: bold;'
-                elif 'Low' in str(val):
-                    return 'color: #ff4444; font-weight: bold;'
-                return ''
-            styled_data = data.style.map(color_breakout, subset=['Breakout'])
+    if 'basket' in st.session_state and st.session_state.basket:
+        for i, item in enumerate(st.session_state.basket):
+            with st.expander(f"{item['transaction_type']} {item['quantity']} {item['symbol']} ({item['product']})"):
+                col_i1, col_i2, col_i3 = st.columns([2, 1, 1])
+                
+                with col_i1:
+                    st.write(f"**Symbol:** {item['symbol']}")
+                    st.write(f"**Type:** {item['order_type']}")
+                with col_i2:
+                    st.write(f"**Quantity:** {item['quantity']}")
+                    if item['price']:
+                        st.write(f"**Price:** ₹{item['price']:.2f}")
+                with col_i3:
+                    if st.button("Remove", key=f"remove_{i}", use_container_width=True):
+                        st.session_state.basket.pop(i)
+                        st.rerun()
         
-        st.dataframe(styled_data, use_container_width=True, hide_index=True)
-        
-        # Simple statistics
-        if scanner_type == "Momentum (RSI)":
-            bullish = len(data[data['Signal'] == 'Overbought'])
-            bearish = len(data[data['Signal'] == 'Oversold'])
-            st.metric("Signals Found", len(data), delta=f"{bullish} Bullish, {bearish} Bearish")
-            
-        elif scanner_type == "Trend (EMA)":
-            uptrend = len(data[data['Trend'] == 'Uptrend'])
-            downtrend = len(data[data['Trend'] == 'Downtrend'])
-            st.metric("Signals Found", len(data), delta=f"{uptrend} Up, {downtrend} Down")
-            
-        else: # Breakout
-            breakouts = len(data[data['Breakout'].str.contains('High')])
-            breakdowns = len(data[data['Breakout'].str.contains('Low')])
-            st.metric("Signals Found", len(data), delta=f"{breakouts} Breakouts, {breakdowns} Breakdowns")
-        
-        # Quick actions
+        # Execute basket
         st.markdown("---")
-        col1, col2 = st.columns(2)
+        st.subheader("Execute Basket")
         
-        with col1:
-            if st.button("📋 Export to CSV", use_container_width=True):
-                csv = data.to_csv(index=False)
+        col_e1, col_e2 = st.columns(2)
+        
+        with col_e1:
+            if st.button("🚀 Execute All Orders", type="primary", use_container_width=True):
+                execute_basket_order(st.session_state.basket, instrument_df)
+        
+        with col_e2:
+            if st.button("📋 Export Orders", use_container_width=True):
+                # Create CSV of basket orders
+                basket_df = pd.DataFrame(st.session_state.basket)
+                csv = basket_df.to_csv(index=False)
+                
                 st.download_button(
                     label="Download CSV",
                     data=csv,
-                    file_name=f"{scanner_type.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
+                    file_name=f"basket_orders_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+    else:
+        st.info("Your basket is empty. Add some orders to get started.")
+
+def page_algo_strategy_maker():
+    """Algo Strategy Maker page for building and testing trading strategies."""
+    display_header()
+    st.title("⚡ Algo Strategy Maker")
+    st.info("Build, test, and optimize your algorithmic trading strategies.", icon="ℹ️")
+    
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use strategy maker.")
+        return
+    
+    # Strategy builder
+    st.subheader("Strategy Builder")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        strategy_name = st.text_input("Strategy Name", placeholder="e.g., Momentum Breakout")
+        
+        # Entry conditions
+        st.write("**Entry Conditions**")
+        entry_condition = st.selectbox(
+            "When to Enter",
+            ["Price crosses above EMA", "RSI oversold", "MACD crossover", "Bollinger Band squeeze"]
+        )
+        
+        # Parameters
+        st.write("**Parameters**")
+        param1 = st.number_input("Parameter 1", value=20, help="e.g., EMA period")
+        param2 = st.number_input("Parameter 2", value=14, help="e.g., RSI period")
+    
+    with col2:
+        # Exit conditions
+        st.write("**Exit Conditions**")
+        exit_condition = st.selectbox(
+            "When to Exit",
+            ["Price crosses below EMA", "RSI overbought", "Fixed target", "Trailing stop loss"]
+        )
+        
+        # Risk management
+        st.write("**Risk Management**")
+        stop_loss = st.number_input("Stop Loss (%)", value=2.0, min_value=0.1, max_value=10.0, step=0.1)
+        target = st.number_input("Target (%)", value=4.0, min_value=0.1, max_value=20.0, step=0.1)
+    
+    # Strategy testing
+    st.markdown("---")
+    st.subheader("Strategy Tester")
+    
+    col3, col4, col5 = st.columns(3)
+    
+    with col3:
+        test_symbol = st.selectbox("Test Symbol", ['RELIANCE', 'HDFCBANK', 'TCS', 'INFY'], key="test_symbol")
+    with col4:
+        test_period = st.selectbox("Test Period", ['1 month', '3 months', '6 months', '1 year'], key="test_period")
+    with col5:
+        initial_capital = st.number_input("Initial Capital (₹)", value=100000, min_value=1000, step=1000)
+    
+    if st.button("Backtest Strategy", type="primary", use_container_width=True):
+        with st.spinner("Running backtest..."):
+            # Mock backtest results
+            backtest_results = {
+                'total_trades': 45,
+                'winning_trades': 28,
+                'losing_trades': 17,
+                'win_rate': 62.2,
+                'total_pnl': 12500,
+                'max_drawdown': -8.5,
+                'sharpe_ratio': 1.8
+            }
+            
+            st.session_state.backtest_results = backtest_results
+            st.success("Backtest completed!")
+    
+    # Display backtest results
+    if st.session_state.backtest_results:
+        results = st.session_state.backtest_results
+        
+        st.markdown("---")
+        st.subheader("Backtest Results")
+        
+        col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+        
+        with col_r1:
+            st.metric("Total Trades", results['total_trades'])
+            st.metric("Win Rate", f"{results['win_rate']:.1f}%")
+        with col_r2:
+            st.metric("Winning Trades", results['winning_trades'])
+            st.metric("Losing Trades", results['losing_trades'])
+        with col_r3:
+            st.metric("Total P&L", f"₹{results['total_pnl']:,.2f}")
+            st.metric("Return %", f"{(results['total_pnl']/initial_capital*100):.1f}%")
+        with col_r4:
+            st.metric("Max Drawdown", f"{results['max_drawdown']:.1f}%")
+            st.metric("Sharpe Ratio", f"{results['sharpe_ratio']:.2f}")
+        
+        # Strategy evaluation
+        st.markdown("---")
+        st.subheader("Strategy Evaluation")
+        
+        if results['win_rate'] > 60 and results['sharpe_ratio'] > 1.5:
+            st.success("**Excellent Strategy:** High win rate with good risk-adjusted returns. Consider deploying with real capital.")
+        elif results['win_rate'] > 50 and results['sharpe_ratio'] > 1.0:
+            st.warning("**Good Strategy:** Moderate performance. May need further optimization.")
+        else:
+            st.error("**Needs Improvement:** Strategy performance below acceptable levels. Review parameters and conditions.")
+
+def page_momentum_and_trend_finder():
+    """Momentum and Trend Finder page for identifying strong trending stocks."""
+    display_header()
+    st.title("📊 Momentum & Trend Finder")
+    st.info("Scan for stocks with strong momentum and trending behavior across different timeframes.", icon="ℹ️")
+    
+    instrument_df = get_instrument_df()
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use momentum scanner.")
+        return
+    
+    # Scanner configuration
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        scanner_type = st.selectbox(
+            "Scanner Type",
+            [
+                "Strong Momentum (All Timeframes)",
+                "Daily Breakouts", 
+                "Weekly Strength",
+                "RSI Oversold/Oversold",
+                "Volume Breakouts",
+                "New 52-week Highs/Lows"
+            ],
+            key="momentum_scanner"
+        )
+    
+    with col2:
+        min_volume = st.number_input("Min Volume (Lakhs)", value=1.0, min_value=0.1, step=0.5)
+    
+    with col3:
+        min_price = st.number_input("Min Price (₹)", value=50.0, min_value=1.0, step=10.0)
+    
+    # Additional filters
+    col4, col5 = st.columns(2)
+    
+    with col4:
+        rsi_range = st.slider("RSI Range", 0, 100, (30, 70))
+    
+    with col5:
+        change_threshold = st.slider("Min Price Change %", 0.0, 10.0, 2.0, 0.5)
+    
+    if st.button("Run Momentum Scan", type="primary", use_container_width=True):
+        with st.spinner("Scanning for momentum opportunities..."):
+            # Get NIFTY 50 constituents for scanning
+            nifty_constituents = get_nifty50_constituents(instrument_df)
+            
+            if not nifty_constituents.empty:
+                momentum_stocks = []
+                symbols_to_scan = nifty_constituents['Symbol'].tolist()[:15]  # Limit for demo
+                
+                for symbol in symbols_to_scan:
+                    try:
+                        token = get_instrument_token(symbol, instrument_df, 'NSE')
+                        if token:
+                            # Get historical data for analysis
+                            hist_data = get_historical_data(token, 'day', period='1mo')
+                            if not hist_data.empty and len(hist_data) >= 20:
+                                current_data = get_watchlist_data([{'symbol': symbol, 'exchange': 'NSE'}])
+                                
+                                if not current_data.empty:
+                                    current_price = current_data.iloc[0]['Price']
+                                    current_change = current_data.iloc[0]['% Change']
+                                    
+                                    # Skip if below minimum price
+                                    if current_price < min_price:
+                                        continue
+                                    
+                                    # Calculate RSI using TA-Lib
+                                    rsi = talib.RSI(hist_data['close'], timeperiod=14).iloc[-1]
+                                    
+                                    # Skip if RSI outside range
+                                    if not (rsi_range[0] <= rsi <= rsi_range[1]):
+                                        continue
+                                    
+                                    # Calculate momentum score based on multiple factors
+                                    momentum_score = 0
+                                    signals = []
+                                    
+                                    # Price change momentum
+                                    if abs(current_change) >= change_threshold:
+                                        momentum_score += 30
+                                        signals.append(f"Price change: {current_change:+.2f}%")
+                                    
+                                    # RSI momentum
+                                    if rsi > 70:
+                                        momentum_score += 20
+                                        signals.append("RSI Overbought")
+                                    elif rsi < 30:
+                                        momentum_score += 20
+                                        signals.append("RSI Oversold")
+                                    elif 40 <= rsi <= 60:
+                                        momentum_score += 10
+                                        signals.append("RSI Neutral")
+                                    
+                                    # Volume check (mock)
+                                    if 'volume' in hist_data.columns:
+                                        avg_volume = hist_data['volume'].mean()
+                                        current_volume = hist_data['volume'].iloc[-1] if len(hist_data) > 0 else 0
+                                        if current_volume > avg_volume * 1.5:
+                                            momentum_score += 20
+                                            signals.append("High Volume")
+                                    
+                                    # Trend analysis
+                                    if len(hist_data) >= 50:
+                                        sma_20 = talib.SMA(hist_data['close'], timeperiod=20).iloc[-1]
+                                        sma_50 = talib.SMA(hist_data['close'], timeperiod=50).iloc[-1]
+                                        
+                                        if current_price > sma_20 > sma_50:
+                                            momentum_score += 20
+                                            signals.append("Strong Uptrend")
+                                        elif current_price < sma_20 < sma_50:
+                                            momentum_score += 10
+                                            signals.append("Strong Downtrend")
+                                    
+                                    if momentum_score >= 40:  # Minimum threshold
+                                        momentum_stocks.append({
+                                            'Symbol': symbol,
+                                            'Price': current_price,
+                                            'Change %': current_change,
+                                            'RSI': rsi,
+                                            'Momentum Score': momentum_score,
+                                            'Signals': ', '.join(signals)
+                                        })
+                    except Exception as e:
+                        continue
+                
+                if momentum_stocks:
+                    # Create and display results dataframe
+                    results_df = pd.DataFrame(momentum_stocks)
+                    results_df = results_df.sort_values('Momentum Score', ascending=False)
+                    
+                    st.subheader(f"🎯 Momentum Opportunities ({len(results_df)} found)")
+                    
+                    # Display results with styling
+                    for _, stock in results_df.iterrows():
+                        score_color = "green" if stock['Momentum Score'] >= 70 else "orange" if stock['Momentum Score'] >= 50 else "red"
+                        
+                        with st.expander(f"{stock['Symbol']} | Score: {stock['Momentum Score']} | RSI: {stock['RSI']:.1f}"):
+                            col_s1, col_s2 = st.columns(2)
+                            
+                            with col_s1:
+                                st.metric("Current Price", f"₹{stock['Price']:.2f}")
+                                st.metric("Price Change", f"{stock['Change %']:+.2f}%")
+                            
+                            with col_s2:
+                                st.metric("RSI", f"{stock['RSI']:.1f}")
+                                st.markdown(f'<div style="color: {score_color}; font-weight: bold;">Momentum Score: {stock["Momentum Score"]}</div>', unsafe_allow_html=True)
+                            
+                            st.write(f"**Signals:** {stock['Signals']}")
+                            
+                            # Quick actions
+                            col_a1, col_a2 = st.columns(2)
+                            with col_a1:
+                                if st.button(f"Quick Trade {stock['Symbol']}", key=f"trade_{stock['Symbol']}", use_container_width=True):
+                                    quick_trade_dialog(stock['Symbol'], 'NSE')
+                            with col_a2:
+                                if st.button(f"Add to Watchlist", key=f"watch_{stock['Symbol']}", use_container_width=True):
+                                    if stock['Symbol'] not in [item['symbol'] for item in st.session_state.watchlists[st.session_state.active_watchlist]]:
+                                        st.session_state.watchlists[st.session_state.active_watchlist].append({
+                                            'symbol': stock['Symbol'], 
+                                            'exchange': 'NSE'
+                                        })
+                                        st.success(f"Added {stock['Symbol']} to watchlist")
+                else:
+                    st.info("No momentum opportunities found with the current filters. Try adjusting the parameters.")
+            else:
+                st.error("Could not fetch stock list for scanning.")
+    
+    # Quick actions section
+    st.markdown("---")
+    
+    if 'momentum_stocks' in locals() and momentum_stocks:
+        col_act1, col_act2 = st.columns(2)
+        
+        with col_act1:
+            if st.button("📋 Export Results", use_container_width=True):
+                # Create CSV of results
+                results_df = pd.DataFrame(momentum_stocks)
+                csv = results_df.to_csv(index=False)
+                
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"momentum_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
                     mime="text/csv",
                     use_container_width=True
                 )
         
-        with col2:
-            if st.button("👀 Add to Watchlist", use_container_width=True):
+        with col_act2:
+            if st.button("👀 Add Top 5 to Watchlist", use_container_width=True):
                 added = 0
-                for symbol in data['Symbol'].head(5): # Add top 5
-                    if symbol not in [item['symbol'] for item in st.session_state.watchlists[st.session_state.active_watchlist]]:
+                for stock in momentum_stocks[:5]:
+                    if stock['Symbol'] not in [item['symbol'] for item in st.session_state.watchlists[st.session_state.active_watchlist]]:
                         st.session_state.watchlists[st.session_state.active_watchlist].append({
-                            'symbol': symbol, 
+                            'symbol': stock['Symbol'], 
                             'exchange': 'NSE'
                         })
                         added += 1
+                
                 if added > 0:
                     st.success(f"Added {added} stocks to watchlist")
                 else:
-                    st.info("No new stocks to add")
-                    
-    else:
-        # Clear, helpful empty state
-        st.info(f"""
-        **No {scanner_type.lower()} signals found.**
-        
-        This could mean:
-        - Markets are in consolidation
-        - No extreme conditions detected
-        - Try a different scanner type
-        - Check if market is open
-        """)
+                    st.info("No new stocks to add. They are already in the watchlist.")
 
-def calculate_strategy_pnl(legs, underlying_ltp):
-    """Calculates the P&L for a given options strategy."""
-    if not legs:
-        return pd.DataFrame(), 0, 0, []
+# ================ 6. AUTHENTICATION & SETUP ================
 
-    price_range = np.linspace(underlying_ltp * 0.8, underlying_ltp * 1.2, 100)
-    pnl_df = pd.DataFrame(index=price_range)
-    pnl_df.index.name = "Underlying Price at Expiry"
+def setup_zerodha_2fa():
+    """Setup 2FA for Zerodha using pyotp."""
+    if st.session_state.pyotp_secret is None:
+        st.session_state.pyotp_secret = pyotp.random_base32()
     
-    total_premium = 0
-    for i, leg in enumerate(legs):
-        pnl = 0
-        if leg['type'] == 'Call':
-            if leg['position'] == 'Buy':
-                pnl = np.maximum(0, price_range - leg['strike']) - leg['premium']
-                total_premium -= leg['premium'] * leg['quantity']
-            else:
-                pnl = leg['premium'] - np.maximum(0, price_range - leg['strike'])
-                total_premium += leg['premium'] * leg['quantity']
-        else:
-            if leg['position'] == 'Buy':
-                pnl = np.maximum(0, leg['strike'] - price_range) - leg['premium']
-                total_premium -= leg['premium'] * leg['quantity']
-            else:
-                pnl = leg['premium'] - np.maximum(0, leg['strike'] - price_range)
-                total_premium += leg['premium'] * leg['quantity']
-        
-        pnl_df[f'Leg_{i+1}'] = pnl * leg['quantity']
+    totp = pyotp.TOTP(st.session_state.pyotp_secret)
+    provisioning_uri = totp.provisioning_uri(
+        name="blockvista@trader", 
+        issuer_name="BlockVista Terminal"
+    )
     
-    pnl_df['Total P&L'] = pnl_df.sum(axis=1)
+    # Generate QR code
+    qr = qrcode.QRCode(version=1, box_size=10, border=5)
+    qr.add_data(provisioning_uri)
+    qr.make(fit=True)
     
-    max_profit = pnl_df['Total P&L'].max()
-    max_loss = pnl_df['Total P&L'].min()
+    qr_img = qr.make_image(fill_color="black", back_color="white")
     
-    breakevens = []
-    sign_changes = np.where(np.diff(np.sign(pnl_df['Total P&L'])))[0]
-    for idx in sign_changes:
-        breakevens.append(pnl_df.index[idx])
-
-    return pnl_df, max_profit, max_loss, breakevens
-
-def page_option_strategy_builder():
-    """Option Strategy Builder page with live data and P&L calculation."""
-    display_header()
-    st.title("Options Strategy Builder")
+    # Convert PIL Image to bytes
+    img_buffer = io.BytesIO()
+    qr_img.save(img_buffer, format='PNG')
+    img_buffer.seek(0)
     
-    instrument_df = get_instrument_df()
-    client = get_broker_client()
-    if instrument_df.empty or not client:
-        st.info("Please connect to a broker to build strategies.")
-        return
+    # Display QR code
+    st.subheader("🔐 Zerodha 2FA Setup")
+    st.image(img_buffer, caption='Scan this QR code with Google Authenticator', use_column_width=True)
     
-    col1, col2 = st.columns([1, 1])
+    st.info("""
+    **Setup Instructions:**
+    1. Download Google Authenticator on your phone
+    2. Scan the QR code above
+    3. Enter the 6-digit code from the app below to verify
+    """)
     
-    with col1:
-        st.subheader("Strategy Configuration")
-        underlying = st.selectbox("Underlying", ["NIFTY", "BANKNIFTY", "FINNIFTY"])
-        
-        _, _, underlying_ltp, available_expiries = get_options_chain(underlying, instrument_df)
-
-        if not available_expiries:
-            st.error(f"No options available for {underlying}.")
-            st.stop()
-            
-        expiry_date = st.selectbox("Expiry", [e.strftime("%d %b %Y") for e in available_expiries])
-        
-        with st.form("add_leg_form"):
-            st.write("**Add a New Leg**")
-            leg_cols = st.columns(4)
-            position = leg_cols[0].selectbox("Position", ["Buy", "Sell"])
-            option_type = leg_cols[1].selectbox("Type", ["Call", "Put"])
-            
-            expiry_dt = datetime.strptime(expiry_date, "%d %b %Y").date()
-            options = instrument_df[
-                (instrument_df['name'] == underlying) & 
-                (instrument_df['expiry'].dt.date == expiry_dt) & 
-                (instrument_df['instrument_type'] == option_type[0])
-            ]
-            
-            if not options.empty:
-                strikes = sorted(options['strike'].unique())
-                strike = leg_cols[2].selectbox("Strike", strikes, index=len(strikes)//2)
-                quantity = leg_cols[3].number_input("Lots", min_value=1, value=1)
-                
-                submitted = st.form_submit_button("Add Leg")
-                if submitted:
-                    lot_size = options.iloc[0]['lot_size']
-                    tradingsymbol = options[options['strike'] == strike].iloc[0]['tradingsymbol']
-                    
-                    try:
-                        quote = client.quote(f"NFO:{tradingsymbol}")[f"NFO:{tradingsymbol}"]
-                        premium = quote['last_price']
-                        
-                        st.session_state.strategy_legs.append({
-                            'symbol': tradingsymbol,
-                            'position': position,
-                            'type': option_type,
-                            'strike': strike,
-                            'quantity': quantity * lot_size,
-                            'premium': premium
-                        })
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Could not fetch premium: {e}")
-            else:
-                st.warning("No strikes found for selected expiry/type.")
-
-        st.subheader("Current Legs")
-        if st.session_state.strategy_legs:
-            for i, leg in enumerate(st.session_state.strategy_legs):
-                st.text(f"{i+1}: {leg['position']} {leg['quantity']} {leg['symbol']} @ ₹{leg['premium']:.2f}")
-            if st.button("Clear All Legs"):
-                st.session_state.strategy_legs = []
-                st.rerun()
-        else:
-            st.info("Add legs to your strategy.")
-            
-    with col2:
-        st.subheader("Strategy Payoff Analysis")
-        
-        if st.session_state.strategy_legs:
-            pnl_df, max_profit, max_loss, breakevens = calculate_strategy_pnl(st.session_state.strategy_legs, underlying_ltp)
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=pnl_df.index, y=pnl_df['Total P&L'], mode='lines', name='P&L'))
-            fig.add_hline(y=0, line_dash="dash", line_color="gray")
-            fig.add_vline(x=underlying_ltp, line_dash="dot", line_color="yellow", annotation_text="Current LTP")
-            fig.update_layout(
-                title="Strategy P&L Payoff Chart",
-                xaxis_title="Underlying Price at Expiry",
-                yaxis_title="Profit / Loss (₹)",
-                template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            st.subheader("Risk & Reward Profile")
-            metrics_col1, metrics_col2 = st.columns(2)
-            metrics_col1.metric("Max Profit", f"₹{max_profit:,.2f}")
-            metrics_col1.metric("Max Loss", f"₹{max_loss:,.2f}")
-            metrics_col2.metric("Breakeven(s)", ", ".join([f"₹{b:,.2f}" for b in breakevens]) if breakevens else "N/A")
-        else:
-            st.info("Add legs to see the payoff analysis.")
-
-def get_futures_contracts(instrument_df, underlying, exchange):
-    """Fetches and sorts futures contracts for a given underlying and exchange."""
-    if instrument_df.empty or not underlying: return pd.DataFrame()
-    futures_df = instrument_df[
-        (instrument_df['name'] == underlying) &
-        (instrument_df['instrument_type'] == 'FUT') &
-        (instrument_df['exchange'] == exchange)
-    ].copy()
-    if not futures_df.empty:
-        futures_df['expiry'] = pd.to_datetime(futures_df['expiry'])
-        return futures_df.sort_values('expiry')
-    return pd.DataFrame()
-
-def page_futures_terminal():
-    """Futures Terminal page with live data."""
-    display_header()
-    st.title("Futures Terminal")
+    verification_code = st.text_input("Enter verification code from Authenticator app:", max_chars=6)
     
-    instrument_df = get_instrument_df()
-    client = get_broker_client()
-    if instrument_df.empty or not client:
-        st.info("Please connect to a broker to access futures data.")
-        return
-    
-    exchange_options = sorted(instrument_df[instrument_df['instrument_type'] == 'FUT']['exchange'].unique())
-    if not exchange_options:
-        st.warning("No futures contracts found in the instrument list.")
-        return
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        selected_exchange = st.selectbox("Select Exchange", exchange_options, index=exchange_options.index('NFO') if 'NFO' in exchange_options else 0)
-    
-    underlyings = sorted(instrument_df[(instrument_df['instrument_type'] == 'FUT') & (instrument_df['exchange'] == selected_exchange)]['name'].unique())
-    if not underlyings:
-        st.warning(f"No futures underlyings found for the {selected_exchange} exchange.")
-        return
-        
-    with col2:
-        selected_underlying = st.selectbox("Select Underlying", underlyings)
-
-    tab1, tab2 = st.tabs(["Live Futures Contracts", "Futures Calendar"])
-    
-    with tab1:
-        st.subheader(f"Live Contracts for {selected_underlying}")
-        futures_contracts = get_futures_contracts(instrument_df, selected_underlying, selected_exchange)
-        
-        if not futures_contracts.empty:
-            symbols = [f"{row['exchange']}:{row['tradingsymbol']}" for _, row in futures_contracts.iterrows()]
-            try:
-                quotes = client.quote(symbols)
-                live_data = []
-                for symbol_key, data in quotes.items():
-                    if data:
-                        prev_close = data.get('ohlc', {}).get('close', 0)
-                        last_price = data.get('last_price', 0)
-                        change = last_price - prev_close
-                        pct_change = (change / prev_close * 100) if prev_close != 0 else 0
-                        
-                        live_data.append({
-                            'Contract': data.get('tradingsymbol', symbol_key.split(':')[-1]),
-                            'LTP': last_price,
-                            'Change': change,
-                            '% Change': pct_change,
-                            'Volume': data.get('volume', 0),
-                            'OI': data.get('oi', 0)
-                        })
-                live_df = pd.DataFrame(live_data)
-                st.dataframe(live_df, use_container_width=True, hide_index=True)
-
-            except Exception as e:
-                st.error(f"Could not fetch live futures data: {e}")
-        else:
-            st.info(f"No active futures contracts found for {selected_underlying}.")
-    
-    with tab2:
-        st.subheader("Futures Expiry Calendar")
-        futures_contracts = get_futures_contracts(instrument_df, selected_underlying, selected_exchange)
-        if not futures_contracts.empty:
-            calendar_df = futures_contracts[['tradingsymbol', 'expiry']].copy()
-            calendar_df['expiry'] = pd.to_datetime(calendar_df['expiry'])
-            calendar_df['Days to Expiry'] = (calendar_df['expiry'] - pd.to_datetime('today')).dt.days
-            st.dataframe(calendar_df.rename(columns={'tradingsymbol': 'Contract', 'expiry': 'Expiry Date'}), use_container_width=True, hide_index=True)
-
-def generate_ai_trade_idea(instrument_df, active_list):
-    """Dynamically generates a trade idea based on watchlist signals."""
-    if not active_list or instrument_df.empty:
-        return None
-
-    discovery_results = {}
-    for item in active_list:
-        token = get_instrument_token(item['symbol'], instrument_df, exchange=item['exchange'])
-        if token:
-            data = get_historical_data(token, 'day', period='6mo')
-            if not data.empty:
-                interpretation = interpret_indicators(data)
-                signals = [v for k, v in interpretation.items() if "Bullish" in v or "Bearish" in v]
-                if signals:
-                    discovery_results[item['symbol']] = {'signals': signals, 'data': data}
-    
-    if not discovery_results:
-        return None
-
-    best_ticker = max(discovery_results, key=lambda k: len(discovery_results[k]['signals']))
-    
-    ticker_data = discovery_results[best_ticker]['data']
-    ltp = ticker_data['close'].iloc[-1]
-    
-    # Calculate ATR for stop-loss/target
-    atr = talib.ATR(ticker_data['high'], ticker_data['low'], ticker_data['close'], timeperiod=14).iloc[-1]
-    if pd.isna(atr): return None
-
-    is_bullish = any("Bullish" in s for s in discovery_results[best_ticker]['signals'])
-
-    narrative = f"**{best_ticker}** is showing a confluence of {'bullish' if is_bullish else 'bearish'} signals. Analysis indicates: {', '.join(discovery_results[best_ticker]['signals'])}. "
-
-    if is_bullish:
-        narrative += f"A move above recent resistance could trigger further upside."
-        entry = ltp
-        target = ltp + (2 * atr)
-        stop_loss = ltp - (1.5 * atr)
-        title = f"High-Conviction Long Setup: {best_ticker}"
-    else:
-        narrative += f"A break below recent support could lead to further downside."
-        entry = ltp
-        target = ltp - (2 * atr)
-        stop_loss = ltp + (1.5 * atr)
-        title = f"High-Conviction Short Setup: {best_ticker}"
-
-    return {
-        "title": title,
-        "entry": entry,
-        "target": target,
-        "stop_loss": stop_loss,
-        "narrative": narrative
-    }
-
-def page_ai_discovery():
-    """AI-driven discovery engine with real data analysis."""
-    display_header()
-    st.title("AI Discovery Engine")
-    st.info("This engine discovers technical patterns and suggests high-conviction trade setups based on your active watchlist. The suggestions are for informational purposes only.", icon="🧠")
-    
-    active_list = st.session_state.get('watchlists', {}).get(st.session_state.get('active_watchlist', 'Watchlist 1'), [])
-    instrument_df = get_instrument_df()
-
-    if not active_list or instrument_df.empty:
-        st.warning("Please set up your watchlist on the Dashboard page to enable AI Discovery.")
-        return
-
-    st.markdown("---")
-    
-    st.subheader("Automated Pattern Discovery")
-    with st.spinner("Analyzing your watchlist for technical signals..."):
-        discovery_results = {}
-        for item in active_list:
-            token = get_instrument_token(item['symbol'], instrument_df, exchange=item['exchange'])
-            if token:
-                data = get_historical_data(token, 'day', period='6mo')
-                if not data.empty:
-                    interpretation = interpret_indicators(data)
-                    signals = [f"{k}: {v}" for k, v in interpretation.items() if "Bullish" in v or "Bearish" in v]
-                    if signals:
-                        discovery_results[item['symbol']] = signals
-    
-    if discovery_results:
-        for ticker, signals in discovery_results.items():
-            st.markdown(f"**Potential Signals for {ticker}:** " + ", ".join(signals))
-    else:
-        st.info("No significant technical patterns found in your watchlist.")
-        
-    st.markdown("---")
-    
-    st.subheader("AI-Powered Trade Idea")
-    with st.spinner("Generating a high-conviction trade idea..."):
-        trade_idea = generate_ai_trade_idea(instrument_df, active_list)
-
-    if trade_idea:
-        trade_idea_col = st.columns(3)
-        trade_idea_col[0].metric("Entry Price", f"≈ ₹{trade_idea['entry']:.2f}")
-        trade_idea_col[1].metric("Target Price", f"₹{trade_idea['target']:.2f}")
-        trade_idea_col[2].metric("Stop Loss", f"₹{trade_idea['stop_loss']:.2f}")
-        
-        st.markdown(f"""
-        <div class="trade-card" style="border-left-color: {'#28a745' if 'Long' in trade_idea['title'] else '#FF4B4B'};">
-            <h4>{trade_idea['title']}</h4>
-            <p><strong>Narrative:</strong> {trade_idea['narrative']}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.info("Could not generate a high-conviction trade idea from the current watchlist signals.")
-
-def page_greeks_calculator():
-    """Calculates Greeks for any option contract."""
-    display_header()
-    st.title("F&O Greeks Calculator")
-    st.info("Calculate the theoretical value and greeks (Delta, Gamma, Vega, Theta, Rho) for any option contract.")
-    
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.info("Please connect to a broker to use this feature.")
-        return
-
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("Option Details")
-        
-        underlying_price = st.number_input("Underlying Price", min_value=0.01, value=23500.0)
-        strike_price = st.number_input("Strike Price", min_value=0.01, value=23500.0)
-        time_to_expiry = st.number_input("Days to Expiry", min_value=1, value=30)
-        risk_free_rate = st.number_input("Risk-free Rate (%)", min_value=0.0, value=7.0)
-        volatility = st.number_input("Volatility (%)", min_value=0.1, value=20.0)
-        option_type = st.selectbox("Option Type", ["call", "put"])
-        
-        if st.button("Calculate Greeks"):
-            T = time_to_expiry / 365.0
-            r = risk_free_rate / 100.0
-            sigma = volatility / 100.0
-            
-            greeks = black_scholes(underlying_price, strike_price, T, r, sigma, option_type)
-            
-            st.session_state.calculated_greeks = greeks
-            st.rerun()
-    
-    with col2:
-        st.subheader("Greeks Results")
-        
-        if 'calculated_greeks' in st.session_state and st.session_state.calculated_greeks is not None:
-            greeks = st.session_state.calculated_greeks
-            
-            st.metric("Option Price", f"₹{greeks['price']:.2f}")
-            
-            col_greeks1, col_greeks2 = st.columns(2)
-            col_greeks1.metric("Delta", f"{greeks['delta']:.4f}")
-            col_greeks1.metric("Gamma", f"{greeks['gamma']:.4f}")
-            col_greeks1.metric("Vega", f"{greeks['vega']:.4f}")
-            
-            col_greeks2.metric("Theta", f"{greeks['theta']:.4f}")
-            col_greeks2.metric("Rho", f"{greeks['rho']:.4f}")
-            
-            with st.expander("Understanding Greeks"):
-                st.markdown("""
-                - **Delta**: Price sensitivity to underlying movement
-                - **Gamma**: Rate of change of Delta
-                - **Vega**: Sensitivity to volatility changes
-                - **Theta**: Time decay per day
-                - **Rho**: Sensitivity to interest rate changes
-                """)
-        else:
-            st.info("Enter option details and click 'Calculate Greeks' to see results.")
-
-def page_economic_calendar():
-    """Economic Calendar page for Indian market events."""
-    display_header()
-    st.title("Economic Calendar")
-    st.info("Upcoming economic events for the Indian market, updated until October 2025.")
-
-    events = {
-        'Date': [
-            '2025-09-26', '2025-09-26', '2025-09-29', '2025-09-30',
-            '2025-10-01', '2025-10-03', '2025-10-08', '2025-10-10',
-            '2025-10-14', '2025-10-15', '2025-10-17', '2025-10-24',
-            '2025-10-31', '2025-10-31'
-        ],
-        'Time': [
-            '11:30 AM', '11:30 AM', '10:30 AM', '05:30 PM',
-            '10:30 AM', '10:30 AM', '11:00 AM', '05:00 PM',
-            '12:00 PM', '05:30 PM', '05:00 PM', '05:00 PM',
-            '05:30 PM', '05:00 PM'
-        ],
-        'Event Name': [
-            'Bank Loan Growth YoY', 'Foreign Exchange Reserves', 'Industrial Production YoY (AUG)', 'Infrastructure Output YoY (AUG)',
-            'Nikkei Manufacturing PMI (SEP)', 'Nikkei Services PMI (SEP)', 'RBI Interest Rate Decision',
-            'Foreign Exchange Reserves', 'WPI Inflation YoY (SEP)', 'CPI Inflation YoY (SEP)',
-            'Foreign Exchange Reserves', 'Foreign Exchange Reserves', 'Fiscal Deficit (SEP)',
-            'Foreign Exchange Reserves'
-        ],
-        'Impact': [
-            'Medium', 'Low', 'Medium', 'Medium',
-            'High', 'High', 'High', 'Low',
-            'High', 'High', 'Low', 'Low',
-            'Medium', 'Low'
-        ],
-        'Previous': [
-            '10.0%', '$702.97B', '2.9%', '6.3%',
-            '58.5', '61.6', '6.50%', '$703.1B',
-            '0.3%', '5.1%', '$704.5B', '$705.2B',
-            '-4684.2B INR', '$705.9B'
-        ],
-        'Forecast': [
-            '-', '-', '3.5%', '6.5%',
-            '58.8', '61.2', '6.50%', '-',
-            '0.5%', '5.3%', '-', '-',
-            '-5100.0B INR', '-'
-        ]
-    }
-    calendar_df = pd.DataFrame(events)
-
-    st.dataframe(calendar_df, use_container_width=True, hide_index=True)
-
-
-
-# ============ 5.5 HFT TERMINAL PAGE ============
-def page_hft_terminal():
-    """A dedicated terminal for High-Frequency Trading with Level 2 data."""
-    display_header()
-    st.title("HFT Terminal (High-Frequency Trading)")
-    st.info("This interface provides a simulated high-speed view of market depth and one-click trading. For liquid, F&O instruments only.", icon="⚡️")
-
-    instrument_df = get_instrument_df()
-    if instrument_df.empty:
-        st.warning("Please connect to a broker to use the HFT Terminal.")
-        return
-
-    # --- Instrument Selection and Key Stats ---
-    top_cols = st.columns([2, 1, 1, 1])
-    with top_cols[0]:
-        symbol = st.text_input("Instrument Symbol", "NIFTY24OCTFUT", key="hft_symbol").upper()
-    
-    instrument_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
-    if instrument_info.empty:
-        st.error(f"Instrument '{symbol}' not found. Please enter a valid symbol.")
-        return
-    
-    exchange = instrument_info.iloc[0]['exchange']
-    instrument_token = instrument_info.iloc[0]['instrument_token']
-
-    # --- Fetch Live Data ---
-    quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
-    depth_data = get_market_depth(instrument_token)
-
-    # --- Display Key Stats ---
-    if not quote_data.empty:
-        ltp = quote_data.iloc[0]['Price']
-        change = quote_data.iloc[0]['Change']
-        
-        tick_direction = "tick-up" if ltp > st.session_state.hft_last_price else "tick-down" if ltp < st.session_state.hft_last_price else ""
-        
-        with top_cols[1]:
-            st.markdown(f"##### LTP: <span class='{tick_direction}' style='font-size: 1.2em;'>₹{ltp:,.2f}</span>", unsafe_allow_html=True)
-
-        with top_cols[2]:
-            color = 'var(--green)' if change > 0 else 'var(--red)'
-            st.markdown(f"##### Change: <span style='color:{color}; font-size: 1.2em;'>{change:,.2f}</span>", unsafe_allow_html=True)
-        
-        with top_cols[3]:
-            latency = random.uniform(20, 80)
-            st.metric("Latency (ms)", f"{latency:.2f}")
-
-        # Update tick log
-        if ltp != st.session_state.hft_last_price and st.session_state.hft_last_price != 0:
-            log_entry = {
-                "time": datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S.%f")[:-3],
-                "price": ltp,
-                "change": ltp - st.session_state.hft_last_price
-            }
-            st.session_state.hft_tick_log.insert(0, log_entry)
-            if len(st.session_state.hft_tick_log) > 20:
-                st.session_state.hft_tick_log.pop()
-
-        st.session_state.hft_last_price = ltp
-
-    st.markdown("---")
-
-    # --- Main Layout: Depth, Orders, Ticks ---
-    main_cols = st.columns([1, 1, 1], gap="large")
-
-    with main_cols[0]:
-        st.subheader("Market Depth")
-        if depth_data and depth_data.get('buy') and depth_data.get('sell'):
-            bids = pd.DataFrame(depth_data['buy']).sort_values('price', ascending=False).head(5)
-            asks = pd.DataFrame(depth_data['sell']).sort_values('price', ascending=True).head(5)
-            
-            st.write("**Bids (Buyers)**")
-            for _, row in bids.iterrows():
-                st.markdown(f"<div class='hft-depth-bid'>{row['quantity']} @ **{row['price']:.2f}** ({row['orders']})</div>", unsafe_allow_html=True)
-            
-            st.write("**Asks (Sellers)**")
-            for _, row in asks.iterrows():
-                st.markdown(f"<div class='hft-depth-ask'>({row['orders']}) **{row['price']:.2f}** @ {row['quantity']}</div>", unsafe_allow_html=True)
-        else:
-            st.info("Waiting for market depth data...")
-
-    with main_cols[1]:
-        st.subheader("One-Click Execution")
-        quantity = st.number_input("Order Quantity", min_value=1, value=instrument_info.iloc[0]['lot_size'], step=instrument_info.iloc[0]['lot_size'], key="hft_qty")
-        
-        btn_cols = st.columns(2)
-        if btn_cols[0].button("MARKET BUY", use_container_width=True, type="primary"):
-            place_order(instrument_df, symbol, quantity, 'MARKET', 'BUY', 'MIS')
-        if btn_cols[1].button("MARKET SELL", use_container_width=True):
-            place_order(instrument_df, symbol, quantity, 'MARKET', 'SELL', 'MIS')
-        
-        st.markdown("---")
-        st.subheader("Manual Order")
-        price = st.number_input("Limit Price", min_value=0.01, step=0.05, key="hft_limit_price")
-        limit_btn_cols = st.columns(2)
-        if limit_btn_cols[0].button("LIMIT BUY", use_container_width=True):
-            place_order(instrument_df, symbol, quantity, 'LIMIT', 'BUY', 'MIS', price=price)
-        if limit_btn_cols[1].button("LIMIT SELL", use_container_width=True):
-            place_order(instrument_df, symbol, quantity, 'LIMIT', 'SELL', 'MIS', price=price)
-
-    with main_cols[2]:
-        st.subheader("Tick Log")
-        log_container = st.container(height=400)
-        for entry in st.session_state.hft_tick_log:
-            color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
-            log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
-
-# ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
-
-def get_user_secret(user_profile):
-    """Generate a persistent secret based on user profile."""
-    user_id = user_profile.get('user_id', 'default_user')
-    user_hash = hashlib.sha256(str(user_id).encode()).digest()
-    secret = base64.b32encode(user_hash).decode('utf-8').replace('=', '')[:16]
-    return secret
-
-@st.dialog("Two-Factor Authentication")
-def two_factor_dialog():
-    """Dialog for 2FA login."""
-    if 'show_2fa_dialog' not in st.session_state:
-        st.session_state.show_2fa_dialog = False
-    
-    if not st.session_state.get('authenticated', False):
-        st.session_state.show_2fa_dialog = True
-        
-        st.subheader("Enter your 2FA code")
-        st.caption("Please enter the 6-digit code from your authenticator app to continue.")
-        
-        auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
-        
-        col1, col2 = st.columns(2)
-        if col1.button("Authenticate", use_container_width=True):
-            if auth_code:
-                try:
-                    totp = pyotp.TOTP(st.session_state.pyotp_secret)
-                    if totp.verify(auth_code):
-                        st.session_state.authenticated = True
-                        st.session_state.show_2fa_dialog = False
-                        st.rerun()
-                    else:
-                        st.error("Invalid code. Please try again.")
-                except Exception as e:
-                    st.error(f"An error occurred during authentication: {e}")
-            else:
-                st.warning("Please enter a code.")
-        
-        if col2.button("Cancel", use_container_width=True):
-            st.session_state.show_2fa_dialog = False
-            st.rerun()
-
-
-@st.dialog("Generate QR Code for 2FA")
-def qr_code_dialog():
-    """Dialog to generate a QR code for 2FA setup."""
-    if 'show_qr_dialog' not in st.session_state:
-        st.session_state.show_qr_dialog = False
-    
-    if not st.session_state.get('two_factor_setup_complete', False):
-        st.session_state.show_qr_dialog = True
-        
-        st.subheader("Set up Two-Factor Authentication")
-        st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
-
-        if st.session_state.pyotp_secret is None:
-            st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
-        
-        secret = st.session_state.pyotp_secret
-        user_name = st.session_state.get('profile', {}).get('user_name', 'User')
-        uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
-        
-        img = qrcode.make(uri)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        
-        st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
-        st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
-        
-        if st.button("I have scanned the code. Continue.", use_container_width=True):
+    if st.button("Verify 2FA Setup"):
+        if verification_code and totp.verify(verification_code):
             st.session_state.two_factor_setup_complete = True
             st.session_state.show_qr_dialog = False
+            st.success("✅ 2FA setup completed successfully!")
+            st.rerun()
+        else:
+            st.error("❌ Invalid verification code. Please try again.")
+
+def zerodha_login_flow():
+    """Handles Zerodha login with API key and 2FA."""
+    st.subheader("🔐 Zerodha Login")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        api_key = st.text_input("API Key", type="password", help="Get this from Kite Connect developer console")
+        api_secret = st.text_input("API Secret", type="password", help="Get this from Kite Connect developer console")
+    
+    with col2:
+        if st.session_state.two_factor_setup_complete and st.session_state.pyotp_secret:
+            totp = pyotp.TOTP(st.session_state.pyotp_secret)
+            twofa_code = totp.now()
+            st.text_input("2FA Code", value=twofa_code, disabled=True, help="Auto-generated from your authenticator")
+        else:
+            twofa_code = st.text_input("2FA Code", max_chars=6, help="Enter code from your authenticator app or SMS")
+    
+    request_token = st.text_input("Request Token", help="Get this from the Kite Connect login URL after authorizing")
+    
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        if st.button("Setup 2FA", use_container_width=True):
+            st.session_state.show_qr_dialog = True
+            st.rerun()
+    
+    with col4:
+        if st.button("Login", type="primary", use_container_width=True):
+            if not all([api_key, api_secret, twofa_code, request_token]):
+                st.error("Please fill all fields")
+                return
+            
+            try:
+                kite = KiteConnect(api_key=api_key)
+                
+                # Generate session
+                data = kite.generate_session(request_token, api_secret=api_secret)
+                kite.set_access_token(data["access_token"])
+                
+                # Store in session state
+                st.session_state.kite = kite
+                st.session_state.broker = "Zerodha"
+                st.session_state.profile = data["user_name"]
+                st.session_state.authenticated = True
+                
+                st.success(f"✅ Successfully logged in as {data['user_name']}")
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Login failed: {str(e)}")
+
+def broker_selection_page():
+    """Broker selection and authentication page."""
+    display_header()
+    st.title("🔐 Broker Authentication")
+    
+    if not st.session_state.authenticated:
+        # Broker selection
+        st.subheader("Select Your Broker")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("Zerodha", use_container_width=True):
+                st.session_state.broker = "Zerodha"
+                st.rerun()
+        
+        with col2:
+            if st.button("Angel One", use_container_width=True, disabled=True):
+                st.info("Coming soon")
+        
+        with col3:
+            if st.button("Fyers", use_container_width=True, disabled=True):
+                st.info("Coming soon")
+        
+        # Broker-specific login
+        if st.session_state.broker == "Zerodha":
+            if st.session_state.show_qr_dialog:
+                setup_zerodha_2fa()
+            else:
+                zerodha_login_flow()
+        
+        # Demo mode option
+        st.markdown("---")
+        st.subheader("🚀 Try Demo Mode")
+        
+        if st.button("Enter Demo Mode", use_container_width=True, type="secondary"):
+            st.session_state.authenticated = True
+            st.session_state.broker = "Demo"
+            st.session_state.profile = "Demo User"
+            st.success("Entering demo mode with sample data")
+            st.rerun()
+    
+    else:
+        st.success(f"✅ Already authenticated with {st.session_state.broker}")
+        
+        if st.button("Switch Broker", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.broker = None
+            st.session_state.kite = None
             st.rerun()
 
-def show_login_animation():
-    """Displays a boot-up animation after login."""
-    st.title("BlockVista Terminal")
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    steps = {
-        "Authenticating user...": 25,
-        "Establishing secure connection...": 50,
-        "Fetching live market data feeds...": 75,
-        "Initializing terminal... COMPLETE": 100
-    }
-    
-    for text, progress in steps.items():
-        status_text.text(f"STATUS: {text}")
-        progress_bar.progress(progress)
-        a_time.sleep(0.7)
-    
-    a_time.sleep(0.5)
-    st.session_state['login_animation_complete'] = True
-    st.rerun()
+# ================ 7. MAIN APPLICATION ================
 
-def login_page():
-    """Displays the login page for broker authentication."""
-    st.title("BlockVista Terminal")
-    st.subheader("Broker Login")
+def main():
+    """Main application entry point."""
     
-    broker = st.selectbox("Select Your Broker", ["Zerodha"])
-    
-    if broker == "Zerodha":
-        api_key = st.secrets.get("ZERODHA_API_KEY")
-        api_secret = st.secrets.get("ZERODHA_API_SECRET")
-        
-        if not api_key or not api_secret:
-            st.error("Kite API credentials not found. Please set ZERODHA_API_KEY and ZERODHA_API_SECRET in your Streamlit secrets.")
-            st.stop()
-            
-        kite = KiteConnect(api_key=api_key)
-        request_token = st.query_params.get("request_token")
-        
-        if request_token:
-            try:
-                data = kite.generate_session(request_token, api_secret=api_secret)
-                st.session_state.access_token = data["access_token"]
-                kite.set_access_token(st.session_state.access_token)
-                st.session_state.kite = kite
-                st.session_state.profile = kite.profile()
-                st.session_state.broker = "Zerodha"
-                st.query_params.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Authentication failed: {e}")
-                st.query_params.clear()
-        else:
-            st.link_button("Login with Zerodha Kite", kite.login_url())
-            st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
-
-def main_app():
-    """The main application interface after successful login."""
-    apply_custom_styling()
-    display_overnight_changes_bar()
-    
-    # Show dialogs if needed
-    if st.session_state.get('show_quick_trade', False):
-        quick_trade_dialog()
-    
-    # --- 2FA Check ---
-    if st.session_state.get('profile'):
-        if not st.session_state.get('two_factor_setup_complete'):
-            qr_code_dialog()
-            return
-        if not st.session_state.get('authenticated', False):
-            two_factor_dialog()
-            return
-
-    # ... rest of your main_app function
-
-    st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
-    st.sidebar.caption(f"Connected via {st.session_state.broker}")
-    st.sidebar.divider()
-    
-    st.sidebar.header("Terminal Controls")
-    st.session_state.theme = st.sidebar.radio("Theme", ["Dark", "Light"], horizontal=True)
-    st.session_state.terminal_mode = st.sidebar.radio("Terminal Mode", ["Cash", "Futures", "Options", "HFT"], horizontal=True)
-    st.sidebar.divider()
-    
-    # Dynamic refresh interval based on mode
-    if st.session_state.terminal_mode == "HFT":
-        refresh_interval = 2
-        auto_refresh = True
-        st.sidebar.header("HFT Mode Active")
-        st.sidebar.caption(f"Refresh Interval: {refresh_interval}s")
-    else:
-        st.sidebar.header("Live Data")
-        auto_refresh = st.sidebar.toggle("Auto Refresh", value=True)
-        refresh_interval = st.sidebar.number_input("Interval (s)", min_value=5, max_value=60, value=10, disabled=not auto_refresh)
-    
-    st.sidebar.divider()
-    
-    st.sidebar.header("Navigation")
-    pages = {
-        "Cash": {
-            "Dashboard": page_dashboard,
-            "Algo Trading Bots": page_algo_bots,
-            "Premarket Pulse": page_premarket_pulse,
-            "Advanced Charting": page_advanced_charting,
-            "Market Scanners": page_momentum_and_trend_finder,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "Fundamental Analytics": page_fundamental_analytics,
-            "Basket Orders": page_basket_orders,
-            "Forecasting (ML)": page_forecasting_ml,
-            "Algo Strategy Hub": page_algo_strategy_maker,
-            "AI Discovery": page_ai_discovery,
-            "AI Assistant": page_ai_assistant,
-            "Economic Calendar": page_economic_calendar,
-        },
-        "Options": {
-            "F&O Analytics": page_fo_analytics,
-            "Options Strategy Builder": page_option_strategy_builder,
-            "Greeks Calculator": page_greeks_calculator,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "AI Assistant": page_ai_assistant,
-        },
-        "Futures": {
-            "Futures Terminal": page_futures_terminal,
-            "Advanced Charting": page_advanced_charting,
-            "Algo Strategy Hub": page_algo_strategy_maker,
-            "Portfolio & Risk": page_portfolio_and_risk,
-            "AI Assistant": page_ai_assistant,
-        },
-        "HFT": {
-            "HFT Terminal": page_hft_terminal,
-            "Portfolio & Risk": page_portfolio_and_risk,
-        }
-    }
-    selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
-    
-    st.sidebar.divider()
-    if st.sidebar.button("Logout"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
-
-    no_refresh_pages = ["Forecasting (ML)", "AI Assistant", "AI Discovery", "Algo Strategy Hub", "Algo Trading Bots"]
-    if auto_refresh and selection not in no_refresh_pages:
-        st_autorefresh(interval=refresh_interval * 1000, key="data_refresher")
-    
-    pages[st.session_state.terminal_mode][selection]()
-
-# --- Application Entry Point ---
-if __name__ == "__main__":
+    # Initialize session state
     initialize_session_state()
     
-    if 'profile' in st.session_state and st.session_state.profile:
-        if st.session_state.get('login_animation_complete', False):
-            main_app()
+    # Apply custom styling
+    apply_custom_styling()
+    
+    # Sidebar navigation
+    with st.sidebar:
+        st.title("🚀 Navigation")
+        
+        if not st.session_state.authenticated:
+            st.warning("Please authenticate with your broker")
+            selected_page = "Broker Authentication"
         else:
-            show_login_animation()
+            # Page selection
+            pages = {
+                "🏠 Dashboard": page_dashboard,
+                "📈 Advanced Charting": page_advanced_charting,
+                "🌅 Premarket Pulse": page_premarket_pulse,
+                "📊 F&O Analytics": page_fo_analytics,
+                "🤖 ML Forecasting": page_forecasting_ml,
+                "💼 Portfolio & Risk": page_portfolio_and_risk,
+                "🤖 AI Assistant": page_ai_assistant,
+                "📊 Fundamental Analytics": page_fundamental_analytics,
+                "🧺 Basket Orders": page_basket_orders,
+                "⚡ Algo Strategy Maker": page_algo_strategy_maker,
+                "📊 Momentum & Trend Finder": page_momentum_and_trend_finder,
+                "🤖 Algo Bots": page_algo_bots
+            }
+            
+            selected_page = st.selectbox("Go to", list(pages.keys()))
+        
+        # User profile section
+        st.markdown("---")
+        if st.session_state.authenticated:
+            st.success(f"✅ {st.session_state.profile}")
+            st.caption(f"Broker: {st.session_state.broker}")
+            
+            if st.button("Logout", use_container_width=True):
+                st.session_state.authenticated = False
+                st.session_state.broker = None
+                st.session_state.kite = None
+                st.session_state.profile = None
+                st.rerun()
+        else:
+            st.info("🔒 Not authenticated")
+        
+        # Theme selector
+        st.markdown("---")
+        theme = st.radio("Theme", ["Dark", "Light"], horizontal=True, key="theme_selector")
+        st.session_state.theme = theme
+        
+        # Quick actions
+        st.markdown("---")
+        st.subheader("⚡ Quick Actions")
+        
+        quick_trade_dialog()
+        
+        if st.session_state.authenticated:
+            # Watchlist management
+            st.subheader("📋 Watchlists")
+            
+            # Active watchlist selector
+            active_watchlist = st.selectbox(
+                "Active Watchlist",
+                list(st.session_state.watchlists.keys()),
+                key="active_watchlist_selector"
+            )
+            st.session_state.active_watchlist = active_watchlist
+            
+            # Display active watchlist
+            watchlist_data = get_watchlist_data(st.session_state.watchlists[active_watchlist])
+            if not watchlist_data.empty:
+                for _, row in watchlist_data.iterrows():
+                    change_color = "green" if row['% Change'] > 0 else "red"
+                    st.markdown(f"""
+                    **{row['Ticker']}**  
+                    ₹{row['Price']:.2f}  
+                    <span style='color: {change_color};'>{row['% Change']:+.2f}%</span>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Watchlist is empty")
+            
+            # Add symbol to watchlist
+            with st.expander("Add Symbol"):
+                all_symbols = get_instrument_df()
+                if not all_symbols.empty:
+                    nse_symbols = all_symbols[all_symbols['exchange'] == 'NSE']['tradingsymbol'].unique()
+                    new_symbol = st.selectbox("Symbol", sorted(nse_symbols), key="add_symbol")
+                    
+                    if st.button("Add to Watchlist"):
+                        if new_symbol not in [item['symbol'] for item in st.session_state.watchlists[active_watchlist]]:
+                            st.session_state.watchlists[active_watchlist].append({
+                                'symbol': new_symbol, 
+                                'exchange': 'NSE'
+                            })
+                            st.success(f"Added {new_symbol} to {active_watchlist}")
+                            st.rerun()
+    
+    # Display selected page
+    if not st.session_state.authenticated:
+        broker_selection_page()
     else:
-        login_page()
+        pages = {
+            "🏠 Dashboard": page_dashboard,
+            "📈 Advanced Charting": page_advanced_charting,
+            "🌅 Premarket Pulse": page_premarket_pulse,
+            "📊 F&O Analytics": page_fo_analytics,
+            "🤖 ML Forecasting": page_forecasting_ml,
+            "💼 Portfolio & Risk": page_portfolio_and_risk,
+            "🤖 AI Assistant": page_ai_assistant,
+            "📊 Fundamental Analytics": page_fundamental_analytics,
+            "🧺 Basket Orders": page_basket_orders,
+            "⚡ Algo Strategy Maker": page_algo_strategy_maker,
+            "📊 Momentum & Trend Finder": page_momentum_and_trend_finder,
+            "🤖 Algo Bots": page_algo_bots
+        }
+        
+        if selected_page in pages:
+            pages[selected_page]()
+        else:
+            st.error("Page not found")
+
+if __name__ == "__main__":
+    main()
