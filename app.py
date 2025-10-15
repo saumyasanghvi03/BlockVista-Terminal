@@ -5881,6 +5881,10 @@ def page_hft_terminal():
 
 def get_user_secret(user_profile):
     """Generate a persistent secret based on user profile."""
+    # Ensure user_profile is not None
+    if user_profile is None:
+        user_profile = {}
+    
     user_id = user_profile.get('user_id', 'default_user')
     user_hash = hashlib.sha256(str(user_id).encode()).digest()
     secret = base64.b32encode(user_hash).decode('utf-8').replace('=', '')[:16]
@@ -5922,6 +5926,7 @@ def two_factor_dialog():
 
 
 @st.dialog("Generate QR Code for 2FA")
+@st.dialog("Generate QR Code for 2FA")
 def qr_code_dialog():
     """Dialog to generate a QR code for 2FA setup."""
     if 'show_qr_dialog' not in st.session_state:
@@ -5934,7 +5939,9 @@ def qr_code_dialog():
         st.info("Please scan this QR code with your authenticator app (e.g., Google or Microsoft Authenticator). This is a one-time setup.")
 
         if st.session_state.pyotp_secret is None:
-            st.session_state.pyotp_secret = get_user_secret(st.session_state.get('profile', {}))
+            # Ensure we get a dictionary, not None
+            profile = st.session_state.get('profile') or {}
+            st.session_state.pyotp_secret = get_user_secret(profile)
         
         secret = st.session_state.pyotp_secret
         user_name = st.session_state.get('profile', {}).get('user_name', 'User')
@@ -6020,15 +6027,24 @@ def main_app():
         quick_trade_dialog()
     
     # --- 2FA Check ---
-    if st.session_state.get('profile'):
-        if not st.session_state.get('two_factor_setup_complete'):
-            qr_code_dialog()
-            return
-        if not st.session_state.get('authenticated', False):
-            two_factor_dialog()
-            return
+    # Ensure profile exists and is not None
+    profile = st.session_state.get('profile')
+    if not profile:
+        st.error("User profile not found. Please log in again.")
+        if st.button("Return to Login"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+        return
+    
+    if not st.session_state.get('two_factor_setup_complete'):
+        qr_code_dialog()
+        return
+    if not st.session_state.get('authenticated', False):
+        two_factor_dialog()
+        return
 
-    # ... rest of your main_app function
+    # ... rest of your main_app function remains the same
 
     st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
     st.sidebar.caption(f"Connected via {st.session_state.broker}")
