@@ -343,8 +343,9 @@ def get_market_holidays(year):
 # MARKET TIMING FUNCTIONS - REPLACE EXISTING ONES
 # =============================================================================
 def is_market_hours():
-    """Check if current time is within market hours (9:15 AM to 3:30 PM, Monday to Friday)"""
-    now = datetime.now()
+    """Check if current time is within market hours (9:15 AM to 3:30 PM, Monday to Friday) using IST"""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
     current_time = now.time()
     current_day = now.weekday()  # Monday=0, Sunday=6
     
@@ -352,20 +353,16 @@ def is_market_hours():
     if current_day >= 5:  # Saturday (5) or Sunday (6)
         return False
     
-    # Market hours: 9:15 AM to 3:30 PM
+    # Market hours: 9:15 AM to 3:30 PM IST
     market_open = time(9, 15)
     market_close = time(15, 30)
     
     return market_open <= current_time <= market_close
 
-def get_ist_time():
-    """Get current time in IST timezone."""
-    ist = pytz.timezone('Asia/Kolkata')
-    return datetime.now(ist)
-
 def is_pre_market_hours():
-    """Check if current time is pre-market hours (9:00 AM to 9:15 AM, Monday to Friday)"""
-    now = datetime.now()
+    """Check if current time is pre-market hours (9:00 AM to 9:15 AM, Monday to Friday) using IST"""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
     current_time = now.time()
     current_day = now.weekday()
     
@@ -373,15 +370,16 @@ def is_pre_market_hours():
     if current_day >= 5:
         return False
     
-    # Pre-market hours: 9:00 AM to 9:15 AM
+    # Pre-market hours: 9:00 AM to 9:15 AM IST
     pre_market_start = time(9, 0)
     market_open = time(9, 15)
     
     return pre_market_start <= current_time < market_open
 
 def is_square_off_time():
-    """Check if current time is square-off time for Equity/Cash (3:20 PM to 3:30 PM, Monday to Friday)"""
-    now = datetime.now()
+    """Check if current time is square-off time for Equity/Cash (3:20 PM to 3:30 PM, Monday to Friday) using IST"""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
     current_time = now.time()
     current_day = now.weekday()
     
@@ -389,30 +387,32 @@ def is_square_off_time():
     if current_day >= 5:  # Saturday or Sunday
         return False
     
-    # Square-off time for Equity/Cash: 3:20 PM to 3:30 PM
+    # Square-off time for Equity/Cash: 3:20 PM to 3:30 PM IST
     square_off_start = time(15, 20)  # 3:20 PM
     square_off_end = time(15, 30)    # 3:30 PM
     
     return square_off_start <= current_time <= square_off_end
 
 def is_derivatives_square_off_time():
-    """Check if current time is square-off time for Equity/Index Derivatives (3:25 PM to 3:30 PM)"""
-    now = datetime.now()
+    """Check if current time is square-off time for Equity/Index Derivatives (3:25 PM to 3:30 PM) using IST"""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
     current_time = now.time()
     current_day = now.weekday()
     
     if current_day >= 5:
         return False
     
-    # Square-off time for Derivatives: 3:25 PM to 3:30 PM
+    # Square-off time for Derivatives: 3:25 PM to 3:30 PM IST
     square_off_start = time(15, 25)  # 3:25 PM
     square_off_end = time(15, 30)    # 3:30 PM
     
     return square_off_start <= current_time <= square_off_end
 
 def get_market_status():
-    """Get current market status and next market event with proper formatting for display."""
-    now = datetime.now()
+    """Get current market status and next market event with proper formatting for display using IST."""
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
     current_time = now.time()
     current_day = now.weekday()
     current_date = now.date()
@@ -429,7 +429,7 @@ def get_market_status():
             "color": "#cccccc"
         }
     
-    # Market timing definitions
+    # Market timing definitions in IST
     pre_market_start = time(9, 0)
     market_open = time(9, 15)
     equity_square_off = time(15, 20)  # 3:20 PM for Equity/Cash
@@ -2364,54 +2364,8 @@ def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
     except Exception as e:
         st.error(f"Automated trade execution failed: {e}")
         return None
-    else:
-            # PAPER TRADING - Simulate the trade
-            paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
-            trade_value = quantity * current_price
-            
-            if action == "BUY":
-                if paper_portfolio.get('cash_balance', 0) >= trade_value:
-                    # Deduct from cash, add to positions
-                    paper_portfolio['cash_balance'] -= trade_value
-                    if symbol in paper_portfolio.get('positions', {}):
-                        paper_portfolio['positions'][symbol]['quantity'] += quantity
-                        paper_portfolio['positions'][symbol]['avg_price'] = (
-                            (paper_portfolio['positions'][symbol]['avg_price'] * 
-                             paper_portfolio['positions'][symbol]['quantity'] + 
-                             trade_value) / (paper_portfolio['positions'][symbol]['quantity'] + quantity)
-                        )
-                    else:
-                        if 'positions' not in paper_portfolio:
-                            paper_portfolio['positions'] = {}
-                        paper_portfolio['positions'][symbol] = {
-                            'quantity': quantity,
-                            'avg_price': current_price,
-                            'action': 'BUY'
-                        }
-                else:
-                    st.error(f"❌ Paper trading: Insufficient cash for {symbol} buy order")
-                    return None
-            else:  # SELL action
-                positions = paper_portfolio.get('positions', {})
-                if symbol in positions and positions[symbol]['quantity'] >= quantity:
-                    # Remove from positions, add to cash
-                    position = positions[symbol]
-                    paper_portfolio['cash_balance'] += quantity * current_price
-                    
-                    # Calculate P&L for the trade
-                    pnl = (current_price - position['avg_price']) * quantity
-                    if position.get('action') == 'SELL':  # For short positions, reverse the P&L
-                        pnl = -pnl
-                    
-                    # Update position
-                    paper_portfolio['positions'][symbol]['quantity'] -= quantity
-                    if paper_portfolio['positions'][symbol]['quantity'] == 0:
-                        del paper_portfolio['positions'][symbol]
-                else:
-                    st.error(f"❌ Paper trading: No position to sell for {symbol}")
-                    return None
         
-        # Record the trade
+        
         trade_record = {
             'timestamp': datetime.now().isoformat(),
             'symbol': symbol,
@@ -2971,47 +2925,55 @@ def page_fully_automated_bots(instrument_df):
                 st.caption("🎉 Markets closed")
         
         st.session_state.automated_mode['live_trading'] = live_trading
-    
+
     with col3:
-        st.write("**🚦 Actions**")
-        if st.session_state.automated_mode['enabled']:
-            if not st.session_state.automated_mode.get('running', False):
-                # Start button with color themes
-                if live_trading and (is_market_hours() or is_pre_market_hours()):
+    st.write("**🚦 Actions**")
+    if st.session_state.automated_mode['enabled']:
+        if not st.session_state.automated_mode.get('running', False):
+            # Start button with color themes
+            current_market_status = get_market_status()['status']
+            
+            if live_trading:
+                if current_market_status == "market_open":
                     if st.button("🔴 Start Live", use_container_width=True, type="secondary"):
                         st.session_state.need_live_confirmation = True
                         st.rerun()
-                elif live_trading and not is_market_hours():
-                    st.button("⏸️ Market Closed", use_container_width=True, disabled=True)
                 else:
-                    if st.button("🔵 Start Paper", use_container_width=True, type="primary"):
-                        st.session_state.automated_mode['running'] = True
-                        st.success("Paper trading started!")
-                        st.rerun()
+                    st.button("⏸️ Market Closed", use_container_width=True, disabled=True)
+                    if current_market_status == "pre_market":
+                        st.caption("Live trading starts at 9:15 AM")
+                    elif current_market_status in ["market_closed", "weekend"]:
+                        st.caption("Live trading available on market days 9:15 AM - 3:30 PM")
             else:
-                # Stop button
-                if st.button("🛑 Stop", use_container_width=True, type="secondary"):
-                    st.session_state.automated_mode['running'] = False
+                # Paper trading can run anytime
+                if st.button("🔵 Start Paper", use_container_width=True, type="primary"):
+                    st.session_state.automated_mode['running'] = True
+                    st.success("Paper trading started!")
                     st.rerun()
         else:
-            st.button("Start Trading", use_container_width=True, disabled=True)
+            # Stop button
+            if st.button("🛑 Stop", use_container_width=True, type="secondary"):
+                st.session_state.automated_mode['running'] = False
+                st.rerun()
+    else:
+        st.button("Start Trading", use_container_width=True, disabled=True)
     
     with col4:
-        st.write("**💰 Capital**")
-        current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
-        current_capital = max(1000.0, current_capital)
-        
-        total_capital = st.number_input(
-            "Trading Capital (₹)",
-            min_value=100.0,
-            max_value=1000000.0,
-            value=current_capital,
-            step=100.0,
-            help="Total capital for trading",
-            key="auto_capital",
-            label_visibility="collapsed"
-        )
-        st.session_state.automated_mode['total_capital'] = float(total_capital)
+    st.write("**💰 Capital**")
+    current_capital = float(st.session_state.automated_mode.get('total_capital', 100.0))  # Changed to 100.0
+    current_capital = max(100.0, current_capital)  # Minimum ₹100
+    
+    total_capital = st.number_input(
+        "Trading Capital (₹)",
+        min_value=100.0,  # Minimum ₹100
+        max_value=1000000.0,
+        value=current_capital,
+        step=100.0,
+        help="Minimum ₹100 required for automated trading",
+        key="auto_capital",
+        label_visibility="collapsed"
+    )
+    st.session_state.automated_mode['total_capital'] = float(total_capital)
     
     with col5:
         st.write("**⚡ Risk**")
