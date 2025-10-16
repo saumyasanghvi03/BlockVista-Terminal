@@ -852,6 +852,56 @@ def display_header():
             st.rerun()
 
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+
+@st.cache_data(ttl=300)
+def get_global_indices_data(tickers):
+    """Fetch global indices data for the overnight changes bar."""
+    if not tickers:
+        return pd.DataFrame()
+    
+    data = []
+    
+    for ticker_name, yf_ticker in tickers.items():
+        try:
+            stock_data = yf.download(yf_ticker, period="2d", progress=False)
+            
+            if not stock_data.empty and len(stock_data) >= 2:
+                current_close = stock_data['Close'].iloc[-1]
+                prev_close = stock_data['Close'].iloc[-2]
+                
+                if prev_close > 0:
+                    change = current_close - prev_close
+                    pct_change = (change / prev_close) * 100
+                else:
+                    change = 0
+                    pct_change = 0
+                
+                data.append({
+                    'Ticker': ticker_name,
+                    'Price': current_close,
+                    'Change': change,
+                    '% Change': pct_change
+                })
+            else:
+                # Add placeholder for unavailable data
+                data.append({
+                    'Ticker': ticker_name,
+                    'Price': np.nan,
+                    'Change': np.nan,
+                    '% Change': np.nan
+                })
+                
+        except Exception as e:
+            print(f"Error fetching {ticker_name}: {e}")
+            # Add placeholder for failed fetch
+            data.append({
+                'Ticker': ticker_name,
+                'Price': np.nan,
+                'Change': np.nan,
+                '% Change': np.nan
+            })
+    
+    return pd.DataFrame(data)
     
 def display_overnight_changes_bar():
     """Displays a notification bar with overnight market changes."""
