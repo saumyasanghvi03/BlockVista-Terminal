@@ -358,6 +358,11 @@ def is_market_hours():
     
     return market_open <= current_time <= market_close
 
+def get_ist_time():
+    """Get current time in IST timezone."""
+    ist = pytz.timezone('Asia/Kolkata')
+    return datetime.now(ist)
+
 def is_pre_market_hours():
     """Check if current time is pre-market hours (9:00 AM to 9:15 AM, Monday to Friday)"""
     now = datetime.now()
@@ -487,8 +492,7 @@ def get_market_status():
 def display_header():
     """Displays the main header with market status, a live clock, and trade buttons."""
     status_info = get_market_status()
-    ist = pytz.timezone('Asia/Kolkata')
-    current_time = datetime.now(ist).strftime("%H:%M:%S IST")
+    current_time = get_ist_time().strftime("%H:%M:%S IST")
     
     col1, col2, col3 = st.columns([2, 2, 1])
     
@@ -2295,7 +2299,7 @@ def get_automated_bot_performance():
     }
 
 def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
-    """Execute trades automatically based on bot signals - with paper trading support."""
+    """Execute trades automatically based on bot signals."""
     if bot_result.get("error") or bot_result["action"] == "HOLD":
         return None
     
@@ -2305,13 +2309,13 @@ def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
         current_price = bot_result["current_price"]
         
         # Calculate position size based on risk
-        risk_amount = (risk_per_trade / 100.0) * st.session_state.automated_mode['total_capital']
+        risk_amount = (risk_per_trade / 100) * st.session_state.automated_mode['total_capital']
         quantity = max(1, int(risk_amount / current_price))
         
         # Check if we have too many open trades
-        open_trades = [t for t in st.session_state.automated_mode.get('trade_history', []) 
+        open_trades = [t for t in st.session_state.automated_mode['trade_history'] 
                       if t.get('status') == 'OPEN']
-        if len(open_trades) >= st.session_state.automated_mode.get('max_open_trades', 5):
+        if len(open_trades) >= st.session_state.automated_mode['max_open_trades']:
             return None
         
         # Check for existing position in the same symbol
@@ -2331,6 +2335,35 @@ def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
             except Exception as e:
                 st.error(f"❌ Failed to place LIVE order for {symbol}: {e}")
                 return None
+        
+        # Record the trade with IST timestamp
+        ist_time = get_ist_time()
+        trade_record = {
+            'timestamp': ist_time.isoformat(),
+            'timestamp_display': ist_time.strftime("%Y-%m-%d %H:%M:%S IST"),
+            'symbol': symbol,
+            'action': action,
+            'quantity': quantity,
+            'entry_price': current_price,
+            'status': 'OPEN',
+            'bot_name': bot_result['bot_name'],
+            'risk_level': bot_result['risk_level'],
+            'order_type': order_type,
+            'pnl': 0  # Initialize P&L
+        }
+        
+        st.session_state.automated_mode['trade_history'].append(trade_record)
+        
+        if order_type == "LIVE":
+            st.toast(f"🤖 LIVE {action} order executed for {symbol} (Qty: {quantity})", icon="⚡")
+        else:
+            st.toast(f"🤖 PAPER {action} order simulated for {symbol} (Qty: {quantity})", icon="📄")
+            
+        return trade_record
+        
+    except Exception as e:
+        st.error(f"Automated trade execution failed: {e}")
+        return None
         else:
             # PAPER TRADING - Simulate the trade
             paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
@@ -2453,6 +2486,11 @@ from datetime import datetime
 # AUTOMATED_BOTS = {"Auto Momentum Trader": None, "Auto Mean Reversion": None}
 
 # Define helper functions FIRST, before the main function
+def get_ist_time():
+    """Get current time in IST timezone."""
+    ist = pytz.timezone('Asia/Kolkata')
+    return datetime.now(ist)
+
 def get_live_trading_performance():
     """Get live trading performance metrics (would connect to broker API)"""
     # Simulated broker connection data
@@ -4462,21 +4500,86 @@ def page_portfolio_and_risk():
 
     with tab3:
         st.subheader("Live Order Book")
-        if client:
-            try:
-                orders = client.orders()
-                if orders:
-                    orders_df = pd.DataFrame(orders)
-                    st.dataframe(orders_df[[
-                        'order_timestamp', 'tradingsymbol', 'transaction_type',
-                        'order_type', 'quantity', 'average_price', 'status'
-                    ]], use_container_width=True, hide_index=True)
-                else:
-                    st.info("No orders placed today.")
-            except Exception as e:
-                st.error(f"Failed to fetch order book: {e}")
+        display_order_history()
+
+def display_trade_history():
+    """Display trade history with IST timestamps."""
+    if 'automated_mode' in st.session_state and st.session_state.automated_mode.get('trade_history'):
+        trades = st.session_state.automated_mode['trade_history']
+        
+        # Convert to DataFrame for display
+        trade_data = []
+        for trade in trades:
+            # Use display timestamp if available, else convert from ISO
+            if 'timestamp_display' in trade:
+                display_time = trade['timestamp_display']
+            else:
+                # Convert existing ISO timestamp to IST
+                try:
+                    dt = datetime.fromisoformat(trade['timestamp'].replace('Z', '+00:00'))
+                    ist = pytz.timezone('Asia/Kolkata')
+                    dt_ist = dt.astimezone(ist)
+                    display_time = dt_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+                except:
+                    display_time = trade['timestamp']
+            
+            trade_data.append({
+                'Time': display_time,
+                'Symbol': trade['symbol'],
+                'Action': trade['action'],
+                'Qty': trade['quantity'],
+                'Price': f"₹{trade['entry_price']:.2f}",
+                'Type': trade.get('order_type', 'N/A'),
+                'Status': trade['status'],
+                'P&L': f"₹{trade.get('pnl', 0):.2f}"
+            })
+        
+        if trade_data:
+            st.dataframe(pd.DataFrame(trade_data), use_container_width=True)
         else:
-            st.info("Broker not connected.")
+            st.info("No trade history available.")
+    else:
+        st.info("No trade history available.")
+
+def display_order_history():
+    """Display order history with IST timestamps."""
+    client = get_broker_client()
+    if client:
+        try:
+            orders = client.orders()
+            if orders:
+                # Convert orders to display format with IST time
+                order_data = []
+                for order in orders:
+                    # Convert order timestamp to IST
+                    order_time = order.get('order_timestamp', '')
+                    if order_time:
+                        try:
+                            dt = datetime.fromisoformat(order_time.replace('Z', '+00:00'))
+                            ist = pytz.timezone('Asia/Kolkata')
+                            dt_ist = dt.astimezone(ist)
+                            display_time = dt_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+                        except:
+                            display_time = order_time
+                    else:
+                        display_time = 'N/A'
+                    
+                    order_data.append({
+                        'Time': display_time,
+                        'Symbol': order.get('tradingsymbol', ''),
+                        'Type': order.get('transaction_type', ''),
+                        'Qty': order.get('quantity', 0),
+                        'Price': f"₹{order.get('average_price', 0):.2f}",
+                        'Status': order.get('status', '')
+                    })
+                
+                st.dataframe(pd.DataFrame(order_data), use_container_width=True)
+            else:
+                st.info("No orders placed today.")
+        except Exception as e:
+            st.error(f"Error fetching orders: {e}")
+    else:
+        st.info("Broker not connected.")
 
 def page_ai_assistant():
     """An AI-powered assistant for portfolio management and market queries."""
@@ -6145,9 +6248,24 @@ def page_hft_terminal():
         with top_cols[1]:
             st.markdown(f"##### LTP: <span class='{tick_direction}' style='font-size: 1.2em;'>₹{ltp:,.2f}</span>", unsafe_allow_html=True)
 
-        with top_cols[2]:
-            color = 'var(--green)' if change > 0 else 'var(--red)'
-            st.markdown(f"##### Change: <span style='color:{color}; font-size: 1.2em;'>{change:,.2f}</span>", unsafe_allow_html=True)
+        with main_cols[2]:
+        st.subheader("Tick Log")
+        log_container = st.container(height=400)
+        for entry in st.session_state.hft_tick_log:
+            color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
+            log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
+    
+    # Update the tick logging part:
+    if ltp != st.session_state.hft_last_price and st.session_state.hft_last_price != 0:
+        ist_time = get_ist_time()
+        log_entry = {
+            "time": ist_time.strftime("%H:%M:%S.%f")[:-3] + " IST",
+            "price": ltp,
+            "change": ltp - st.session_state.hft_last_price
+        }
+        st.session_state.hft_tick_log.insert(0, log_entry)
+        if len(st.session_state.hft_tick_log) > 20:
+            st.session_state.hft_tick_log.pop()
         
         with top_cols[3]:
             latency = random.uniform(20, 80)
