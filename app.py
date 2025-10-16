@@ -5444,10 +5444,6 @@ def page_premarket_pulse():
         if len(valid_prices) > 0:
             valid_data = True
     
-    if not valid_data:
-        st.warning("⚠️ Live global data temporarily unavailable. Showing sample data for reference.")
-        global_data = get_fallback_global_data(global_tickers)
-    
     if not global_data.empty:
         # Display global indices in a grid
         cols = st.columns(4)
