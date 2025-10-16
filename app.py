@@ -2813,9 +2813,11 @@ def page_fully_automated_bots(instrument_df):
     if current_capital < 1000.0:
         st.session_state.automated_mode['total_capital'] = 10000.0
     
-    # Get market status with error handling
+    # Get market status with error handling - FIXED VERSION
     try:
-        market_status, next_market = get_market_status()
+        status_info = get_market_status()
+        market_status = status_info['status']
+        next_market = status_info['next_market']
     except Exception as e:
         st.error(f"Error getting market status: {e}")
         market_status = "unknown"
@@ -2824,31 +2826,43 @@ def page_fully_automated_bots(instrument_df):
     # 🎯 ENHANCED MARKET STATUS WITH SEGMENT TIMING
     st.markdown("---")
     
+    # Get status color for display
+    status_colors = {
+        "market_open": "#00cc00",
+        "equity_square_off": "#ff9900", 
+        "derivatives_square_off": "#ff6600",
+        "pre_market": "#ffcc00",
+        "market_closed": "#cccccc",
+        "weekend": "#cccccc"
+    }
+    
+    status_color = status_colors.get(market_status, "#cccccc")
+    
     if market_status == "market_open":
         time_left = datetime.combine(datetime.now().date(), time(15, 20)) - datetime.now()
         minutes_left = time_left.seconds // 60
-        st.success(f"🟢 **MARKET OPEN** | Equity square-off at 3:20 PM | {minutes_left} minutes | {current_time}")
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🟢 **MARKET OPEN** | Equity square-off at 3:20 PM | {minutes_left} minutes | {current_time}</div>', unsafe_allow_html=True)
         
     elif market_status == "equity_square_off":
         time_left = datetime.combine(datetime.now().date(), time(15, 25)) - datetime.now()
         minutes_left = time_left.seconds // 60
-        st.error(f"🔴 **EQUITY SQUARE-OFF** | Derivatives square-off in {minutes_left} minutes | {current_time}")
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🔴 **EQUITY SQUARE-OFF** | Derivatives square-off in {minutes_left} minutes | {current_time}</div>', unsafe_allow_html=True)
         
     elif market_status == "derivatives_square_off":
         time_left = datetime.combine(datetime.now().date(), time(15, 30)) - datetime.now()
         minutes_left = time_left.seconds // 60
-        st.error(f"🚨 **DERIVATIVES SQUARE-OFF** | Market closes in {minutes_left} minutes | {current_time}")
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🚨 **DERIVATIVES SQUARE-OFF** | Market closes in {minutes_left} minutes | {current_time}</div>', unsafe_allow_html=True)
         
     elif market_status == "pre_market":
         time_left = datetime.combine(datetime.now().date(), time(9, 15)) - datetime.now()
         minutes_left = time_left.seconds // 60
-        st.info(f"⏰ **PRE-MARKET** | Live trading starts in {minutes_left} minutes | {current_time}")
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">⏰ **PRE-MARKET** | Live trading starts in {minutes_left} minutes | {current_time}</div>', unsafe_allow_html=True)
         
     elif market_status == "market_closed":
-        st.info(f"🔴 **MARKET CLOSED** | Live trading available tomorrow at 9:15 AM | {current_time}")
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🔴 **MARKET CLOSED** | Live trading available tomorrow at 9:15 AM | {current_time}</div>', unsafe_allow_html=True)
         
     else:  # weekend or unknown
-        st.info(f"🎉 **WEEKEND** | Markets closed | Paper trading available | {current_time}")
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🎉 **WEEKEND** | Markets closed | Paper trading available | {current_time}</div>', unsafe_allow_html=True)
     
     # 🎯 ENHANCED AUTO SQUARE-OFF SUGGESTIONS - ONLY FOR LIVE TRADING
     is_live_trading = st.session_state.automated_mode.get('live_trading', False)
@@ -2872,6 +2886,8 @@ def page_fully_automated_bots(instrument_df):
         else:
             # Blue theme for paper trading
             st.info("**🔵 PAPER TRADING ACTIVE** - Safe simulation running")
+    
+    # ... rest of the function remains the same ...
     
     # 🎯 ENHANCED CONTROL PANEL
     st.markdown("---")
@@ -6505,3 +6521,36 @@ if __name__ == "__main__":
             show_login_animation()
     else:
         login_page()
+
+def display_segment_square_off_info():
+    """Display segment-specific square-off information."""
+    st.markdown("---")
+    st.subheader("🕒 Segment-wise Square-off Times")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.write("**📈 Equity/Cash**")
+        st.write("• Market: 9:15 AM - 3:30 PM")
+        st.write("• Square-off: 3:20 PM")
+        st.write("• Auto close: 3:20 PM")
+    
+    with col2:
+        st.write("**📊 Equity Derivatives**")
+        st.write("• Market: 9:15 AM - 3:30 PM")
+        st.write("• Square-off: 3:25 PM")
+        st.write("• Auto close: 3:25 PM")
+    
+    with col3:
+        st.write("**🛢️ Commodities**")
+        st.write("• Market: Varies by commodity")
+        st.write("• Square-off: 10 min before close")
+        st.write("• Auto close: 10 min before")
+
+def display_enhanced_square_off_suggestions():
+    """Display intelligent square-off suggestions with segment-specific timing - ONLY FOR LIVE TRADING"""
+    # Only show for live trading
+    if not st.session_state.automated_mode.get('live_trading', False):
+        return
+    
+    st.warning("**⚠️ SQUARE-OFF TIME ACTIVE** - Consider closing positions before market close")
