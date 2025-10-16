@@ -3016,7 +3016,7 @@ if st.session_state.get('need_live_confirmation', False):
             st.session_state.need_live_confirmation = False
             st.info("Live trading cancelled.")
             st.rerun()
-    return
+            return
     
     st.markdown("---")
     
