@@ -406,7 +406,7 @@ def is_derivatives_square_off_time():
     return square_off_start <= current_time <= square_off_end
 
 def get_market_status():
-    """Get current market status and next market event"""
+    """Get current market status and next market event with proper formatting for display."""
     now = datetime.now()
     current_time = now.time()
     current_day = now.weekday()
@@ -418,7 +418,11 @@ def get_market_status():
         if days_until_monday == 0:  # Already Monday? (shouldn't happen but safe)
             days_until_monday = 7
         next_market = now + timedelta(days=days_until_monday)
-        return "weekend", next_market.replace(hour=9, minute=0, second=0, microsecond=0)
+        return {
+            "status": "weekend",
+            "next_market": next_market.replace(hour=9, minute=0, second=0, microsecond=0),
+            "color": "#cccccc"
+        }
     
     # Market timing definitions
     pre_market_start = time(9, 0)
@@ -430,23 +434,43 @@ def get_market_status():
     if current_time < pre_market_start:
         # Before pre-market (overnight)
         next_market = now.replace(hour=9, minute=0, second=0, microsecond=0)
-        return "market_closed", next_market
+        return {
+            "status": "market_closed",
+            "next_market": next_market,
+            "color": "#cccccc"
+        }
     elif pre_market_start <= current_time < market_open:
         # Pre-market hours (9:00 AM to 9:15 AM)
         next_market = now.replace(hour=9, minute=15, second=0, microsecond=0)
-        return "pre_market", next_market
+        return {
+            "status": "pre_market", 
+            "next_market": next_market,
+            "color": "#ffcc00"
+        }
     elif market_open <= current_time < equity_square_off:
         # Market open (9:15 AM to 3:20 PM)
         next_market = now.replace(hour=15, minute=20, second=0, microsecond=0)
-        return "market_open", next_market
+        return {
+            "status": "market_open",
+            "next_market": next_market, 
+            "color": "#00cc00"
+        }
     elif equity_square_off <= current_time < derivatives_square_off:
         # Equity square-off time (3:20 PM to 3:25 PM)
         next_market = now.replace(hour=15, minute=25, second=0, microsecond=0)
-        return "equity_square_off", next_market
+        return {
+            "status": "equity_square_off",
+            "next_market": next_market,
+            "color": "#ff9900"
+        }
     elif derivatives_square_off <= current_time <= market_close:
         # Derivatives square-off time (3:25 PM to 3:30 PM)
         next_market = now.replace(hour=15, minute=30, second=0, microsecond=0)
-        return "derivatives_square_off", next_market
+        return {
+            "status": "derivatives_square_off",
+            "next_market": next_market,
+            "color": "#ff6600"
+        }
     else:
         # Market closed for the day (after 3:30 PM)
         next_day = now + timedelta(days=1)
@@ -454,7 +478,11 @@ def get_market_status():
         while next_day.weekday() >= 5:
             next_day += timedelta(days=1)
         next_market = next_day.replace(hour=9, minute=0, second=0, microsecond=0)
-        return "market_closed", next_market
+        return {
+            "status": "market_closed",
+            "next_market": next_market,
+            "color": "#cccccc"
+        }
 
 def display_header():
     """Displays the main header with market status, a live clock, and trade buttons."""
@@ -471,7 +499,7 @@ def display_header():
         st.markdown(f"""
             <div style="text-align: right;">
                 <h5 style="margin: 0;">{current_time}</h5>
-                <h5 style="margin: 0;">Market: <span style='color:{status_info["color"]}; font-weight: bold;'>{status_info["status"]}</span></h5>
+                <h5 style="margin: 0;">Market: <span style='color:{status_info["color"]}; font-weight: bold;'>{status_info["status"].replace("_", " ").title()}</span></h5>
             </div>
         """, unsafe_allow_html=True)
 
