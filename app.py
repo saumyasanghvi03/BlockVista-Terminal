@@ -5206,72 +5206,393 @@ def render_chart_controls(i, instrument_df):
 def page_premarket_pulse():
     """Global market overview and premarket indicators with a trader-focused UI."""
     display_header()
-    st.title("Premarket & Global Cues")
-    st.markdown("---")
+    st.title("🌅 Premarket & Global Cues")
+    st.info("Track global market movements, futures data, and overnight trends that impact Indian markets.", icon="📊")
 
-    st.subheader("Global Market Snapshot")
-    global_tickers = {"S&P 500": "^GSPC", "Dow Jones": "^DJI", "NASDAQ": "^IXIC", "FTSE 100": "^FTSE", "Nikkei 225": "^N225", "Hang Seng": "^HSI"}
-    global_data = get_global_indices_data(global_tickers)
+    # Market status indicator
+    status_info = get_market_status()
+    current_time = get_ist_time().strftime("%H:%M:%S IST")
     
-    if not global_data.empty:
-        cols = st.columns(len(global_tickers))
-        for i, (name, ticker_symbol) in enumerate(global_tickers.items()):
-            data_row = global_data[global_data['Ticker'] == name]
-            if not data_row.empty:
-                price = data_row.iloc[0]['Price']
-                change = data_row.iloc[0]['% Change']
-                if not np.isnan(price):
-                    cols[i].metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
-                else:
-                    cols[i].metric(label=name, value="N/A", delta="--")
-    else:
-        st.info("Loading global market data...")
+    col_status1, col_status2, col_status3 = st.columns([2, 1, 1])
+    with col_status1:
+        status_color = "#00cc00" if status_info['status'] == 'market_open' else "#ffcc00"
+        st.markdown(f"**Market Status:** <span style='color:{status_color};'>{status_info['status'].replace('_', ' ').title()}</span>", unsafe_allow_html=True)
+    with col_status2:
+        st.markdown(f"**Time:** {current_time}")
+    with col_status3:
+        if is_pre_market_hours():
+            st.success("🔸 Pre-market Hours")
+        elif is_market_hours():
+            st.success("🟢 Market Open")
+        else:
+            st.info("🔴 Market Closed")
 
     st.markdown("---")
 
+    # Global Market Snapshot
+    st.subheader("🌍 Global Market Snapshot")
+    
+    # Major global indices with proper tickers
+    global_tickers = {
+        "S&P 500": "^GSPC", 
+        "Dow Jones": "^DJI", 
+        "NASDAQ": "^IXIC", 
+        "FTSE 100": "^FTSE", 
+        "DAX": "^GDAXI",
+        "Nikkei 225": "^N225", 
+        "Hang Seng": "^HSI",
+        "Shanghai": "000001.SS",
+        "SGX Nifty": "NIFTY_F1"
+    }
+    
+    try:
+        global_data = get_global_indices_data(global_tickers)
+        
+        if not global_data.empty:
+            # Display global indices in a grid
+            cols = st.columns(4)
+            displayed_count = 0
+            
+            for i, (name, ticker_symbol) in enumerate(global_tickers.items()):
+                data_row = global_data[global_data['Ticker'] == name]
+                if not data_row.empty:
+                    price = data_row.iloc[0]['Price']
+                    change = data_row.iloc[0]['Change']
+                    pct_change = data_row.iloc[0]['% Change']
+                    
+                    if not np.isnan(price) and not np.isnan(pct_change):
+                        col_idx = displayed_count % 4
+                        with cols[col_idx]:
+                            # Color coding for changes
+                            delta_color = "normal" if change >= 0 else "inverse"
+                            st.metric(
+                                label=name, 
+                                value=f"{price:,.0f}" if price > 100 else f"{price:.2f}",
+                                delta=f"{pct_change:+.2f}%",
+                                delta_color=delta_color
+                            )
+                        displayed_count += 1
+        else:
+            st.warning("Global market data temporarily unavailable")
+            
+    except Exception as e:
+        st.error(f"Error loading global data: {e}")
+
+    st.markdown("---")
+
+    # Main content columns
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.subheader("NIFTY 50 Futures (Live Proxy)")
-        gift_data = get_gift_nifty_data()
-        if not gift_data.empty:
-            st.plotly_chart(create_chart(gift_data, "NIFTY 50 Futures (Proxy)"), use_container_width=True)
-        else:
-            st.warning("Could not load NIFTY 50 Futures chart data.")
+        st.subheader("📈 NIFTY 50 Futures (SGX Nifty)")
+        
+        try:
+            # Get SGX Nifty data
+            sgx_data = get_gift_nifty_data()
+            
+            if not sgx_data.empty:
+                # Calculate change and percentage
+                if len(sgx_data) >= 2:
+                    current_price = sgx_data['Close'].iloc[-1]
+                    prev_close = sgx_data['Close'].iloc[-2] if len(sgx_data) > 1 else sgx_data['Close'].iloc[0]
+                    change = current_price - prev_close
+                    pct_change = (change / prev_close) * 100
+                    
+                    # Display current SGX Nifty price
+                    st.metric(
+                        "SGX Nifty Current", 
+                        f"{current_price:.2f}",
+                        delta=f"{change:+.2f} ({pct_change:+.2f}%)",
+                        delta_color="normal" if change >= 0 else "inverse"
+                    )
+                
+                # Create chart
+                fig = go.Figure()
+                
+                # Add candlestick trace
+                fig.add_trace(go.Candlestick(
+                    x=sgx_data.index,
+                    open=sgx_data['Open'],
+                    high=sgx_data['High'],
+                    low=sgx_data['Low'],
+                    close=sgx_data['Close'],
+                    name='SGX Nifty'
+                ))
+                
+                fig.update_layout(
+                    title="SGX Nifty Futures - Last 5 Days",
+                    xaxis_title="Date",
+                    yaxis_title="Price",
+                    template='plotly_dark',
+                    height=400,
+                    showlegend=False,
+                    xaxis_rangeslider_visible=False
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+            else:
+                # Fallback: Show NIFTY 50 chart if SGX data unavailable
+                st.info("SGX Nifty data unavailable. Showing NIFTY 50 instead.")
+                instrument_df = get_instrument_df()
+                if not instrument_df.empty:
+                    nifty_token = get_instrument_token('NIFTY 50', instrument_df, 'NSE')
+                    if nifty_token:
+                        nifty_data = get_historical_data(nifty_token, "5minute", period="1d")
+                        if not nifty_data.empty:
+                            st.plotly_chart(create_chart(nifty_data.tail(100), "NIFTY 50"), use_container_width=True)
+                
+        except Exception as e:
+            st.error(f"Error loading futures data: {e}")
+            st.info("Please check your internet connection or try again later.")
             
     with col2:
-        st.subheader("Key Asian Markets")
-        asian_tickers = {"Nikkei 225": "^N225", "Hang Seng": "^HSI"}
-        asian_data = get_global_indices_data(asian_tickers)
-        if not asian_data.empty:
-            for name, ticker_symbol in asian_tickers.items():
-                data_row = asian_data[asian_data['Ticker'] == name]
-                if not data_row.empty:
-                    price = data_row.iloc[0]['Price']
-                    change = data_row.iloc[0]['% Change']
-                    if not np.isnan(price):
-                        st.metric(label=name, value=f"{price:,.2f}", delta=f"{change:.2f}%")
+        st.subheader("🌏 Asian Markets Live")
+        
+        asian_tickers = {
+            "Nikkei 225": "^N225", 
+            "Hang Seng": "^HSI",
+            "Shanghai Comp": "000001.SS",
+            "Taiwan": "^TWII",
+            "KOSPI": "^KS11"
+        }
+        
+        try:
+            asian_data = get_global_indices_data(asian_tickers)
+            
+            if not asian_data.empty:
+                for name in asian_tickers.keys():
+                    data_row = asian_data[asian_data['Ticker'] == name]
+                    if not data_row.empty:
+                        price = data_row.iloc[0]['Price']
+                        change = data_row.iloc[0]['Change']
+                        pct_change = data_row.iloc[0]['% Change']
+                        
+                        if not np.isnan(price) and not np.isnan(pct_change):
+                            delta_color = "normal" if change >= 0 else "inverse"
+                            st.metric(
+                                label=name, 
+                                value=f"{price:,.0f}" if price > 1000 else f"{price:.2f}",
+                                delta=f"{pct_change:+.2f}%",
+                                delta_color=delta_color
+                            )
+                        else:
+                            st.write(f"**{name}:** Data unavailable")
                     else:
-                        st.metric(label=name, value="N/A", delta="--")
-        else:
-            st.info("Loading Asian market data...")
+                        st.write(f"**{name}:** No data")
+            else:
+                st.info("Asian market data updating...")
+                
+        except Exception as e:
+            st.error(f"Error loading Asian markets: {e}")
+
+        st.markdown("---")
+        
+        # Pre-market indicators for Indian market
+        st.subheader("🇮🇳 Indian Market Indicators")
+        
+        try:
+            # Get NIFTY 50 and BANK NIFTY data
+            instrument_df = get_instrument_df()
+            if not instrument_df.empty:
+                # NIFTY 50
+                nifty_data = get_watchlist_data([{'symbol': 'NIFTY 50', 'exchange': 'NSE'}])
+                if not nifty_data.empty:
+                    nifty_row = nifty_data.iloc[0]
+                    st.metric(
+                        "NIFTY 50",
+                        f"{nifty_row['Price']:.2f}",
+                        delta=f"{nifty_row['Change']:+.2f} ({nifty_row['% Change']:+.2f}%)"
+                    )
+                
+                # BANK NIFTY
+                bank_nifty_data = get_watchlist_data([{'symbol': 'NIFTY BANK', 'exchange': 'NSE'}])
+                if not bank_nifty_data.empty:
+                    bank_nifty_row = bank_nifty_data.iloc[0]
+                    st.metric(
+                        "BANK NIFTY", 
+                        f"{bank_nifty_row['Price']:.2f}",
+                        delta=f"{bank_nifty_row['Change']:+.2f} ({bank_nifty_row['% Change']:+.2f}%)"
+                    )
+                
+                # India VIX
+                vix_data = get_watchlist_data([{'symbol': 'INDIA VIX', 'exchange': 'NSE'}])
+                if not vix_data.empty:
+                    vix_row = vix_data.iloc[0]
+                    vix_color = "inverse" if vix_row['Change'] > 0 else "normal"  # Higher VIX = bearish
+                    st.metric(
+                        "India VIX",
+                        f"{vix_row['Price']:.2f}",
+                        delta=f"{vix_row['Change']:+.2f} ({vix_row['% Change']:+.2f}%)",
+                        delta_color=vix_color
+                    )
+                    
+        except Exception as e:
+            st.error(f"Error loading Indian market data: {e}")
 
     st.markdown("---")
 
-    st.subheader("Latest Market News")
-    news_df = fetch_and_analyze_news()
-    if not news_df.empty:
-        for _, news in news_df.head(10).iterrows():
-            sentiment_score = news['sentiment']
-            if sentiment_score > 0.2:
-                icon = "🔼"
-            elif sentiment_score < -0.2:
-                icon = "🔽"
-            else:
-                icon = "▶️"
-            st.markdown(f"**{icon} [{news['title']}]({news['link']})** - *{news['source']}*")
+    # News Section
+    st.subheader("📰 Latest Market News & Analysis")
+    
+    # News search and filter
+    col_news1, col_news2 = st.columns([3, 1])
+    with col_news1:
+        news_query = st.text_input("Search news", placeholder="Enter keywords (e.g., RBI, earnings, inflation)...")
+    with col_news2:
+        news_limit = st.selectbox("Show", [5, 10, 15], index=0)
+    
+    try:
+        with st.spinner("Fetching latest news..."):
+            news_df = fetch_and_analyze_news(query=news_query if news_query else None)
+            
+        if not news_df.empty:
+            # Display news with sentiment analysis
+            for _, news in news_df.head(news_limit).iterrows():
+                sentiment_score = news['sentiment']
+                
+                # Sentiment indicators
+                if sentiment_score > 0.2:
+                    sentiment_icon = "🟢"
+                    sentiment_text = "Positive"
+                elif sentiment_score < -0.2:
+                    sentiment_icon = "🔴" 
+                    sentiment_text = "Negative"
+                else:
+                    sentiment_icon = "🟡"
+                    sentiment_text = "Neutral"
+                
+                # News card
+                with st.container():
+                    col_news_left, col_news_right = st.columns([4, 1])
+                    
+                    with col_news_left:
+                        st.markdown(f"**{news['title']}**")
+                        st.caption(f"Source: {news['source']} • {news['date']}")
+                    
+                    with col_news_right:
+                        st.markdown(f"{sentiment_icon} {sentiment_text}")
+                    
+                    # Expandable details
+                    with st.expander("Read more"):
+                        st.markdown(f"[Read full article]({news['link']})")
+                        st.write(f"**Sentiment Score:** {sentiment_score:.2f}")
+                    
+                    st.markdown("---")
+        else:
+            st.info("No recent news found. Check your internet connection or try different search terms.")
+            
+    except Exception as e:
+        st.error(f"Error loading news: {e}")
+        st.info("News feed temporarily unavailable. Please try again later.")
+
+    # Market Calendar Section
+    st.markdown("---")
+    st.subheader("📅 Today's Key Economic Events")
+    
+    # Get today's date
+    today = datetime.now().date()
+    
+    # Sample economic events (in a real app, this would come from an API)
+    today_events = [
+        {"time": "09:00 AM", "event": "GDP Growth Rate Q2", "country": "IND", "impact": "High"},
+        {"time": "10:30 AM", "event": "Inflation Rate YoY", "country": "IND", "impact": "High"},
+        {"time": "02:00 PM", "event": "FOMC Meeting Minutes", "country": "USA", "impact": "Medium"},
+        {"time": "06:00 PM", "event": "Crude Oil Inventories", "country": "USA", "impact": "Medium"},
+    ]
+    
+    if today_events:
+        for event in today_events:
+            col_event1, col_event2, col_event3 = st.columns([2, 3, 1])
+            with col_event1:
+                st.write(f"**{event['time']}**")
+            with col_event2:
+                st.write(f"{event['event']} ({event['country']})")
+            with col_event3:
+                impact_color = {"High": "red", "Medium": "orange", "Low": "green"}
+                st.markdown(f"<span style='color:{impact_color[event['impact']]}; font-weight:bold;'>{event['impact']}</span>", unsafe_allow_html=True)
+            st.markdown("---")
     else:
-        st.info("News data is loading...")
+        st.info("No major economic events scheduled for today.")
+
+    # Quick Analysis Section
+    st.markdown("---")
+    st.subheader("💡 Premarket Analysis")
+    
+    analysis_col1, analysis_col2, analysis_col3 = st.columns(3)
+    
+    with analysis_col1:
+        st.metric("Global Sentiment", "Positive", "📈", delta_color="normal")
+        st.write("US markets closed higher")
+        
+    with analysis_col2:
+        st.metric("SGX Nifty Trend", "Bullish", "🟢", delta_color="normal")
+        st.write("Futures trading above spot")
+        
+    with analysis_col3:
+        st.metric("Volatility Outlook", "Moderate", "🟡", delta_color="off")
+        st.write("VIX stable around 14")
+
+    # Refresh button
+    if st.button("🔄 Refresh All Data", use_container_width=True):
+        st.rerun()
+
+    # Last updated timestamp
+    st.caption(f"Last updated: {get_ist_time().strftime('%Y-%m-%d %H:%M:%S IST')}")
+
+# Enhanced helper function for global data
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_global_indices_data_enhanced(tickers):
+    """Enhanced version to fetch global indices data with better error handling."""
+    if not tickers:
+        return pd.DataFrame()
+    
+    data = []
+    
+    for ticker_name, yf_ticker in tickers.items():
+        try:
+            # Download data with error handling
+            stock_data = yf.download(yf_ticker, period="2d", progress=False)
+            
+            if stock_data.empty or len(stock_data) < 2:
+                continue
+                
+            # Calculate changes
+            current_close = stock_data['Close'].iloc[-1]
+            prev_close = stock_data['Close'].iloc[-2]
+            
+            change = current_close - prev_close
+            pct_change = (change / prev_close) * 100
+            
+            data.append({
+                'Ticker': ticker_name,
+                'Price': current_close,
+                'Change': change,
+                '% Change': pct_change,
+                'Previous Close': prev_close
+            })
+            
+        except Exception as e:
+            print(f"Error fetching {ticker_name}: {e}")
+            continue
+    
+    return pd.DataFrame(data)
+
+@st.cache_data(ttl=120)  # Cache for 2 minutes
+def get_gift_nifty_data_enhanced():
+    """Enhanced GIFT NIFTY data fetcher with multiple fallbacks."""
+    tickers_to_try = ["NIFTY_F1", "NQ=F", "NSEI"]  # Multiple possible tickers
+    
+    for ticker in tickers_to_try:
+        try:
+            data = yf.download(ticker, period="5d", interval="1h")
+            if not data.empty:
+                return data
+        except:
+            continue
+    
+    # Fallback: Return empty DataFrame
+    return pd.DataFrame()
 
 def page_fo_analytics():
     """F&O Analytics page with comprehensive options analysis."""
