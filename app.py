@@ -31,9 +31,112 @@ import hashlib
 import random
 from streamlit_autorefresh import st_autorefresh
 # ================ UPSTOX API INTEGRATION ================
+import streamlit as st
 import requests
 import json
 
+class UpstoxAPI:
+    def __init__(self, api_key, api_secret, redirect_uri):
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.redirect_uri = redirect_uri
+        self.base_url = "https://api.upstox.com/v2"
+        self.access_token = None
+        self.headers = {}
+    
+    def get_login_url(self):
+        """Generate login URL for user authentication"""
+        return f"https://api.upstox.com/v2/login/{self.api_key}"
+    
+    def get_access_token(self, code):
+        """Get access token using authorization code"""
+        url = f"{self.base_url}/login/authorization/token"
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json'
+        }
+        data = {
+            'code': code,
+            'client_id': self.api_key,
+            'client_secret': self.api_secret,
+            'redirect_uri': self.redirect_uri,
+            'grant_type': 'authorization_code'
+        }
+        
+        response = requests.post(url, headers=headers, data=data)
+        if response.status_code == 200:
+            token_data = response.json()
+            self.access_token = token_data['access_token']
+            self.headers = {
+                'Accept': 'application/json',
+                'Authorization': f'Bearer {self.access_token}'
+            }
+            return True
+        else:
+            st.error(f"Failed to get access token: {response.text}")
+            return False
+    
+    def get_profile(self):
+        """Get user profile"""
+        if not self.access_token:
+            return None
+        url = f"{self.base_url}/user/profile"
+        response = requests.get(url, headers=self.headers)
+        return response.json() if response.status_code == 200 else None
+    
+    def get_holdings(self):
+        """Get user holdings"""
+        if not self.access_token:
+            return None
+        url = f"{self.base_url}/portfolio/long-term-holdings"
+        response = requests.get(url, headers=self.headers)
+        return response.json() if response.status_code == 200 else None
+
+# Usage in your Streamlit app
+def upstox_integration():
+    st.header("Upstox Integration")
+    
+    # Get credentials from secrets or user input
+    api_key = st.secrets.get("UPSTOX_API_KEY", "")
+    api_secret = st.secrets.get("UPSTOX_API_SECRET", "")
+    redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "")
+    
+    if not api_key or not api_secret:
+        st.warning("Please configure Upstox API credentials in secrets")
+        return
+    
+    # Initialize Upstox API
+    upstox = UpstoxAPI(api_key, api_secret, redirect_uri)
+    
+    # Generate login URL
+    login_url = upstox.get_login_url()
+    st.markdown(f"### [Click here to authenticate with Upstox]({login_url})")
+    
+    # Get authorization code
+    auth_code = st.text_input("Enter authorization code:")
+    
+    if auth_code:
+        with st.spinner("Authenticating..."):
+            if upstox.get_access_token(auth_code):
+                st.success("✅ Successfully authenticated!")
+                
+                # Store in session state
+                st.session_state.upstox = upstox
+                
+                # Show user profile
+                profile = upstox.get_profile()
+                if profile:
+                    st.write(f"Welcome, {profile.get('data', {}).get('name', 'User')}!")
+                
+                # Show holdings
+                if st.button("Get Holdings"):
+                    holdings = upstox.get_holdings()
+                    if holdings:
+                        st.write("Your Holdings:")
+                        st.json(holdings)
+
+# Add this to your main app
+upstox_integration()
 # ================ 1. STYLING AND CONFIGURATION ===============
 
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
