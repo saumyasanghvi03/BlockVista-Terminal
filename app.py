@@ -2801,11 +2801,11 @@ def page_fully_automated_bots(instrument_df):
             }
     
     # Fix the total_capital value if it's below minimum
-    current_capital = float(st.session_state.automated_mode.get('total_capital', 10000.0))
-    if current_capital < 1000.0:
-        st.session_state.automated_mode['total_capital'] = 10000.0
+    current_capital = float(st.session_state.automated_mode.get('total_capital', 100.0))
+    if current_capital < 100.0:
+        st.session_state.automated_mode['total_capital'] = 100.0
     
-    # Get market status with error handling - FIXED VERSION
+    # Get market status with error handling
     try:
         status_info = get_market_status()
         market_status = status_info['status']
@@ -2819,69 +2819,53 @@ def page_fully_automated_bots(instrument_df):
     st.markdown("---")
     
     # Get status color for display
-    # 🎯 ENHANCED MARKET STATUS WITH SEGMENT TIMING
-st.markdown("---")
-
-# Get status color for display
-status_colors = {
-    "market_open": "#00cc00",
-    "equity_square_off": "#ff9900", 
-    "derivatives_square_off": "#ff6600",
-    "pre_market": "#ffcc00",
-    "market_closed": "#cccccc",
-    "weekend": "#cccccc"
-}
-
-status_color = status_colors.get(market_status, "#cccccc")
-
-if market_status == "market_open":
-    time_left = datetime.combine(datetime.now().date(), time(15, 20)) - datetime.now()
-    minutes_left = time_left.seconds // 60
-    st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🟢 **MARKET OPEN** | Equity square-off at 3:20 PM | {minutes_left} minutes remaining</div>', unsafe_allow_html=True)
+    status_colors = {
+        "market_open": "#00cc00",
+        "equity_square_off": "#ff9900", 
+        "derivatives_square_off": "#ff6600",
+        "pre_market": "#ffcc00",
+        "market_closed": "#cccccc",
+        "weekend": "#cccccc"
+    }
     
-elif market_status == "equity_square_off":
-    time_left = datetime.combine(datetime.now().date(), time(15, 25)) - datetime.now()
-    minutes_left = time_left.seconds // 60
-    st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🔴 **EQUITY SQUARE-OFF** | Derivatives square-off in {minutes_left} minutes</div>', unsafe_allow_html=True)
+    status_color = status_colors.get(market_status, "#cccccc")
     
-elif market_status == "derivatives_square_off":
-    time_left = datetime.combine(datetime.now().date(), time(15, 30)) - datetime.now()
-    minutes_left = time_left.seconds // 60
-    st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🚨 **DERIVATIVES SQUARE-OFF** | Market closes in {minutes_left} minutes</div>', unsafe_allow_html=True)
+    if market_status == "market_open":
+        time_left = datetime.combine(datetime.now().date(), time(15, 20)) - datetime.now()
+        minutes_left = time_left.seconds // 60
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🟢 **MARKET OPEN** | Equity square-off at 3:20 PM | {minutes_left} minutes remaining</div>', unsafe_allow_html=True)
+        
+    elif market_status == "equity_square_off":
+        time_left = datetime.combine(datetime.now().date(), time(15, 25)) - datetime.now()
+        minutes_left = time_left.seconds // 60
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🔴 **EQUITY SQUARE-OFF** | Derivatives square-off in {minutes_left} minutes</div>', unsafe_allow_html=True)
+        
+    elif market_status == "derivatives_square_off":
+        time_left = datetime.combine(datetime.now().date(), time(15, 30)) - datetime.now()
+        minutes_left = time_left.seconds // 60
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🚨 **DERIVATIVES SQUARE-OFF** | Market closes in {minutes_left} minutes</div>', unsafe_allow_html=True)
+        
+    elif market_status == "pre_market":
+        time_left = datetime.combine(datetime.now().date(), time(9, 15)) - datetime.now()
+        minutes_left = time_left.seconds // 60
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">⏰ **PRE-MARKET** | Live trading starts in {minutes_left} minutes</div>', unsafe_allow_html=True)
+        
+    elif market_status == "market_closed":
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🔴 **MARKET CLOSED** | Paper trading available 24/7</div>', unsafe_allow_html=True)
+        
+    else:  # weekend or unknown
+        st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🎉 **WEEKEND** | Paper trading available 24/7</div>', unsafe_allow_html=True)
     
-elif market_status == "pre_market":
-    time_left = datetime.combine(datetime.now().date(), time(9, 15)) - datetime.now()
-    minutes_left = time_left.seconds // 60
-    st.markdown(f'<div style="color: {status_color}; font-weight: bold;">⏰ **PRE-MARKET** | Live trading starts in {minutes_left} minutes</div>', unsafe_allow_html=True)
-    
-elif market_status == "market_closed":
-    st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🔴 **MARKET CLOSED** | Paper trading available 24/7</div>', unsafe_allow_html=True)
-    
-else:  # weekend or unknown
-    st.markdown(f'<div style="color: {status_color}; font-weight: bold;">🎉 **WEEKEND** | Paper trading available 24/7</div>', unsafe_allow_html=True)
-    
-    # 🎯 ENHANCED AUTO SQUARE-OFF SUGGESTIONS - ONLY FOR LIVE TRADING
+    # Trading status indicators
     is_live_trading = st.session_state.automated_mode.get('live_trading', False)
-    try:
-        if is_live_trading and (is_square_off_time() or is_derivatives_square_off_time()):
-            display_enhanced_square_off_suggestions()
-    except Exception as e:
-        st.error(f"Error in square-off suggestions: {e}")
-    
-    # Display segment timing information
-    display_segment_square_off_info()
-    
-    # Trading status indicators with color themes
-    # Trading status indicators with color themes
-if st.session_state.automated_mode.get('running', False):
-    if is_live_trading:
-        if is_market_hours():
-            st.error("**🔴 LIVE TRADING ACTIVE** - Real money at risk! Monitor positions carefully.")
+    if st.session_state.automated_mode.get('running', False):
+        if is_live_trading:
+            if is_market_hours():
+                st.error("**🔴 LIVE TRADING ACTIVE** - Real money at risk! Monitor positions carefully.")
+            else:
+                st.warning("**⏸️ LIVE TRADING ACTIVE (Market Closed)** - Orders will execute when market opens")
         else:
-            st.warning("**⏸️ LIVE TRADING ACTIVE (Market Closed)** - Orders will execute when market opens")
-    else:
-        # Blue theme for paper trading
-        st.info("**🔵 PAPER TRADING ACTIVE** - Safe simulation running 24/7")
+            st.info("**🔵 PAPER TRADING ACTIVE** - Safe simulation running 24/7")
     
     # 🎯 ENHANCED CONTROL PANEL
     st.markdown("---")
@@ -2899,59 +2883,60 @@ if st.session_state.automated_mode.get('running', False):
             key="auto_enable"
         )
         st.session_state.automated_mode['enabled'] = auto_enabled
-    with col2:
-    st.write("**🎯 Trading Type**")
-    # Always allow live trading toggle, regardless of market hours
-    live_trading = st.toggle(
-        "Live Trading",
-        value=st.session_state.automated_mode.get('live_trading', False),
-        help="Real money trading - Available anytime (trades execute during market hours)",
-        key="live_trading"
-    )
-    st.session_state.automated_mode['live_trading'] = live_trading
     
-    # Show warning if live trading is enabled outside market hours
-    if live_trading and not is_market_hours() and not is_pre_market_hours():
-        st.warning("⚠️ Market is closed - Live orders will queue until market opens")
-
-with col3:
-    st.write("**🚦 Actions**")
-    if st.session_state.automated_mode['enabled']:
-        if not st.session_state.automated_mode.get('running', False):
-            # Start button - always available
-            if live_trading:
-                if st.button("🔴 Start Live Trading", use_container_width=True, type="secondary"):
-                    st.session_state.need_live_confirmation = True
-                    st.rerun()
+    with col2:
+        st.write("**🎯 Trading Type**")
+        # Always allow live trading toggle, regardless of market hours
+        live_trading = st.toggle(
+            "Live Trading",
+            value=st.session_state.automated_mode.get('live_trading', False),
+            help="Real money trading - Available anytime (trades execute during market hours)",
+            key="live_trading"
+        )
+        st.session_state.automated_mode['live_trading'] = live_trading
+        
+        # Show warning if live trading is enabled outside market hours
+        if live_trading and not is_market_hours() and not is_pre_market_hours():
+            st.warning("⚠️ Market is closed - Live orders will queue until market opens")
+    
+    with col3:
+        st.write("**🚦 Actions**")
+        if st.session_state.automated_mode['enabled']:
+            if not st.session_state.automated_mode.get('running', False):
+                # Start button - always available
+                if live_trading:
+                    if st.button("🔴 Start Live Trading", use_container_width=True, type="secondary"):
+                        st.session_state.need_live_confirmation = True
+                        st.rerun()
+                else:
+                    if st.button("🔵 Start Paper Trading", use_container_width=True, type="primary"):
+                        st.session_state.automated_mode['running'] = True
+                        st.success("Paper trading started!")
+                        st.rerun()
             else:
-                if st.button("🔵 Start Paper Trading", use_container_width=True, type="primary"):
-                    st.session_state.automated_mode['running'] = True
-                    st.success("Paper trading started!")
+                # Stop button
+                if st.button("🛑 Stop Trading", use_container_width=True, type="secondary"):
+                    st.session_state.automated_mode['running'] = False
                     st.rerun()
         else:
-            # Stop button
-            if st.button("🛑 Stop Trading", use_container_width=True, type="secondary"):
-                st.session_state.automated_mode['running'] = False
-                st.rerun()
-    else:
-        st.button("Start Trading", use_container_width=True, disabled=True)
+            st.button("Start Trading", use_container_width=True, disabled=True)
     
     with col4:
-    st.write("**💰 Capital**")
-    current_capital = float(st.session_state.automated_mode.get('total_capital', 100.0))  # Changed to 100.0
-    current_capital = max(100.0, current_capital)  # Minimum ₹100
-    
-    total_capital = st.number_input(
-        "Trading Capital (₹)",
-        min_value=100.0,  # Minimum ₹100
-        max_value=1000000.0,
-        value=current_capital,
-        step=100.0,
-        help="Minimum ₹100 required for automated trading",
-        key="auto_capital",
-        label_visibility="collapsed"
-    )
-    st.session_state.automated_mode['total_capital'] = float(total_capital)
+        st.write("**💰 Capital**")
+        current_capital = float(st.session_state.automated_mode.get('total_capital', 100.0))
+        current_capital = max(100.0, current_capital)
+        
+        total_capital = st.number_input(
+            "Trading Capital (₹)",
+            min_value=100.0,
+            max_value=1000000.0,
+            value=current_capital,
+            step=100.0,
+            help="Minimum ₹100 required for automated trading",
+            key="auto_capital",
+            label_visibility="collapsed"
+        )
+        st.session_state.automated_mode['total_capital'] = float(total_capital)
     
     with col5:
         st.write("**⚡ Risk**")
@@ -2969,6 +2954,8 @@ with col3:
             label_visibility="collapsed"
         )
         st.session_state.automated_mode['risk_per_trade'] = float(risk_per_trade)
+    
+    # Rest of the function continues...
     
     # Update paper portfolio capital if not running
     if not st.session_state.automated_mode.get('running', False):
