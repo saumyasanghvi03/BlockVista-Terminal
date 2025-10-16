@@ -2364,7 +2364,7 @@ def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
     except Exception as e:
         st.error(f"Automated trade execution failed: {e}")
         return None
-        else:
+    else:
             # PAPER TRADING - Simulate the trade
             paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
             trade_value = quantity * current_price
