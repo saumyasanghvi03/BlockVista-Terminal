@@ -906,7 +906,9 @@ def get_global_indices_data(tickers):
 def display_overnight_changes_bar():
     """Displays a notification bar with overnight market changes."""
     overnight_tickers = {"GIFT NIFTY": "NIFTY_F1", "S&P 500 Futures": "ES=F", "NASDAQ Futures": "NQ=F"}
-    data = get_global_indices_data(overnight_tickers)
+    
+    # Use the enhanced function that actually exists
+    data = get_global_indices_data_enhanced(overnight_tickers)
     
     if not data.empty:
         bar_html = "<div class='notification-bar'>"
