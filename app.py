@@ -3650,102 +3650,174 @@ def display_bot_configuration_tab():
             st.warning("No symbols in active watchlist")
 
 def display_enhanced_live_dashboard(instrument_df):
-    """Display enhanced live dashboard with real metrics."""
+    """Enhanced live trading dashboard with real metrics."""
     st.subheader("📊 Live Performance Dashboard")
     
     # Performance metrics
     performance = get_automated_bot_performance()
+    paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
     
+    # Key metrics row
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Total Return", f"{performance.get('paper_return_pct', 0):.2f}%")
-        st.metric("Total Trades", performance.get('total_trades', 0))
+        total_return = performance.get('paper_return_pct', 0)
+        return_color = "green" if total_return >= 0 else "red"
+        st.metric(
+            "Total Return", 
+            f"{total_return:.2f}%",
+            delta=f"{total_return:.2f}%",
+            delta_color="normal" if total_return >= 0 else "inverse"
+        )
     
     with col2:
-        st.metric("Win Rate", f"{performance.get('win_rate', 0):.1f}%")
-        st.metric("Total P&L", f"₹{performance.get('total_pnl', 0):.2f}")
+        total_trades = performance.get('total_trades', 0)
+        st.metric("Total Trades", total_trades)
     
     with col3:
-        st.metric("Avg Win", f"₹{performance.get('avg_win', 0):.2f}")
-        st.metric("Avg Loss", f"₹{performance.get('avg_loss', 0):.2f}")
+        win_rate = performance.get('win_rate', 0)
+        win_color = "green" if win_rate > 60 else "orange" if win_rate > 40 else "red"
+        st.metric(
+            "Win Rate", 
+            f"{win_rate:.1f}%",
+            delta_color="normal" if win_rate > 60 else "off"
+        )
     
     with col4:
-        st.metric("Open Trades", performance.get('open_trades', 0))
-        st.metric("Unrealized P&L", f"₹{performance.get('unrealized_pnl', 0):.2f}")
+        total_pnl = performance.get('total_pnl', 0)
+        pnl_color = "green" if total_pnl >= 0 else "red"
+        st.metric(
+            "Total P&L", 
+            f"₹{total_pnl:,.2f}",
+            delta=f"₹{total_pnl:,.2f}",
+            delta_color="normal" if total_pnl >= 0 else "inverse"
+        )
     
     st.markdown("---")
     
-    # Portfolio value over time (simulated)
-    st.subheader("Portfolio Value Trend")
+    # Portfolio overview
+    st.subheader("💰 Portfolio Overview")
     
-    # Generate sample portfolio growth data
-    if st.session_state.automated_mode.get('trade_history'):
-        dates = []
-        values = []
-        current_value = st.session_state.automated_mode['paper_portfolio']['initial_capital']
-        
-        for trade in st.session_state.automated_mode['trade_history'][-50:]:  # Last 50 trades
-            if 'timestamp' in trade:
-                dates.append(pd.to_datetime(trade['timestamp']))
-                # Simulate value changes based on trade P&L
-                current_value += trade.get('pnl', 0)
-                values.append(current_value)
-        
-        if dates and values:
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=dates, y=values, mode='lines', name='Portfolio Value', line=dict(color='#00ff88')))
-            fig.update_layout(
-                title="Portfolio Growth",
-                xaxis_title="Time",
-                yaxis_title="Portfolio Value (₹)",
-                template='plotly_dark' if st.session_state.get('theme') == 'Dark' else 'plotly_white'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Not enough trade data to display portfolio trend.")
-    else:
-        st.info("No trading activity yet. Portfolio trend will appear here after trades.")
+    col5, col6, col7, col8 = st.columns(4)
+    
+    with col5:
+        current_value = paper_portfolio.get('total_value', paper_portfolio.get('cash_balance', 0))
+        st.metric("Portfolio Value", f"₹{current_value:,.2f}")
+    
+    with col6:
+        cash_balance = paper_portfolio.get('cash_balance', 0)
+        st.metric("Cash Balance", f"₹{cash_balance:,.2f}")
+    
+    with col7:
+        initial_capital = paper_portfolio.get('initial_capital', current_value)
+        st.metric("Initial Capital", f"₹{initial_capital:,.2f}")
+    
+    with col8:
+        open_trades = performance.get('open_trades', 0)
+        st.metric("Open Trades", open_trades)
+    
+    st.markdown("---")
     
     # Active positions
-    st.subheader("Active Positions")
-    paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
+    st.subheader("📈 Active Positions")
     positions = paper_portfolio.get('positions', {})
     
     if positions:
         position_data = []
+        total_position_value = 0
+        
         for symbol, position in positions.items():
             # Get current price
             live_data = get_watchlist_data([{'symbol': symbol, 'exchange': 'NSE'}])
             current_price = live_data.iloc[0]['Price'] if not live_data.empty else position['avg_price']
-            pnl = (current_price - position['avg_price']) * position['quantity']
-            pnl_percent = ((current_price - position['avg_price']) / position['avg_price']) * 100
+            position_value = position['quantity'] * current_price
+            total_position_value += position_value
+            unrealized_pnl = (current_price - position['avg_price']) * position['quantity']
+            pnl_percent = (unrealized_pnl / (position['avg_price'] * position['quantity'])) * 100 if position['avg_price'] > 0 else 0
             
             position_data.append({
                 'Symbol': symbol,
                 'Quantity': position['quantity'],
                 'Avg Price': f"₹{position['avg_price']:.2f}",
                 'Current Price': f"₹{current_price:.2f}",
-                'P&L': f"₹{pnl:.2f}",
+                'Value': f"₹{position_value:,.2f}",
+                'P&L': f"₹{unrealized_pnl:.2f}",
                 'P&L %': f"{pnl_percent:.2f}%",
                 'Action': position.get('action', 'BUY')
             })
         
-        # Color code P&L
+        # Display positions
+        df_positions = pd.DataFrame(position_data)
+        
+        # Color coding for P&L
         def color_pnl(val):
-            if '₹' in str(val):
-                num = float(val.replace('₹', '').replace(',', ''))
-                color = 'color: #00ff88;' if num > 0 else 'color: #ff4444;' if num < 0 else ''
-                return color
+            try:
+                pnl_value = float(val.replace('₹', '').replace(',', '').split(' ')[0])
+                if pnl_value > 0:
+                    return 'color: green; font-weight: bold;'
+                elif pnl_value < 0:
+                    return 'color: red; font-weight: bold;'
+            except:
+                pass
             return ''
         
-        styled_df = pd.DataFrame(position_data).style.applymap(color_pnl, subset=['P&L', 'P&L %'])
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        styled_positions = df_positions.style.map(color_pnl, subset=['P&L', 'P&L %'])
+        st.dataframe(styled_positions, use_container_width=True, hide_index=True)
+        
+        # Position summary
+        st.metric("Total Positions Value", f"₹{total_position_value:,.2f}")
+        
     else:
-        st.info("No active positions")
+        st.info("No active positions. Trades will appear here when executed.")
+    
+    # Trading statistics
+    st.markdown("---")
+    st.subheader("📈 Trading Statistics")
+    
+    col9, col10, col11, col12 = st.columns(4)
+    
+    with col9:
+        avg_win = performance.get('avg_win', 0)
+        st.metric("Avg Win", f"₹{avg_win:.2f}")
+    
+    with col10:
+        avg_loss = performance.get('avg_loss', 0)
+        st.metric("Avg Loss", f"₹{avg_loss:.2f}")
+    
+    with col11:
+        profit_factor = abs(avg_win / avg_loss) if avg_loss != 0 else 0
+        st.metric("Profit Factor", f"{profit_factor:.2f}")
+    
+    with col12:
+        max_drawdown = performance.get('max_drawdown', 0)
+        st.metric("Max Drawdown", f"{max_drawdown:.1f}%")
+    
+    # Recent activity
+    st.markdown("---")
+    st.subheader("🕒 Recent Activity")
+    
+    # Show last 5 trades
+    trade_history = st.session_state.automated_mode.get('trade_history', [])
+    if trade_history:
+        recent_trades = sorted(trade_history, key=lambda x: x.get('timestamp', ''), reverse=True)[:5]
+        
+        for trade in recent_trades:
+            timestamp = trade.get('timestamp_display', 
+                                get_ist_time().strftime("%H:%M:%S IST") if 'timestamp' not in trade 
+                                else datetime.fromisoformat(trade['timestamp'].replace('Z', '+00:00')).astimezone(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S IST"))
+            
+            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+            col1.write(f"**{trade['symbol']}**")
+            col2.write(f"**{trade['action']}**")
+            col3.write(f"{trade['quantity']} shares")
+            col4.write(f"₹{trade.get('entry_price', 0):.2f}")
+            st.caption(f"_{timestamp} • {trade.get('bot_name', 'Manual')} • {trade.get('status', 'OPEN')}_")
+            st.markdown("---")
+    else:
+        st.info("No recent trading activity")
 
 def display_enhanced_live_thinking_tab(instrument_df):
-    """Display enhanced live thinking tab with actual bot analysis."""
+    """Enhanced live bot thinking analysis with real reasoning."""
     st.subheader("🔍 Live Bot Analysis & Thinking")
     
     # Get current state
@@ -3763,132 +3835,158 @@ def display_enhanced_live_thinking_tab(instrument_df):
     
     # Analysis controls
     col1, col2 = st.columns([3, 1])
+    with col1:
+        st.write("**Real-time Bot Analysis**")
     with col2:
         if st.button("🔄 Refresh Analysis", use_container_width=True):
             st.rerun()
     
-    st.write("**🔍 Current Bot Analysis:**")
-    
-    # Run analysis for each symbol with active bots
+    # Run analysis on watchlist symbols
     thinking_data = []
-    analysis_progress = st.progress(0)
     
-    for idx, symbol in enumerate(watchlist_symbols[:15]):  # Limit for performance
-        for bot_name in active_bots:
-            if bot_name in AUTOMATED_BOTS:
-                try:
-                    # Get symbol data
-                    exchange = 'NSE'
-                    token = get_instrument_token(symbol, instrument_df, exchange)
-                    if not token:
-                        continue
+    with st.spinner("🤖 Analyzing symbols with active bots..."):
+        for symbol in watchlist_symbols[:10]:  # Limit for performance
+            for bot_name in active_bots:
+                if bot_name in AUTOMATED_BOTS:
+                    try:
+                        bot_function = AUTOMATED_BOTS[bot_name]
+                        bot_result = bot_function(instrument_df, symbol)
                         
-                    # Get historical data for analysis
-                    data = get_historical_data(token, '15minute', period='5d')
-                    if data.empty:
-                        continue
-                    
-                    # Run bot analysis
-                    bot_function = AUTOMATED_BOTS[bot_name]
-                    bot_result = bot_function(instrument_df, symbol)
-                    
-                    if not bot_result.get("error"):
+                        if not bot_result.get("error"):
+                            # Get current price for context
+                            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': 'NSE'}])
+                            current_price = quote_data.iloc[0]['Price'] if not quote_data.empty else 0
+                            
+                            thinking_data.append({
+                                'Symbol': symbol,
+                                'Bot': bot_name,
+                                'Signal': bot_result['action'],
+                                'Confidence': bot_result.get('score', 50),
+                                'Current Price': f"₹{current_price:.2f}",
+                                'Analysis': " | ".join(bot_result.get('signals', ['No signals detected'])),
+                                'Risk Level': bot_result.get('risk_level', 'Medium'),
+                                'Timestamp': get_ist_time().strftime("%H:%M:%S IST")
+                            })
+                    except Exception as e:
                         thinking_data.append({
-                            'symbol': symbol,
-                            'bot': bot_name,
-                            'signal': bot_result["action"],
-                            'confidence': bot_result.get("score", 50),
-                            'thinking': " | ".join(bot_result.get("signals", [])),
-                            'price': f"₹{bot_result.get('current_price', 0):.2f}",
-                            'risk': bot_result.get("risk_level", "Medium"),
-                            'timestamp': get_ist_time().strftime("%H:%M:%S")
+                            'Symbol': symbol,
+                            'Bot': bot_name,
+                            'Signal': 'ERROR',
+                            'Confidence': 0,
+                            'Current Price': 'N/A',
+                            'Analysis': f"Analysis error: {str(e)}",
+                            'Risk Level': 'High',
+                            'Timestamp': get_ist_time().strftime("%H:%M:%S IST")
                         })
-                    
-                except Exception as e:
-                    thinking_data.append({
-                        'symbol': symbol,
-                        'bot': bot_name,
-                        'signal': 'ERROR',
-                        'confidence': 0,
-                        'thinking': f"Analysis error: {str(e)}",
-                        'price': 'N/A',
-                        'risk': 'High',
-                        'timestamp': get_ist_time().strftime("%H:%M:%S")
-                    })
-        
-        # Update progress
-        analysis_progress.progress((idx + 1) / min(15, len(watchlist_symbols)))
     
     if thinking_data:
-        # Convert to dataframe for better display
+        # Convert to dataframe
         thinking_df = pd.DataFrame(thinking_data)
         
-        # Color code signals
-        def color_signal(signal):
-            if signal == 'BUY':
-                return 'background-color: #90EE90; color: #000000;'  # Light green
-            elif signal == 'SELL':
-                return 'background-color: #FFB6C1; color: #000000;'  # Light red
-            elif signal == 'HOLD':
-                return 'background-color: #F0F0F0; color: #000000;'  # Light gray
+        # Color coding
+        def color_signal(val):
+            if val == 'BUY':
+                return 'background-color: #d4edda; color: #155724; font-weight: bold;'
+            elif val == 'SELL':
+                return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'
+            elif val == 'HOLD':
+                return 'background-color: #fff3cd; color: #856404; font-weight: bold;'
             else:
-                return 'background-color: #FFD700; color: #000000;'  # Yellow for errors
+                return 'background-color: #f5f5f5; color: #333;'
         
-        # Apply styling
-        styled_df = thinking_df.style.apply(
-            lambda x: [color_signal(val) for val in x], 
-            subset=['signal']
-        )
+        def color_confidence(val):
+            if val >= 70:
+                return 'color: #28a745; font-weight: bold;'
+            elif val >= 50:
+                return 'color: #ffc107; font-weight: bold;'
+            else:
+                return 'color: #dc3545; font-weight: bold;'
         
-        # Format confidence as percentage
-        thinking_df['confidence'] = thinking_df['confidence'].apply(lambda x: f"{x}%")
-        
-        st.dataframe(thinking_df, use_container_width=True, hide_index=True)
+        # Display styled dataframe
+        styled_df = thinking_df.style.map(color_signal, subset=['Signal']).map(color_confidence, subset=['Confidence'])
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
         # Summary statistics
-        buy_signals = len(thinking_df[thinking_df['signal'] == 'BUY'])
-        sell_signals = len(thinking_df[thinking_df['signal'] == 'SELL'])
-        hold_signals = len(thinking_df[thinking_df['signal'] == 'HOLD'])
+        st.subheader("📊 Analysis Summary")
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Buy Signals", buy_signals, delta=f"{buy_signals} opportunities")
-        col2.metric("Sell Signals", sell_signals, delta=f"{sell_signals} opportunities")
-        col3.metric("Hold Signals", hold_signals, delta=f"{hold_signals} symbols")
+        buy_signals = len(thinking_df[thinking_df['Signal'] == 'BUY'])
+        sell_signals = len(thinking_df[thinking_df['Signal'] == 'SELL'])
+        hold_signals = len(thinking_df[thinking_df['Signal'] == 'HOLD'])
+        avg_confidence = thinking_df['Confidence'].mean()
         
-        # Display actionable insights
-        if buy_signals > 0:
-            strong_buys = thinking_df[
-                (thinking_df['signal'] == 'BUY') & 
-                (thinking_df['confidence'].str.replace('%', '').astype(float) > 70)
-            ]
-            if not strong_buys.empty:
-                st.success("🎯 **Strong Buy Opportunities:**")
-                for _, signal in strong_buys.iterrows():
-                    st.write(f"- **{signal['symbol']}** ({signal['bot']}): {signal['thinking']}")
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Buy Signals", buy_signals)
+        col2.metric("Sell Signals", sell_signals)
+        col3.metric("Hold Signals", hold_signals)
+        col4.metric("Avg Confidence", f"{avg_confidence:.1f}%")
         
+        # Bot-specific analysis
+        st.subheader("🤖 Bot Performance")
+        bot_performance = thinking_df.groupby('Bot').agg({
+            'Signal': 'count',
+            'Confidence': 'mean'
+        }).rename(columns={'Signal': 'Analyses', 'Confidence': 'Avg Confidence'})
+        
+        st.dataframe(bot_performance.style.format({'Avg Confidence': '{:.1f}%'}), use_container_width=True)
+        
+        # Actionable insights
+        st.subheader("💡 Actionable Insights")
+        
+        if buy_signals > sell_signals * 2:
+            st.success("**Market Sentiment:** 📈 Predominantly Bullish - More buy signals detected")
+        elif sell_signals > buy_signals * 2:
+            st.error("**Market Sentiment:** 📉 Predominantly Bearish - More sell signals detected")
+        else:
+            st.info("**Market Sentiment:** ⚖️ Mixed - Balanced signals across bots")
+            
+        if avg_confidence > 70:
+            st.success("**Signal Quality:** ✅ High Confidence - Strong trading signals")
+        elif avg_confidence > 50:
+            st.warning("**Signal Quality:** ⚠️ Medium Confidence - Moderate trading signals")
+        else:
+            st.error("**Signal Quality:** ❌ Low Confidence - Weak or conflicting signals")
+            
     else:
-        st.info("No analysis data available. This could be because:")
-        st.write("1. Market data is not available for the symbols")
-        st.write("2. Bots are still processing the analysis")
-        st.write("3. No clear signals detected by the bots")
-        st.write("4. Check if market is open for live data")
+        st.info("""
+        **No analysis data available. Possible reasons:**
+        
+        - Bots are still processing
+        - No active symbols in watchlist
+        - Market data unavailable
+        - Bot configuration issues
+        
+        **Try:**
+        - Adding symbols to your watchlist
+        - Checking bot activation status
+        - Waiting for market hours (9:15 AM - 3:30 PM IST)
+        """)
 
 def display_symbol_override_tab(instrument_df):
-    """Display symbol override tab with actual functionality."""
+    """Enhanced symbol override tab with manual control and analysis."""
     st.subheader("🎯 Symbol Override & Manual Control")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.write("**Manual Trade Entry**")
+        st.write("### Manual Trade Entry")
         
-        symbol = st.text_input("Symbol", key="manual_symbol").upper()
+        # Symbol selection with search
+        symbol = st.text_input("Symbol", key="manual_symbol", placeholder="e.g., RELIANCE, TCS").upper()
+        
+        # Show symbol info if exists
+        if symbol:
+            symbol_info = instrument_df[instrument_df['tradingsymbol'] == symbol]
+            if not symbol_info.empty:
+                st.success(f"✅ Symbol found: {symbol_info.iloc[0].get('name', symbol)}")
+            else:
+                st.warning("⚠️ Symbol not found in instrument list")
+        
         action = st.selectbox("Action", ["BUY", "SELL"], key="manual_action")
         quantity = st.number_input("Quantity", min_value=1, value=1, key="manual_quantity")
         price_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="manual_type")
         
         if price_type == "LIMIT":
-            price = st.number_input("Price", min_value=0.01, key="manual_price")
+            price = st.number_input("Price", min_value=0.01, key="manual_price", value=0.0)
         else:
             price = None
         
@@ -3896,14 +3994,15 @@ def display_symbol_override_tab(instrument_df):
         current_status = get_market_status()['status']
         market_open = is_market_hours()
         
-        if st.button("Execute Manual Trade", type="primary", use_container_width=True):
+        if st.button("🚀 Execute Manual Trade", type="primary", use_container_width=True):
             if symbol:
                 try:
                     if st.session_state.automated_mode.get('live_trading', False):
                         if not market_open:
                             st.warning("⚠️ Market is closed - Live order will queue until market opens")
+                        # Execute real trade
                         place_order(instrument_df, symbol, quantity, price_type, action, 'MIS', price)
-                        st.success(f"LIVE {action} order placed for {symbol}")
+                        st.success(f"✅ LIVE {action} order placed for {symbol}")
                     else:
                         # Paper trading simulation
                         paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
@@ -3914,90 +4013,81 @@ def display_symbol_override_tab(instrument_df):
                             if paper_portfolio.get('cash_balance', 0) >= trade_value:
                                 paper_portfolio['cash_balance'] -= trade_value
                                 if symbol in paper_portfolio.get('positions', {}):
-                                    paper_portfolio['positions'][symbol]['quantity'] += quantity
-                                    # Update average price
-                                    old_qty = paper_portfolio['positions'][symbol]['quantity'] - quantity
+                                    # Update existing position
+                                    old_qty = paper_portfolio['positions'][symbol]['quantity']
                                     old_avg = paper_portfolio['positions'][symbol]['avg_price']
-                                    new_avg = ((old_qty * old_avg) + (quantity * current_price)) / (old_qty + quantity)
+                                    new_qty = old_qty + quantity
+                                    new_avg = ((old_qty * old_avg) + (quantity * current_price)) / new_qty
+                                    paper_portfolio['positions'][symbol]['quantity'] = new_qty
                                     paper_portfolio['positions'][symbol]['avg_price'] = new_avg
                                 else:
+                                    # New position
                                     if 'positions' not in paper_portfolio:
                                         paper_portfolio['positions'] = {}
                                     paper_portfolio['positions'][symbol] = {
                                         'quantity': quantity,
                                         'avg_price': current_price,
-                                        'action': 'BUY'
+                                        'action': 'BUY',
+                                        'entry_time': get_ist_time().isoformat()
                                     }
-                                
-                                # Record trade
-                                trade_record = {
-                                    'timestamp': get_ist_time().isoformat(),
-                                    'timestamp_display': get_ist_time().strftime("%Y-%m-%d %H:%M:%S IST"),
-                                    'symbol': symbol,
-                                    'action': action,
-                                    'quantity': quantity,
-                                    'entry_price': current_price,
-                                    'status': 'OPEN',
-                                    'bot_name': 'Manual Override',
-                                    'risk_level': 'Manual',
-                                    'order_type': 'PAPER',
-                                    'pnl': 0
-                                }
-                                st.session_state.automated_mode['trade_history'].append(trade_record)
-                                
-                                st.success(f"PAPER {action} executed for {symbol} at ₹{current_price:.2f}")
+                                st.success(f"📄 PAPER {action} executed for {symbol} @ ₹{current_price:.2f}")
                             else:
-                                st.error("Insufficient paper trading balance")
+                                st.error("❌ Insufficient paper trading balance")
                         else:  # SELL
+                            # For paper trading, we simulate selling
                             if symbol in paper_portfolio.get('positions', {}):
                                 position = paper_portfolio['positions'][symbol]
                                 if position['quantity'] >= quantity:
-                                    # Close position
+                                    # Calculate P&L
+                                    pnl = (current_price - position['avg_price']) * quantity
                                     paper_portfolio['cash_balance'] += quantity * current_price
                                     paper_portfolio['positions'][symbol]['quantity'] -= quantity
                                     
-                                    # Remove if position is fully closed
+                                    # Remove if position closed
                                     if paper_portfolio['positions'][symbol]['quantity'] == 0:
                                         del paper_portfolio['positions'][symbol]
                                     
-                                    # Record trade
-                                    trade_record = {
-                                        'timestamp': get_ist_time().isoformat(),
-                                        'timestamp_display': get_ist_time().strftime("%Y-%m-%d %H:%M:%S IST"),
-                                        'symbol': symbol,
-                                        'action': action,
-                                        'quantity': quantity,
-                                        'entry_price': current_price,
-                                        'status': 'OPEN',
-                                        'bot_name': 'Manual Override',
-                                        'risk_level': 'Manual',
-                                        'order_type': 'PAPER',
-                                        'pnl': (current_price - position['avg_price']) * quantity
-                                    }
-                                    st.session_state.automated_mode['trade_history'].append(trade_record)
-                                    
-                                    st.success(f"PAPER {action} executed for {symbol} at ₹{current_price:.2f}")
+                                    st.success(f"📄 PAPER {action} executed for {symbol} @ ₹{current_price:.2f} | P&L: ₹{pnl:.2f}")
                                 else:
-                                    st.error(f"Insufficient shares. You only have {position['quantity']} shares.")
+                                    st.error(f"❌ Not enough shares to sell. Holding: {position['quantity']}")
                             else:
-                                st.error(f"No position found for {symbol}")
+                                st.error(f"❌ No position found for {symbol}")
                 except Exception as e:
-                    st.error(f"Trade execution failed: {e}")
+                    st.error(f"❌ Trade execution failed: {e}")
             else:
-                st.warning("Please enter a symbol")
+                st.warning("⚠️ Please enter a symbol")
     
     with col2:
-        st.write("**Quick Actions**")
+        st.write("### Quick Actions")
         
-        if st.button("🔄 Update All Prices", use_container_width=True):
+        # Force analysis on specific symbol
+        st.write("**🔍 Quick Analysis**")
+        analysis_symbol = st.text_input("Analyze Symbol", key="analysis_symbol", placeholder="Enter symbol for quick analysis").upper()
+        
+        if st.button("🤖 Run Bot Analysis", use_container_width=True) and analysis_symbol:
+            with st.spinner(f"Analyzing {analysis_symbol}..."):
+                # Run all active bots on this symbol
+                active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
+                for bot_name in active_bots:
+                    if bot_name in AUTOMATED_BOTS:
+                        try:
+                            bot_function = AUTOMATED_BOTS[bot_name]
+                            bot_result = bot_function(instrument_df, analysis_symbol)
+                            if not bot_result.get("error"):
+                                st.write(f"**{bot_name}:** {bot_result['action']} - {bot_result.get('score', 'N/A')}% confidence")
+                                for signal in bot_result.get('signals', []):
+                                    st.write(f"  - {signal}")
+                        except Exception as e:
+                            st.error(f"{bot_name} failed: {e}")
+        
+        st.markdown("---")
+        
+        # Portfolio management
+        st.write("**💰 Portfolio Actions**")
+        
+        if st.button("🔄 Update Portfolio Values", use_container_width=True):
             update_paper_portfolio_values(instrument_df)
-            st.success("Portfolio values updated!")
-        
-        if st.button("📊 Force Analysis", use_container_width=True):
-            active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-            watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
-            run_automated_bots_cycle(instrument_df, watchlist_symbols)
-            st.success("Manual analysis cycle completed!")
+            st.success("✅ Portfolio values updated!")
         
         if st.button("🗑️ Clear All Trades", use_container_width=True):
             st.session_state.automated_mode['trade_history'] = []
@@ -4007,16 +4097,19 @@ def display_symbol_override_tab(instrument_df):
                 'initial_capital': st.session_state.automated_mode['total_capital'],
                 'total_value': st.session_state.automated_mode['total_capital']
             }
-            st.success("All trades and positions cleared!")
+            st.session_state.order_history = []
+            st.success("✅ All trades and positions cleared!")
         
+        # Market status info
         st.markdown("---")
-        st.write("**📈 Market Status**")
+        st.write("### 📈 Market Status")
         status_info = get_market_status()
-        st.write(f"Status: **{status_info['status'].replace('_', ' ').title()}**")
-        st.write(f"Paper Trading: **Always Available**")
-        st.write(f"Live Trading: **Available 24/7**")
+        st.write(f"**Status:** {status_info['status'].replace('_', ' ').title()}")
+        st.write(f"**Paper Trading:** ✅ Always Available")
+        st.write(f"**Live Trading:** ✅ Available 24/7")
+        
         if not is_market_hours():
-            st.info("Live orders will queue and execute when market opens")
+            st.info("📅 Live orders will queue and execute when market opens (9:15 AM - 3:30 PM IST)")
         
         # Current portfolio snapshot
         st.markdown("---")
@@ -4766,22 +4859,6 @@ def display_bot_configuration_tab():
         else:
             st.warning("No symbols in active watchlist")
 
-def display_enhanced_live_dashboard(instrument_df):
-    """Display enhanced live dashboard"""
-    st.info("Live trading dashboard - Real-time performance metrics would display here")
-
-def display_enhanced_live_thinking_tab(instrument_df):
-    """Display enhanced live thinking tab"""
-    st.info("Live bot thinking analysis would display here")
-
-def display_symbol_override_tab(instrument_df):
-    """Display symbol override tab"""
-    st.info("Symbol override functionality would be here")
-
-def display_setup_guide():
-    """Display setup guide"""
-    st.info("Automated trading setup guide would display here")
-
 # ================ 5. PAGE DEFINITIONS ============
 
 # --- Bharatiya Market Pulse (BMP) Functions ---
@@ -5449,43 +5526,99 @@ def page_portfolio_and_risk():
         display_order_history()
 
 def display_trade_history():
-    """Display trade history with IST timestamps."""
-    if 'automated_mode' in st.session_state and st.session_state.automated_mode.get('trade_history'):
-        trades = st.session_state.automated_mode['trade_history']
+    """Display comprehensive trade history with IST timestamps."""
+    st.subheader("📋 Trade History")
+    
+    # Get all trade sources
+    manual_trades = st.session_state.get('order_history', [])
+    automated_trades = st.session_state.automated_mode.get('trade_history', [])
+    
+    if not manual_trades and not automated_trades:
+        st.info("No trade history available. Trades will appear here after execution.")
+        return
+    
+    # Combine and format all trades
+    all_trades = []
+    
+    # Add manual trades
+    for trade in manual_trades:
+        ist_time = get_ist_time()
+        all_trades.append({
+            'Time': ist_time.strftime("%H:%M:%S IST"),
+            'Symbol': trade.get('symbol', 'N/A'),
+            'Action': trade.get('type', 'N/A'),
+            'Qty': trade.get('qty', 0),
+            'Status': trade.get('status', 'N/A'),
+            'Type': 'Manual',
+            'P&L': 'N/A'
+        })
+    
+    # Add automated trades
+    for trade in automated_trades:
+        display_time = trade.get('timestamp_display', 
+                               get_ist_time().strftime("%H:%M:%S IST") if 'timestamp' not in trade 
+                               else datetime.fromisoformat(trade['timestamp'].replace('Z', '+00:00')).astimezone(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S IST"))
         
-        # Convert to DataFrame for display
-        trade_data = []
-        for trade in trades:
-            # Use display timestamp if available, else convert from ISO
-            if 'timestamp_display' in trade:
-                display_time = trade['timestamp_display']
-            else:
-                # Convert existing ISO timestamp to IST
-                try:
-                    dt = datetime.fromisoformat(trade['timestamp'].replace('Z', '+00:00'))
-                    ist = pytz.timezone('Asia/Kolkata')
-                    dt_ist = dt.astimezone(ist)
-                    display_time = dt_ist.strftime("%Y-%m-%d %H:%M:%S IST")
-                except:
-                    display_time = trade['timestamp']
-            
-            trade_data.append({
-                'Time': display_time,
-                'Symbol': trade['symbol'],
-                'Action': trade['action'],
-                'Qty': trade['quantity'],
-                'Price': f"₹{trade['entry_price']:.2f}",
-                'Type': trade.get('order_type', 'N/A'),
-                'Status': trade['status'],
-                'P&L': f"₹{trade.get('pnl', 0):.2f}"
-            })
+        all_trades.append({
+            'Time': display_time,
+            'Symbol': trade.get('symbol', 'N/A'),
+            'Action': trade.get('action', 'N/A'),
+            'Qty': trade.get('quantity', 0),
+            'Status': trade.get('status', 'OPEN'),
+            'Type': trade.get('order_type', 'Automated'),
+            'P&L': f"₹{trade.get('pnl', 0):.2f}"
+        })
+    
+    # Sort by time (newest first)
+    all_trades.sort(key=lambda x: x['Time'], reverse=True)
+    
+    # Create dataframe and display
+    if all_trades:
+        df = pd.DataFrame(all_trades)
         
-        if trade_data:
-            st.dataframe(pd.DataFrame(trade_data), use_container_width=True)
-        else:
-            st.info("No trade history available.")
+        # Color coding for status
+        def color_status(val):
+            if val == 'Success' or val == 'CLOSED':
+                return 'color: green; font-weight: bold;'
+            elif val == 'OPEN':
+                return 'color: orange; font-weight: bold;'
+            elif 'Failed' in str(val):
+                return 'color: red; font-weight: bold;'
+            return ''
+        
+        # Color coding for action
+        def color_action(val):
+            if val == 'BUY':
+                return 'color: #00cc00; font-weight: bold;'
+            elif val == 'SELL':
+                return 'color: #ff4444; font-weight: bold;'
+            return ''
+        
+        styled_df = df.style.map(color_status, subset=['Status']).map(color_action, subset=['Action'])
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        
+        # Summary statistics
+        total_trades = len(all_trades)
+        successful_trades = len([t for t in all_trades if t['Status'] in ['Success', 'CLOSED']])
+        open_trades = len([t for t in all_trades if t['Status'] == 'OPEN'])
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Trades", total_trades)
+        col2.metric("Successful", successful_trades)
+        col3.metric("Open", open_trades)
+        
+        # Export option
+        if st.button("📊 Export Trade History to CSV", use_container_width=True):
+            csv = df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name=f"trade_history_{get_ist_time().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
     else:
-        st.info("No trade history available.")
+        st.info("No trades to display.")
 
 def display_order_history():
     """Display order history - UPDATED FOR UPSTOX."""
