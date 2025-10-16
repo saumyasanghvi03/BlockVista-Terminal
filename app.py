@@ -245,12 +245,18 @@ def initialize_session_state():
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
     if 'pyotp_secret' not in st.session_state: st.session_state.pyotp_secret = None
     if 'theme' not in st.session_state: st.session_state.theme = 'Dark'
+    
+    # Remove the dialog state variables
+    if 'show_quick_trade' not in st.session_state: st.session_state.show_quick_trade = False
+    
+    # Add other existing initializations...
     if 'watchlists' not in st.session_state:
         st.session_state.watchlists = {
             "Watchlist 1": [{'symbol': 'RELIANCE', 'exchange': 'NSE'}, {'symbol': 'HDFCBANK', 'exchange': 'NSE'}],
             "Watchlist 2": [{'symbol': 'TCS', 'exchange': 'NSE'}, {'symbol': 'INFY', 'exchange': 'NSE'}],
             "Watchlist 3": [{'symbol': 'SENSEX', 'exchange': 'BSE'}]
         }
+    # Add all other existing initializations...
     if 'active_watchlist' not in st.session_state: st.session_state.active_watchlist = "Watchlist 1"
     if 'order_history' not in st.session_state: st.session_state.order_history = []
     if 'basket' not in st.session_state: st.session_state.basket = []
@@ -295,29 +301,23 @@ def get_broker_client():
     return None
 
 # @st.dialog("Quick Trade")
-def quick_trade_dialog(symbol=None, exchange=None):
-    """A quick trade dialog for placing market or limit orders."""
-    if 'show_quick_trade' not in st.session_state:
-        st.session_state.show_quick_trade = False
-    
-    # Button to open the dialog
-    if st.sidebar.button("Quick Trade", use_container_width=True) or st.session_state.show_quick_trade:
-        st.session_state.show_quick_trade = True
-        
-        # Create the dialog content
-        st.subheader(f"Place Order for {symbol}" if symbol else "Quick Order")
+def quick_trade_interface(symbol=None, exchange=None):
+    """A quick trade interface that doesn't use dialogs."""
+    if st.session_state.get('show_quick_trade', False):
+        st.markdown("---")
+        st.subheader(f"Quick Trade - {symbol}" if symbol else "Quick Order")
         
         if symbol is None:
             symbol = st.text_input("Symbol").upper()
         
-        transaction_type = st.radio("Transaction", ["BUY", "SELL"], horizontal=True, key="diag_trans_type")
-        product = st.radio("Product", ["MIS", "CNC"], horizontal=True, key="diag_prod_type")
-        order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="diag_order_type")
-        quantity = st.number_input("Quantity", min_value=1, step=1, key="diag_qty")
-        price = st.number_input("Price", min_value=0.01, key="diag_price") if order_type == "LIMIT" else 0
+        transaction_type = st.radio("Transaction", ["BUY", "SELL"], horizontal=True, key="quick_trans_type")
+        product = st.radio("Product", ["MIS", "CNC"], horizontal=True, key="quick_prod_type")
+        order_type = st.radio("Order Type", ["MARKET", "LIMIT"], horizontal=True, key="quick_order_type")
+        quantity = st.number_input("Quantity", min_value=1, step=1, key="quick_qty")
+        price = st.number_input("Price", min_value=0.01, key="quick_price") if order_type == "LIMIT" else 0
 
         col1, col2 = st.columns(2)
-        if col1.button("Submit Order", use_container_width=True):
+        if col1.button("Submit Order", use_container_width=True, type="primary"):
             if symbol and quantity > 0:
                 place_order(get_instrument_df(), symbol, quantity, order_type, transaction_type, product, price if price > 0 else None)
                 st.session_state.show_quick_trade = False
@@ -6362,12 +6362,7 @@ def main_app():
     apply_custom_styling()
     display_overnight_changes_bar()
     
-    # Show dialogs if needed
-    if st.session_state.get('show_quick_trade', False):
-        quick_trade_dialog()
-    
-    # --- 2FA Check ---
-    # Ensure profile exists and is not None
+    # --- 2FA Check - Handle authentication flow first
     profile = st.session_state.get('profile')
     if not profile:
         st.error("User profile not found. Please log in again.")
@@ -6377,15 +6372,27 @@ def main_app():
             st.rerun()
         return
     
-    if not st.session_state.get('two_factor_setup_complete'):
-        qr_code_dialog()
+    # Show 2FA setup if needed (without dialogs)
+    if not st.session_state.get('two_factor_setup_complete', False):
+        show_two_factor_setup()
         return
+    
+    # Show 2FA authentication if needed (without dialogs)
     if not st.session_state.get('authenticated', False):
-        two_factor_dialog()
+        show_two_factor_auth()
         return
-
-    # ... rest of your main_app function remains the same
-
+    
+    # Only show main content after 2FA is complete
+    # Handle quick trade without dialogs
+    if st.session_state.get('show_quick_trade', False):
+        st.markdown("---")
+        st.subheader("Quick Trade")
+        symbol = st.session_state.get('quick_trade_symbol')
+        if symbol:
+            st.info(f"Trading: {symbol}")
+        # Add your quick trade form here without using dialogs
+    
+    # Rest of your main app content...
     st.sidebar.title(f"Welcome, {st.session_state.profile['user_name']}")
     st.sidebar.caption(f"Connected via {st.session_state.broker}")
     st.sidebar.divider()
@@ -6444,6 +6451,7 @@ def main_app():
             "Portfolio & Risk": page_portfolio_and_risk,
         }
     }
+    
     selection = st.sidebar.radio("Go to", list(pages[st.session_state.terminal_mode].keys()), key='nav_selector')
     
     st.sidebar.divider()
