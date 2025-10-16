@@ -3318,7 +3318,7 @@ def page_fully_automated_bots(instrument_df):
             st.session_state.automated_mode['paper_portfolio'] = {
                 'cash_balance': st.session_state.automated_mode.get('total_capital', 10000.0),
                 'positions': {},
-                'initial_capital': st.session_state.automated_mode.get('total_capital', 1000.0),
+                'initial_capital': st.session_state.automated_mode.get('total_capital', 10000.0),
                 'total_value': st.session_state.automated_mode.get('total_capital', 10000.0)
             }
     
@@ -3477,8 +3477,6 @@ def page_fully_automated_bots(instrument_df):
         )
         st.session_state.automated_mode['risk_per_trade'] = float(risk_per_trade)
     
-    # Rest of the function continues...
-    
     # Update paper portfolio capital if not running
     if not st.session_state.automated_mode.get('running', False):
         paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
@@ -3494,7 +3492,7 @@ def page_fully_automated_bots(instrument_df):
             st.session_state.automated_mode['paper_portfolio']['cash_balance'] = float(total_capital)
             st.session_state.automated_mode['paper_portfolio']['total_value'] = float(total_capital)
 
-        # Live trading confirmation dialog
+    # Live trading confirmation dialog
     if st.session_state.get('need_live_confirmation', False):
         st.markdown("---")
         st.error("""
@@ -3538,7 +3536,7 @@ def page_fully_automated_bots(instrument_df):
                 st.info("Live trading cancelled.")
                 st.rerun()
         
-        return  # This return should be at the same level as the if statement
+        return  # Stop execution here if confirmation is needed
     
     st.markdown("---")
     
@@ -3550,28 +3548,28 @@ def page_fully_automated_bots(instrument_df):
             display_bot_configuration_tab()
         
         with tab2:
-            # Live performance dashboard
+            # Live performance dashboard - CALL THE ACTUAL FUNCTION
             try:
                 display_enhanced_live_dashboard(instrument_df)
             except Exception as e:
                 st.error(f"Error displaying dashboard: {e}")
         
         with tab3:
-            # 🎯 ENHANCED LIVE THINKING TAB
+            # 🎯 ENHANCED LIVE THINKING TAB - CALL THE ACTUAL FUNCTION
             try:
                 display_enhanced_live_thinking_tab(instrument_df)
             except Exception as e:
                 st.error(f"Error in live thinking: {e}")
         
         with tab4:
-            # 🎯 NEW SYMBOL OVERRIDE TAB
+            # 🎯 NEW SYMBOL OVERRIDE TAB - CALL THE ACTUAL FUNCTION
             try:
                 display_symbol_override_tab(instrument_df)
             except Exception as e:
                 st.error(f"Error in symbol override: {e}")
         
         with tab5:
-            # 📋 TRADE HISTORY TAB
+            # 📋 TRADE HISTORY TAB - CALL THE ACTUAL FUNCTION
             try:
                 display_trade_history()
             except Exception as e:
@@ -4079,7 +4077,7 @@ def close_paper_position(symbol, quantity=None):
     return True
 
 def display_setup_guide():
-    """Display setup guide"""
+    """Display setup guide when automated mode is disabled."""
     st.subheader("🚀 Automated Trading Setup Guide")
     
     st.info("""
