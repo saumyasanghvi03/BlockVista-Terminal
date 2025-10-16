@@ -7302,11 +7302,18 @@ def show_two_factor_setup():
     user_name = st.session_state.get('profile', {}).get('user_name', 'User')
     uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
     
+    # Generate QR code with normal size
     img = qrcode.make(uri)
+    
+    # Resize to normal size (300x300 is standard for QR codes)
+    img = img.resize((300, 300))
+    
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     
-    st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
+    # Display with normal size (remove use_container_width)
+    st.image(buf.getvalue(), caption="Scan with your authenticator app", width=300)
+    
     st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
     
     st.markdown("---")
@@ -7371,7 +7378,6 @@ def show_two_factor_auth():
 
 
 @st.dialog("Generate QR Code for 2FA")
-@st.dialog("Generate QR Code for 2FA")
 def qr_code_dialog():
     """Dialog to generate a QR code for 2FA setup."""
     if 'show_qr_dialog' not in st.session_state:
@@ -7392,11 +7398,15 @@ def qr_code_dialog():
         user_name = st.session_state.get('profile', {}).get('user_name', 'User')
         uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
         
+        # Generate QR code with normal size
         img = qrcode.make(uri)
+        img = img.resize((300, 300))  # Normal size
+        
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         
-        st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
+        # Display with normal size
+        st.image(buf.getvalue(), caption="Scan with your authenticator app", width=300)
         st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
         
         if st.button("I have scanned the code. Continue.", use_container_width=True):
