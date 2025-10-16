@@ -2971,52 +2971,52 @@ def page_fully_automated_bots(instrument_df):
             st.session_state.automated_mode['paper_portfolio']['initial_capital'] = float(total_capital)
             st.session_state.automated_mode['paper_portfolio']['cash_balance'] = float(total_capital)
             st.session_state.automated_mode['paper_portfolio']['total_value'] = float(total_capital)
-    
-    # Live trading confirmation dialog
-    # Live trading confirmation dialog
-if st.session_state.get('need_live_confirmation', False):
-    st.markdown("---")
-    st.error("""
-    🚨 **LIVE TRADING CONFIRMATION REQUIRED**
-    
-    **You are about to enable LIVE TRADING with real money!**
-    
-    **Important Notes:**
-    • Real orders with real money
-    • You are responsible for ALL losses
-    • Market conditions can change rapidly
-    • Trading available 24/7 (orders execute during market hours)
-    • Auto-stop at market close for position safety
-    
-    **Market Hours: 9:15 AM - 3:30 PM (Mon-Fri)**
-    """)
-    
-    col_confirm1, col_confirm2, col_confirm3 = st.columns([2, 1, 1])
-    
-    with col_confirm1:
-        if st.button("✅ CONFIRM LIVE TRADING", type="primary", use_container_width=True):
-            st.session_state.automated_mode['running'] = True
-            st.session_state.automated_mode['live_trading'] = True
-            st.session_state.need_live_confirmation = False
-            st.session_state.live_trading_start_time = get_ist_time().isoformat()
-            st.success("🚀 LIVE TRADING ACTIVATED!")
-            st.rerun()
-    
-    with col_confirm2:
-        if st.button("📄 PAPER TRADING", use_container_width=True):
-            st.session_state.automated_mode['running'] = True
-            st.session_state.automated_mode['live_trading'] = False
-            st.session_state.need_live_confirmation = False
-            st.info("Paper trading started.")
-            st.rerun()
-            
-    with col_confirm3:
-        if st.button("❌ CANCEL", use_container_width=True):
-            st.session_state.automated_mode['live_trading'] = False
-            st.session_state.need_live_confirmation = False
-            st.info("Live trading cancelled.")
-            st.rerun()
-            return
+
+        # Live trading confirmation dialog
+    if st.session_state.get('need_live_confirmation', False):
+        st.markdown("---")
+        st.error("""
+        🚨 **LIVE TRADING CONFIRMATION REQUIRED**
+        
+        **You are about to enable LIVE TRADING with real money!**
+        
+        **Important Notes:**
+        • Real orders with real money
+        • You are responsible for ALL losses
+        • Market conditions can change rapidly
+        • Trading available 24/7 (orders execute during market hours)
+        • Auto-stop at market close for position safety
+        
+        **Market Hours: 9:15 AM - 3:30 PM (Mon-Fri)**
+        """)
+        
+        col_confirm1, col_confirm2, col_confirm3 = st.columns([2, 1, 1])
+        
+        with col_confirm1:
+            if st.button("✅ CONFIRM LIVE TRADING", type="primary", use_container_width=True):
+                st.session_state.automated_mode['running'] = True
+                st.session_state.automated_mode['live_trading'] = True
+                st.session_state.need_live_confirmation = False
+                st.session_state.live_trading_start_time = get_ist_time().isoformat()
+                st.success("🚀 LIVE TRADING ACTIVATED!")
+                st.rerun()
+        
+        with col_confirm2:
+            if st.button("📄 PAPER TRADING", use_container_width=True):
+                st.session_state.automated_mode['running'] = True
+                st.session_state.automated_mode['live_trading'] = False
+                st.session_state.need_live_confirmation = False
+                st.info("Paper trading started.")
+                st.rerun()
+                
+        with col_confirm3:
+            if st.button("❌ CANCEL", use_container_width=True):
+                st.session_state.automated_mode['live_trading'] = False
+                st.session_state.need_live_confirmation = False
+                st.info("Live trading cancelled.")
+                st.rerun()
+        
+        return  # This return should be at the same level as the if statement
     
     st.markdown("---")
     
