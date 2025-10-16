@@ -30,6 +30,10 @@ import requests
 import hashlib
 import random
 from streamlit_autorefresh import st_autorefresh
+# ================ UPSTOX API INTEGRATION ================
+import upstox_api
+from upstox_api.rest import ApiException
+import json
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 
@@ -231,8 +235,14 @@ ML_DATA_SOURCES = {
         "tradingsymbol": "^GSPC",
         "exchange": "yfinance"
     }
+    
 }
-
+# Upstox configuration
+UPSTOX_CONFIG = {
+    "api_key": "your_upstox_api_key",  # Will be set from secrets
+    "redirect_uri": "https://your-redirect-uri.com",  # Set in Upstox developer console
+    "api_secret": "your_upstox_api_secret"  # Will be set from secrets
+}
 # ================ 1.5 INITIALIZATION ========================
 
 def initialize_session_state():
@@ -240,6 +250,13 @@ def initialize_session_state():
     if 'broker' not in st.session_state: st.session_state.broker = None
     if 'kite' not in st.session_state: st.session_state.kite = None
     if 'profile' not in st.session_state: st.session_state.profile = None
+        # Add Upstox session state variables
+    if 'upstox_client' not in st.session_state: 
+        st.session_state.upstox_client = None
+    if 'upstox_access_token' not in st.session_state: 
+        st.session_state.upstox_access_token = None
+    if 'upstox_token_type' not in st.session_state: 
+        st.session_state.upstox_token_type = None
     if 'login_animation_complete' not in st.session_state: st.session_state.login_animation_complete = False
     if 'authenticated' not in st.session_state: st.session_state.authenticated = False
     if 'two_factor_setup_complete' not in st.session_state: st.session_state.two_factor_setup_complete = False
@@ -295,10 +312,293 @@ def initialize_session_state():
 # ================ 2. HELPER FUNCTIONS ================
 
 def get_broker_client():
-    """Gets current broker client from session state."""
-    if st.session_state.get('broker') == "Zerodha":
+    """Gets current broker client from session state - UPDATED FOR UPSTOX."""
+    broker = st.session_state.get('broker')
+    
+    if broker == "Zerodha":
         return st.session_state.get('kite')
+    elif broker == "Upstox":
+        if 'upstox_client' not in st.session_state:
+            initialize_upstox_client()
+        return st.session_state.get('upstox_client')
+    
     return None
+
+def initialize_upstox_client():
+    """Initialize Upstox client with stored credentials."""
+    try:
+        api_key = st.secrets.get("UPSTOX_API_KEY")
+        access_token = st.session_state.get('upstox_access_token')
+        
+        if not api_key or not access_token:
+            return None
+            
+        configuration = upstox_api.Configuration()
+        configuration.access_token = access_token
+        api_client = upstox_api.ApiClient(configuration)
+        
+        # Initialize various API clients
+        st.session_state.upstox_client = {
+            'api_client': api_client,
+            'user_api': upstox_api.UserApi(api_client),
+            'order_api': upstox_api.OrderApi(api_client),
+            'portfolio_api': upstox_api.PortfolioApi(api_client),
+            'market_quote_api': upstox_api.MarketQuoteApi(api_client),
+            'history_api': upstox_api.HistoryApi(api_client)
+        }
+        return st.session_state.upstox_client
+    except Exception as e:
+        st.error(f"Failed to initialize Upstox client: {e}")
+        return None
+
+def get_upstox_login_url():
+    """Generate Upstox login URL."""
+    try:
+        api_key = st.secrets.get("UPSTOX_API_KEY")
+        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "https://localhost")
+        
+        # Upstox login URL format
+        login_url = f"https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id={api_key}&redirect_uri={redirect_uri}"
+        return login_url
+    except Exception as e:
+        st.error(f"Error generating login URL: {e}")
+        return None
+
+def upstox_generate_session(authorization_code):
+    """Generate Upstox session using authorization code."""
+    try:
+        api_key = st.secrets.get("UPSTOX_API_KEY")
+        api_secret = st.secrets.get("UPSTOX_API_SECRET")
+        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "https://localhost")
+        
+        # Use Upstox API to generate token
+        api_instance = upstox_api.LoginApi()
+        
+        # Generate session
+        response = api_instance.token(
+            code=authorization_code,
+            client_id=api_key,
+            client_secret=api_secret,
+            redirect_uri=redirect_uri,
+            grant_type="authorization_code"
+        )
+        
+        if hasattr(response, 'access_token'):
+            st.session_state.upstox_access_token = response.access_token
+            st.session_state.upstox_token_type = response.token_type
+            return True
+        return False
+        
+    except ApiException as e:
+        st.error(f"Upstox API exception: {e}")
+        return False
+    except Exception as e:
+        st.error(f"Upstox session generation failed: {e}")
+        return False
+
+def get_upstox_instruments():
+    """Fetch Upstox instruments master."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return pd.DataFrame()
+            
+        # Get instruments from Upstox
+        api_instance = upstox_api.MasterApi(client['api_client'])
+        response = api_instance.get_master_csv(exchange="NSE_EQ")  # Can be NSE_FO, BSE_EQ, etc.
+        
+        # Parse CSV response
+        instruments_df = pd.read_csv(io.StringIO(response))
+        return instruments_df
+        
+    except Exception as e:
+        st.error(f"Error fetching Upstox instruments: {e}")
+        return pd.DataFrame()
+
+def get_upstox_historical_data(instrument_key, interval, from_date, to_date):
+    """Fetch historical data from Upstox."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return pd.DataFrame()
+            
+        api_instance = upstox_api.HistoryApi(client['api_client'])
+        
+        # Convert dates to required format
+        from_date_str = from_date.strftime("%Y-%m-%d")
+        to_date_str = to_date.strftime("%Y-%m-%d")
+        
+        response = api_instance.get_historical_candle_data(
+            instrument_key=instrument_key,
+            interval=interval,
+            from_date=from_date_str,
+            to_date=to_date_str
+        )
+        
+        if response and hasattr(response, 'data'):
+            candles = response.data.candles
+            df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'oi'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df.set_index('timestamp', inplace=True)
+            return df
+            
+        return pd.DataFrame()
+        
+    except Exception as e:
+        st.error(f"Error fetching Upstox historical data: {e}")
+        return pd.DataFrame()
+
+def get_upstox_quote(instruments):
+    """Fetch real-time quotes from Upstox."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return {}
+            
+        api_instance = upstox_api.MarketQuoteApi(client['api_client'])
+        
+        # Format: "NSE_EQ|INE002A01018" or "NSE_FO|NIFTY23NOV23000CE"
+        response = api_instance.get_market_quote_full(instruments)
+        
+        quotes = {}
+        if response and hasattr(response, 'data'):
+            for instrument_key, quote_data in response.data.items():
+                quotes[instrument_key] = {
+                    'last_price': quote_data.last_price,
+                    'open': quote_data.open,
+                    'high': quote_data.high,
+                    'low': quote_data.low,
+                    'close': quote_data.close,
+                    'volume': quote_data.volume,
+                    'oi': quote_data.oi
+                }
+        return quotes
+        
+    except Exception as e:
+        st.error(f"Error fetching Upstox quotes: {e}")
+        return {}
+
+def place_upstox_order(order_params):
+    """Place order through Upstox."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return None
+            
+        api_instance = upstox_api.OrderApi(client['api_client'])
+        
+        # Prepare order parameters
+        order_request = upstox_api.PlaceOrderRequest(
+            quantity=order_params['quantity'],
+            product=order_params['product'],
+            validity=order_params['validity'],
+            price=order_params.get('price', 0),
+            tag=order_params.get('tag', ''),
+            instrument_token=order_params['instrument_token'],
+            order_type=order_params['order_type'],
+            transaction_type=order_params['transaction_type'],
+            disclosed_quantity=order_params.get('disclosed_quantity', 0),
+            trigger_price=order_params.get('trigger_price', 0),
+            is_amo=order_params.get('is_amo', False)
+        )
+        
+        response = api_instance.place_order(order_request)
+        return response.data.order_id
+        
+    except ApiException as e:
+        st.error(f"Upstox order failed: {e}")
+        return None
+    except Exception as e:
+        st.error(f"Upstox order error: {e}")
+        return None
+
+def get_upstox_positions():
+    """Fetch positions from Upstox."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return pd.DataFrame()
+            
+        api_instance = upstox_api.PortfolioApi(client['api_client'])
+        response = api_instance.get_positions()
+        
+        positions = []
+        if response and hasattr(response, 'data'):
+            for position in response.data:
+                positions.append({
+                    'tradingsymbol': position.tradingsymbol,
+                    'quantity': position.quantity,
+                    'average_price': position.average_price,
+                    'last_price': position.last_price,
+                    'pnl': position.pnl,
+                    'product': position.product
+                })
+                
+        return pd.DataFrame(positions)
+        
+    except Exception as e:
+        st.error(f"Error fetching Upstox positions: {e}")
+        return pd.DataFrame()
+
+def get_upstox_holdings():
+    """Fetch holdings from Upstox."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return pd.DataFrame()
+            
+        api_instance = upstox_api.PortfolioApi(client['api_client'])
+        response = api_instance.get_holdings()
+        
+        holdings = []
+        if response and hasattr(response, 'data'):
+            for holding in response.data:
+                holdings.append({
+                    'tradingsymbol': holding.tradingsymbol,
+                    'quantity': holding.quantity,
+                    'average_price': holding.average_price,
+                    'last_price': holding.last_price,
+                    'pnl': holding.pnl,
+                    'product': holding.product
+                })
+                
+        return pd.DataFrame(holdings)
+        
+    except Exception as e:
+        st.error(f"Error fetching Upstox holdings: {e}")
+        return pd.DataFrame()
+
+def get_upstox_order_book():
+    """Fetch order book from Upstox."""
+    try:
+        client = get_broker_client()
+        if not client or st.session_state.broker != "Upstox":
+            return pd.DataFrame()
+            
+        api_instance = upstox_api.OrderApi(client['api_client'])
+        response = api_instance.get_order_book()
+        
+        orders = []
+        if response and hasattr(response, 'data'):
+            for order in response.data:
+                orders.append({
+                    'order_id': order.order_id,
+                    'tradingsymbol': order.tradingsymbol,
+                    'transaction_type': order.transaction_type,
+                    'order_type': order.order_type,
+                    'product': order.product,
+                    'quantity': order.quantity,
+                    'filled_quantity': order.filled_quantity,
+                    'price': order.price,
+                    'status': order.status,
+                    'order_timestamp': order.order_timestamp
+                })
+                
+        return pd.DataFrame(orders)
+        
+    except Exception as e:
+        st.error(f"Error fetching Upstox order book: {e}")
+        return pd.DataFrame()
 
 # @st.dialog("Quick Trade")
 def quick_trade_interface(symbol=None, exchange=None):
@@ -587,17 +887,26 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
     return fig
 
 @st.cache_resource(ttl=3600)
+@st.cache_data(ttl=3600)
 def get_instrument_df():
-    """Fetches the full list of tradable instruments from the broker."""
+    """Fetches the full list of tradable instruments - UPDATED FOR UPSTOX."""
     client = get_broker_client()
-    if not client: return pd.DataFrame()
-    if st.session_state.broker == "Zerodha":
+    if not client: 
+        return pd.DataFrame()
+    
+    broker = st.session_state.broker
+    
+    if broker == "Zerodha":
         df = pd.DataFrame(client.instruments())
         if 'expiry' in df.columns:
             df['expiry'] = pd.to_datetime(df['expiry'])
         return df
+        
+    elif broker == "Upstox":
+        return get_upstox_instruments()
+    
     else:
-        st.warning(f"Instrument list for {st.session_state.broker} not implemented.")
+        st.warning(f"Instrument list for {broker} not implemented.")
         return pd.DataFrame()
 
 def get_instrument_token(symbol, instrument_df, exchange='NSE'):
@@ -607,12 +916,19 @@ def get_instrument_token(symbol, instrument_df, exchange='NSE'):
     return match.iloc[0]['instrument_token'] if not match.empty else None
 
 @st.cache_data(ttl=60)
+@st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
-    """Fetches historical data from the broker's API."""
+    """Fetches historical data - UPDATED FOR UPSTOX."""
     client = get_broker_client()
-    if not client or not instrument_token: return pd.DataFrame()
-    if st.session_state.broker == "Zerodha":
-        if not to_date: to_date = datetime.now().date()
+    if not client or not instrument_token: 
+        return pd.DataFrame()
+    
+    broker = st.session_state.broker
+    
+    if broker == "Zerodha":
+        # Existing Zerodha implementation
+        if not to_date: 
+            to_date = datetime.now().date()
         if not from_date:
             days_to_subtract = {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
             from_date = to_date - timedelta(days=days_to_subtract.get(period, 1825))
@@ -623,27 +939,41 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         try:
             records = client.historical_data(instrument_token, from_date, to_date, interval)
             df = pd.DataFrame(records)
-            if df.empty: return df
+            if df.empty: 
+                return df
             df.set_index('date', inplace=True)
             df.index = pd.to_datetime(df.index)
             return df
-
-        except kite_exceptions.KiteException as e:
-            st.error(f"Kite API Error (Historical): {e}")
-            return pd.DataFrame()
         except Exception as e:
-            st.error(f"An unexpected error occurred fetching historical data: {e}")
+            st.error(f"Error fetching historical data: {e}")
             return pd.DataFrame()
+            
+    elif broker == "Upstox":
+        # Upstox implementation
+        if not to_date:
+            to_date = datetime.now().date()
+        if not from_date:
+            days_to_subtract = {'1d': 2, '5d': 7, '1mo': 31, '6mo': 182, '1y': 365, '5y': 1825}
+            from_date = to_date - timedelta(days=days_to_subtract.get(period, 1825))
+        
+        return get_upstox_historical_data(instrument_token, interval, from_date, to_date)
+    
     else:
-        st.warning(f"Historical data for {st.session_state.broker} not implemented.")
+        st.warning(f"Historical data for {broker} not implemented.")
         return pd.DataFrame()
 
 @st.cache_data(ttl=15)
+@st.cache_data(ttl=15)
 def get_watchlist_data(symbols_with_exchange):
-    """Fetches live prices and market data for a list of symbols."""
+    """Fetches live prices - UPDATED FOR UPSTOX."""
     client = get_broker_client()
-    if not client or not symbols_with_exchange: return pd.DataFrame()
-    if st.session_state.broker == "Zerodha":
+    if not client or not symbols_with_exchange: 
+        return pd.DataFrame()
+    
+    broker = st.session_state.broker
+    
+    if broker == "Zerodha":
+        # Existing Zerodha implementation
         instrument_names = [f"{item['exchange']}:{item['symbol']}" for item in symbols_with_exchange]
         try:
             quotes = client.quote(instrument_names)
@@ -656,13 +986,57 @@ def get_watchlist_data(symbols_with_exchange):
                     prev_close = quote['ohlc']['close']
                     change = last_price - prev_close
                     pct_change = (change / prev_close * 100) if prev_close != 0 else 0
-                    watchlist.append({'Ticker': item['symbol'], 'Exchange': item['exchange'], 'Price': last_price, 'Change': change, '% Change': pct_change})
+                    watchlist.append({
+                        'Ticker': item['symbol'], 
+                        'Exchange': item['exchange'], 
+                        'Price': last_price, 
+                        'Change': change, 
+                        '% Change': pct_change
+                    })
             return pd.DataFrame(watchlist)
         except Exception as e:
             st.toast(f"Error fetching watchlist data: {e}", icon="⚠️")
             return pd.DataFrame()
+            
+    elif broker == "Upstox":
+        # Upstox implementation
+        try:
+            # Convert symbols to Upstox format
+            upstox_instruments = []
+            symbol_map = {}
+            
+            for item in symbols_with_exchange:
+                # This mapping would depend on your instrument key format
+                instrument_key = f"{item['exchange']}|{item['symbol']}"  # Adjust based on actual format
+                upstox_instruments.append(instrument_key)
+                symbol_map[instrument_key] = item['symbol']
+            
+            quotes = get_upstox_quote(upstox_instruments)
+            watchlist = []
+            
+            for instrument_key, quote_data in quotes.items():
+                symbol = symbol_map.get(instrument_key, instrument_key)
+                last_price = quote_data.get('last_price', 0)
+                prev_close = quote_data.get('close', last_price)
+                change = last_price - prev_close
+                pct_change = (change / prev_close * 100) if prev_close != 0 else 0
+                
+                watchlist.append({
+                    'Ticker': symbol,
+                    'Exchange': instrument_key.split('|')[0],
+                    'Price': last_price,
+                    'Change': change,
+                    '% Change': pct_change
+                })
+                
+            return pd.DataFrame(watchlist)
+            
+        except Exception as e:
+            st.toast(f"Error fetching Upstox watchlist data: {e}", icon="⚠️")
+            return pd.DataFrame()
+    
     else:
-        st.warning(f"Watchlist for {st.session_state.broker} not implemented.")
+        st.warning(f"Watchlist for {broker} not implemented.")
         return pd.DataFrame()
 
 @st.cache_data(ttl=2)
@@ -733,11 +1107,17 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
         return pd.DataFrame(), None, 0.0, []
 
 @st.cache_data(ttl=10)
+@st.cache_data(ttl=10)
 def get_portfolio():
-    """Fetches real-time portfolio positions and holdings from the broker."""
+    """Fetches real-time portfolio - UPDATED FOR UPSTOX."""
     client = get_broker_client()
-    if not client: return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
-    if st.session_state.broker == "Zerodha":
+    if not client: 
+        return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
+        
+    broker = st.session_state.broker
+    
+    if broker == "Zerodha":
+        # Existing Zerodha implementation
         try:
             positions = client.positions().get('net', [])
             holdings = client.holdings()
@@ -747,19 +1127,39 @@ def get_portfolio():
             total_investment = (holdings_df['quantity'] * holdings_df['average_price']).sum() if not holdings_df.empty else 0.0
             return positions_df, holdings_df, total_pnl, total_investment
         except Exception as e:
-            st.error(f"Kite API Error (Portfolio): {e}")
+            st.error(f"Portfolio API Error: {e}")
             return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
+            
+    elif broker == "Upstox":
+        # Upstox implementation
+        try:
+            positions_df = get_upstox_positions()
+            holdings_df = get_upstox_holdings()
+            
+            total_pnl = positions_df['pnl'].sum() if not positions_df.empty else 0.0
+            total_investment = (holdings_df['quantity'] * holdings_df['average_price']).sum() if not holdings_df.empty else 0.0
+            
+            return positions_df, holdings_df, total_pnl, total_investment
+            
+        except Exception as e:
+            st.error(f"Upstox portfolio error: {e}")
+            return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
+    
     else:
-        st.warning(f"Portfolio for {st.session_state.broker} not implemented.")
+        st.warning(f"Portfolio for {broker} not implemented.")
         return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
 
 def place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price=None):
-    """Places a single order through the broker's API."""
+    """Places a single order - UPDATED FOR UPSTOX."""
     client = get_broker_client()
     if not client:
         st.error("Broker not connected.")
         return
-    if st.session_state.broker == "Zerodha":
+        
+    broker = st.session_state.broker
+    
+    if broker == "Zerodha":
+        # Existing Zerodha implementation
         try:
             is_option = any(char.isdigit() for char in symbol)
             if is_option:
@@ -771,14 +1171,100 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
                     return
                 exchange = instrument.iloc[0]['exchange']
 
-            order_id = client.place_order(tradingsymbol=symbol.upper(), exchange=exchange, transaction_type=transaction_type, quantity=quantity, order_type=order_type, product=product, variety=client.VARIETY_REGULAR, price=price)
+            order_id = client.place_order(
+                tradingsymbol=symbol.upper(), 
+                exchange=exchange, 
+                transaction_type=transaction_type, 
+                quantity=quantity, 
+                order_type=order_type, 
+                product=product, 
+                variety=client.VARIETY_REGULAR, 
+                price=price
+            )
             st.toast(f"✅ Order placed successfully! ID: {order_id}", icon="🎉")
-            st.session_state.order_history.insert(0, {"id": order_id, "symbol": symbol, "qty": quantity, "type": transaction_type, "status": "Success"})
+            st.session_state.order_history.insert(0, {
+                "id": order_id, 
+                "symbol": symbol, 
+                "qty": quantity, 
+                "type": transaction_type, 
+                "status": "Success"
+            })
         except Exception as e:
             st.toast(f"❌ Order failed: {e}", icon="🔥")
-            st.session_state.order_history.insert(0, {"id": "N/A", "symbol": symbol, "qty": quantity, "type": transaction_type, "status": f"Failed: {e}"})
+            st.session_state.order_history.insert(0, {
+                "id": "N/A", 
+                "symbol": symbol, 
+                "qty": quantity, 
+                "type": transaction_type, 
+                "status": f"Failed: {e}"
+            })
+            
+    elif broker == "Upstox":
+        # Upstox implementation
+        try:
+            # Find instrument token
+            instrument = instrument_df[instrument_df['tradingsymbol'] == symbol.upper()]
+            if instrument.empty:
+                st.error(f"Symbol '{symbol}' not found.")
+                return
+                
+            instrument_token = instrument.iloc[0]['instrument_token']
+            
+            # Map product types
+            product_map = {
+                'MIS': 'intraday',
+                'CNC': 'delivery',
+                'NRML': 'normal'
+            }
+            
+            # Map order types
+            order_type_map = {
+                'MARKET': 'market',
+                'LIMIT': 'limit'
+            }
+            
+            order_params = {
+                'instrument_token': instrument_token,
+                'quantity': quantity,
+                'product': product_map.get(product, 'intraday'),
+                'validity': 'day',
+                'order_type': order_type_map.get(order_type, 'market'),
+                'transaction_type': transaction_type.lower(),
+                'price': price if order_type == 'LIMIT' else 0
+            }
+            
+            order_id = place_upstox_order(order_params)
+            if order_id:
+                st.toast(f"✅ Upstox order placed successfully! ID: {order_id}", icon="🎉")
+                st.session_state.order_history.insert(0, {
+                    "id": order_id, 
+                    "symbol": symbol, 
+                    "qty": quantity, 
+                    "type": transaction_type, 
+                    "status": "Success"
+                })
+            else:
+                st.toast(f"❌ Upstox order failed", icon="🔥")
+                st.session_state.order_history.insert(0, {
+                    "id": "N/A", 
+                    "symbol": symbol, 
+                    "qty": quantity, 
+                    "type": transaction_type, 
+                    "status": "Failed"
+                })
+                
+        except Exception as e:
+            st.toast(f"❌ Upstox order failed: {e}", icon="🔥")
+            st.session_state.order_history.insert(0, {
+                "id": "N/A", 
+                "symbol": symbol, 
+                "qty": quantity, 
+                "type": transaction_type, 
+                "status": f"Failed: {e}"
+            })
+    
     else:
-        st.warning(f"Order placement for {st.session_state.broker} not implemented.")
+        st.warning(f"Order placement for {broker} not implemented.")
 
 @st.cache_data(ttl=900)
 def fetch_and_analyze_news(query=None):
@@ -4765,40 +5251,72 @@ def display_trade_history():
         st.info("No trade history available.")
 
 def display_order_history():
-    """Display order history with IST timestamps."""
+    """Display order history - UPDATED FOR UPSTOX."""
     client = get_broker_client()
     if client:
         try:
-            orders = client.orders()
-            if orders:
-                # Convert orders to display format with IST time
-                order_data = []
-                for order in orders:
-                    # Convert order timestamp to IST
-                    order_time = order.get('order_timestamp', '')
-                    if order_time:
-                        try:
-                            dt = datetime.fromisoformat(order_time.replace('Z', '+00:00'))
-                            ist = pytz.timezone('Asia/Kolkata')
-                            dt_ist = dt.astimezone(ist)
-                            display_time = dt_ist.strftime("%Y-%m-%d %H:%M:%S IST")
-                        except:
-                            display_time = order_time
-                    else:
-                        display_time = 'N/A'
+            broker = st.session_state.broker
+            
+            if broker == "Zerodha":
+                orders = client.orders()
+                if orders:
+                    order_data = []
+                    for order in orders:
+                        order_time = order.get('order_timestamp', '')
+                        if order_time:
+                            try:
+                                dt = datetime.fromisoformat(order_time.replace('Z', '+00:00'))
+                                ist = pytz.timezone('Asia/Kolkata')
+                                dt_ist = dt.astimezone(ist)
+                                display_time = dt_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+                            except:
+                                display_time = order_time
+                        else:
+                            display_time = 'N/A'
+                        
+                        order_data.append({
+                            'Time': display_time,
+                            'Symbol': order.get('tradingsymbol', ''),
+                            'Type': order.get('transaction_type', ''),
+                            'Qty': order.get('quantity', 0),
+                            'Price': f"₹{order.get('average_price', 0):.2f}",
+                            'Status': order.get('status', '')
+                        })
                     
-                    order_data.append({
-                        'Time': display_time,
-                        'Symbol': order.get('tradingsymbol', ''),
-                        'Type': order.get('transaction_type', ''),
-                        'Qty': order.get('quantity', 0),
-                        'Price': f"₹{order.get('average_price', 0):.2f}",
-                        'Status': order.get('status', '')
-                    })
-                
-                st.dataframe(pd.DataFrame(order_data), use_container_width=True)
-            else:
-                st.info("No orders placed today.")
+                    st.dataframe(pd.DataFrame(order_data), use_container_width=True)
+                else:
+                    st.info("No orders placed today.")
+                    
+            elif broker == "Upstox":
+                orders_df = get_upstox_order_book()
+                if not orders_df.empty:
+                    order_data = []
+                    for _, order in orders_df.iterrows():
+                        order_time = order.get('order_timestamp', '')
+                        if order_time:
+                            try:
+                                dt = datetime.fromisoformat(order_time.replace('Z', '+00:00'))
+                                ist = pytz.timezone('Asia/Kolkata')
+                                dt_ist = dt.astimezone(ist)
+                                display_time = dt_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+                            except:
+                                display_time = order_time
+                        else:
+                            display_time = 'N/A'
+                        
+                        order_data.append({
+                            'Time': display_time,
+                            'Symbol': order.get('tradingsymbol', ''),
+                            'Type': order.get('transaction_type', ''),
+                            'Qty': order.get('quantity', 0),
+                            'Price': f"₹{order.get('price', 0):.2f}",
+                            'Status': order.get('status', '')
+                        })
+                    
+                    st.dataframe(pd.DataFrame(order_data), use_container_width=True)
+                else:
+                    st.info("No orders placed today.")
+            
         except Exception as e:
             st.error(f"Error fetching orders: {e}")
     else:
@@ -6707,13 +7225,14 @@ def show_login_animation():
     st.rerun()
 
 def login_page():
-    """Displays the login page for broker authentication."""
+    """Displays the login page for broker authentication - UPDATED FOR UPSTOX."""
     st.title("BlockVista Terminal")
     st.subheader("Broker Login")
     
-    broker = st.selectbox("Select Your Broker", ["Zerodha"])
+    broker = st.selectbox("Select Your Broker", ["Zerodha", "Upstox"])
     
     if broker == "Zerodha":
+        # Existing Zerodha login
         api_key = st.secrets.get("ZERODHA_API_KEY")
         api_secret = st.secrets.get("ZERODHA_API_SECRET")
         
@@ -6740,6 +7259,49 @@ def login_page():
         else:
             st.link_button("Login with Zerodha Kite", kite.login_url())
             st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
+    
+    elif broker == "Upstox":
+        # Upstox login
+        api_key = st.secrets.get("UPSTOX_API_KEY")
+        api_secret = st.secrets.get("UPSTOX_API_SECRET")
+        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "https://localhost")
+        
+        if not api_key or not api_secret:
+            st.error("Upstox API credentials not found. Please set UPSTOX_API_KEY and UPSTOX_API_SECRET in your Streamlit secrets.")
+            st.stop()
+        
+        # Check for authorization code in URL
+        authorization_code = st.query_params.get("code")
+        
+        if authorization_code:
+            try:
+                success = upstox_generate_session(authorization_code)
+                if success:
+                    # Initialize client and get profile
+                    client = initialize_upstox_client()
+                    if client:
+                        profile = client['user_api'].get_profile()
+                        st.session_state.profile = {
+                            'user_name': profile.data.name,
+                            'email': profile.data.email,
+                            'user_id': profile.data.client_id
+                        }
+                        st.session_state.broker = "Upstox"
+                        st.query_params.clear()
+                        st.rerun()
+                else:
+                    st.error("Upstox authentication failed.")
+                    st.query_params.clear()
+            except Exception as e:
+                st.error(f"Upstox authentication failed: {e}")
+                st.query_params.clear()
+        else:
+            login_url = get_upstox_login_url()
+            if login_url:
+                st.link_button("Login with Upstox", login_url)
+                st.info("Please login with Upstox to begin. You will be redirected back to the app.")
+            else:
+                st.error("Could not generate Upstox login URL.")
 
 def main_app():
     """The main application interface after successful login."""
