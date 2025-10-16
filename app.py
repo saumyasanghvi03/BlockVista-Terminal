@@ -31,9 +31,8 @@ import hashlib
 import random
 from streamlit_autorefresh import st_autorefresh
 # ================ UPSTOX API INTEGRATION ================
-import upstox_api
-from upstox_api import Upstox
-from upstox_api import UpstoxException
+from upstox_api.api import Upstox
+from upstox_api.rest import ApiException
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 
