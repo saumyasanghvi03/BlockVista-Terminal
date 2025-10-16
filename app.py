@@ -6467,16 +6467,15 @@ def page_hft_terminal():
         change = quote_data.iloc[0]['Change']
         
         tick_direction = "tick-up" if ltp > st.session_state.hft_last_price else "tick-down" if ltp < st.session_state.hft_last_price else ""
-        
         with top_cols[1]:
             st.markdown(f"##### LTP: <span class='{tick_direction}' style='font-size: 1.2em;'>₹{ltp:,.2f}</span>", unsafe_allow_html=True)
-
-        with main_cols[2]:
-        st.subheader("Tick Log")
-        log_container = st.container(height=400)
-        for entry in st.session_state.hft_tick_log:
-            color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
-            log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
+            
+            with main_cols[2]:
+                st.subheader("Tick Log")
+                log_container = st.container(height=400)
+                for entry in st.session_state.hft_tick_log:
+                    color = 'var(--green)' if entry['change'] > 0 else 'var(--red)'
+                    log_container.markdown(f"<small>{entry['time']}</small> - **{entry['price']:.2f}** <span style='color:{color};'>({entry['change']:+.2f})</span>", unsafe_allow_html=True)
     
     # Update the tick logging part:
     if ltp != st.session_state.hft_last_price and st.session_state.hft_last_price != 0:
