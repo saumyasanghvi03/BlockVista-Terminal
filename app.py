@@ -31,8 +31,10 @@ import hashlib
 import random
 from streamlit_autorefresh import st_autorefresh
 # ================ UPSTOX API INTEGRATION ================
-import requests
-import json
+# ================ UPSTOX API INTEGRATION ================
+import upstox_api
+from upstox_api import Upstox
+from upstox_api import UpstoxException
 # ================ 1. STYLING AND CONFIGURATION ===============
 
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
