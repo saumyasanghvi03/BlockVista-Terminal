@@ -6171,9 +6171,10 @@ def page_hft_terminal():
 
 # ============ 6. MAIN APP LOGIC AND AUTHENTICATION ============
 
+# ================ 6. MAIN APP LOGIC AND AUTHENTICATION ============
+
 def get_user_secret(user_profile):
     """Generate a persistent secret based on user profile."""
-    # Ensure user_profile is not None
     if user_profile is None:
         user_profile = {}
     
@@ -6182,39 +6183,86 @@ def get_user_secret(user_profile):
     secret = base64.b32encode(user_hash).decode('utf-8').replace('=', '')[:16]
     return secret
 
-@st.dialog("Two-Factor Authentication")
-def two_factor_dialog():
-    """Dialog for 2FA login."""
-    if 'show_2fa_dialog' not in st.session_state:
-        st.session_state.show_2fa_dialog = False
+# REPLACE THE DIALOG FUNCTIONS WITH REGULAR FUNCTIONS
+def show_two_factor_setup():
+    """Show 2FA setup without using dialogs."""
+    st.title("🔐 Two-Factor Authentication Setup")
+    st.info("Please scan the QR code with your authenticator app (e.g., Google or Microsoft Authenticator).")
     
-    if not st.session_state.get('authenticated', False):
-        st.session_state.show_2fa_dialog = True
-        
-        st.subheader("Enter your 2FA code")
-        st.caption("Please enter the 6-digit code from your authenticator app to continue.")
-        
-        auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
-        
-        col1, col2 = st.columns(2)
-        if col1.button("Authenticate", use_container_width=True):
-            if auth_code:
-                try:
-                    totp = pyotp.TOTP(st.session_state.pyotp_secret)
-                    if totp.verify(auth_code):
-                        st.session_state.authenticated = True
-                        st.session_state.show_2fa_dialog = False
-                        st.rerun()
-                    else:
-                        st.error("Invalid code. Please try again.")
-                except Exception as e:
-                    st.error(f"An error occurred during authentication: {e}")
-            else:
-                st.warning("Please enter a code.")
-        
-        if col2.button("Cancel", use_container_width=True):
-            st.session_state.show_2fa_dialog = False
-            st.rerun()
+    if st.session_state.pyotp_secret is None:
+        profile = st.session_state.get('profile') or {}
+        st.session_state.pyotp_secret = get_user_secret(profile)
+    
+    secret = st.session_state.pyotp_secret
+    user_name = st.session_state.get('profile', {}).get('user_name', 'User')
+    uri = pyotp.totp.TOTP(secret).provisioning_uri(user_name, issuer_name="BlockVista Terminal")
+    
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    
+    st.image(buf.getvalue(), caption="Scan with your authenticator app", use_container_width=True)
+    st.markdown(f"**Your Secret Key:** `{secret}` (You can also enter this manually)")
+    
+    st.markdown("---")
+    st.subheader("Verify Setup")
+    auth_code = st.text_input("Enter 6-digit code from your authenticator app", max_chars=6, key="verify_2fa")
+    
+    col1, col2 = st.columns(2)
+    if col1.button("Verify & Continue", use_container_width=True, type="primary"):
+        if auth_code:
+            try:
+                totp = pyotp.TOTP(secret)
+                if totp.verify(auth_code):
+                    st.session_state.two_factor_setup_complete = True
+                    st.session_state.authenticated = True
+                    st.success("2FA setup completed successfully!")
+                    st.rerun()
+                else:
+                    st.error("Invalid code. Please try again.")
+            except Exception as e:
+                st.error(f"Verification failed: {e}")
+        else:
+            st.warning("Please enter a verification code.")
+    
+    if col2.button("Skip 2FA Setup", use_container_width=True):
+        st.session_state.two_factor_setup_complete = True
+        st.session_state.authenticated = True
+        st.info("2FA setup skipped. You can enable it later in settings.")
+        st.rerun()
+
+def show_two_factor_auth():
+    """Show 2FA authentication without using dialogs."""
+    st.title("🔐 Two-Factor Authentication")
+    st.caption("Please enter the 6-digit code from your authenticator app to continue.")
+    
+    auth_code = st.text_input("2FA Code", max_chars=6, key="2fa_code")
+    
+    col1, col2 = st.columns(2)
+    if col1.button("Authenticate", use_container_width=True, type="primary"):
+        if auth_code:
+            try:
+                totp = pyotp.TOTP(st.session_state.pyotp_secret)
+                if totp.verify(auth_code):
+                    st.session_state.authenticated = True
+                    st.success("Authentication successful!")
+                    st.rerun()
+                else:
+                    st.error("Invalid code. Please try again.")
+            except Exception as e:
+                st.error(f"Authentication failed: {e}")
+        else:
+            st.warning("Please enter a code.")
+    
+    if col2.button("Use Backup Code", use_container_width=True):
+        st.info("Backup code feature not yet implemented.")
+    
+    st.markdown("---")
+    if st.button("🔄 Return to Login", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            if key not in ['theme', 'watchlists', 'active_watchlist']:
+                del st.session_state[key]
+        st.rerun()
 
 
 @st.dialog("Generate QR Code for 2FA")
