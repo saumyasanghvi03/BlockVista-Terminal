@@ -32,8 +32,8 @@ import random
 from streamlit_autorefresh import st_autorefresh
 # ================ UPSTOX API INTEGRATION ================
 import upstox_api
-from upstox_api.rest import ApiException
-import json
+from upstox_api import Upstox
+from upstox_api import UpstoxException
 
 # ================ 1. STYLING AND CONFIGURATION ===============
 
