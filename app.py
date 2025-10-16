@@ -32,6 +32,7 @@ import random
 from streamlit_autorefresh import st_autorefresh
 # ================ UPSTOX API INTEGRATION ================
 import upstox_api
+from upstox_api.rest import ApiException
 import json
 
 # ================ 1. STYLING AND CONFIGURATION ===============
@@ -326,26 +327,39 @@ def get_broker_client():
 def initialize_upstox_client():
     """Initialize Upstox client with stored credentials."""
     try:
+        if not UPSTOX_AVAILABLE:
+            st.error("Upstox package not installed. Run: pip install upstox-python")
+            return None
+            
         api_key = st.secrets.get("UPSTOX_API_KEY")
         access_token = st.session_state.get('upstox_access_token')
         
-        if not api_key or not access_token:
+        if not api_key:
+            st.error("UPSTOX_API_KEY not found in secrets")
             return None
             
-        configuration = upstox_api.Configuration()
+        if not access_token:
+            st.error("Upstox access token not available")
+            return None
+            
+        # Initialize Upstox configuration
+        configuration = upstox.Configuration()
         configuration.access_token = access_token
-        api_client = upstox_api.ApiClient(configuration)
+        
+        # Create API client
+        api_client = upstox.ApiClient(configuration)
         
         # Initialize various API clients
         st.session_state.upstox_client = {
             'api_client': api_client,
-            'user_api': upstox_api.UserApi(api_client),
-            'order_api': upstox_api.OrderApi(api_client),
-            'portfolio_api': upstox_api.PortfolioApi(api_client),
-            'market_quote_api': upstox_api.MarketQuoteApi(api_client),
-            'history_api': upstox_api.HistoryApi(api_client)
+            'user_api': upstox.UserApi(api_client),
+            'order_api': upstox.OrderApi(api_client),
+            'portfolio_api': upstox.PortfolioApi(api_client),
+            'market_quote_api': upstox.MarketQuoteApi(api_client),
+            'history_api': upstox.HistoryApi(api_client)
         }
         return st.session_state.upstox_client
+        
     except Exception as e:
         st.error(f"Failed to initialize Upstox client: {e}")
         return None
@@ -354,11 +368,26 @@ def get_upstox_login_url():
     """Generate Upstox login URL."""
     try:
         api_key = st.secrets.get("UPSTOX_API_KEY")
-        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "https://localhost")
+        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI")
+        
+        if not api_key:
+            st.error("UPSTOX_API_KEY not found in secrets")
+            return None
+            
+        if not redirect_uri:
+            st.error("UPSTOX_REDIRECT_URI not found in secrets")
+            return None
+        
+        # URL encode the redirect_uri
+        import urllib.parse
+        encoded_redirect_uri = urllib.parse.quote(redirect_uri, safe='')
         
         # Upstox login URL format
-        login_url = f"https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id={api_key}&redirect_uri={redirect_uri}"
+        login_url = f"https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id={api_key}&redirect_uri={encoded_redirect_uri}"
+        
+        st.info(f"Login URL generated. Redirect URI: {redirect_uri}")
         return login_url
+        
     except Exception as e:
         st.error(f"Error generating login URL: {e}")
         return None
@@ -366,15 +395,23 @@ def get_upstox_login_url():
 def upstox_generate_session(authorization_code):
     """Generate Upstox session using authorization code."""
     try:
+        if not UPSTOX_AVAILABLE:
+            st.error("Upstox package not available")
+            return False
+            
         api_key = st.secrets.get("UPSTOX_API_KEY")
         api_secret = st.secrets.get("UPSTOX_API_SECRET")
-        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "https://localhost")
+        redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI")
         
-        # Use Upstox API to generate token
-        api_instance = upstox_api.LoginApi()
+        if not all([api_key, api_secret, redirect_uri]):
+            st.error("Missing Upstox credentials in secrets")
+            return False
         
-        # Generate session
-        response = api_instance.token(
+        # Create a basic API client for token generation
+        api_instance = upstox.LoginApi()
+        
+        # Generate session - using the API directly
+        token_response = api_instance.token(
             code=authorization_code,
             client_id=api_key,
             client_secret=api_secret,
@@ -382,17 +419,17 @@ def upstox_generate_session(authorization_code):
             grant_type="authorization_code"
         )
         
-        if hasattr(response, 'access_token'):
-            st.session_state.upstox_access_token = response.access_token
-            st.session_state.upstox_token_type = response.token_type
+        if hasattr(token_response, 'access_token'):
+            st.session_state.upstox_access_token = token_response.access_token
+            st.session_state.upstox_token_type = getattr(token_response, 'token_type', 'bearer')
+            st.success("Upstox authentication successful!")
             return True
-        return False
+        else:
+            st.error("No access token in response")
+            return False
         
-    except ApiException as e:
-        st.error(f"Upstox API exception: {e}")
-        return False
     except Exception as e:
-        st.error(f"Upstox session generation failed: {e}")
+        st.error(f"Upstox session generation failed: {str(e)}")
         return False
 
 def get_upstox_instruments():
