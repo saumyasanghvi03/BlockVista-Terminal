@@ -564,7 +564,7 @@ def upstox_logout():
         st.error(f"An error occurred during Upstox logout: {str(e)}")
 
 
-def get_upstox_instruments(access_token, exchange='NSE_EQ'):
+#def get_upstox_instruments(access_token, exchange='NSE_EQ'):
     """Fetches instrument list from Upstox REST API v2 with correct exchange codes."""
     if not access_token:
         return pd.DataFrame()
