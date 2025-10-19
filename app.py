@@ -32,6 +32,7 @@ import random
 from streamlit_autorefresh import st_autorefresh
 
 # ================ UPSTOX API INTEGRATION ================
+import upstox
 import requests
 import json
 
@@ -476,26 +477,22 @@ def get_upstox_instruments():
         return pd.DataFrame()
 
 def get_upstox_historical_data(upstox_client, instrument_key, interval, period=None):
-    """Fetches historical data from Upstox API v2."""
+    """Fetches historical data from Upstox API."""
     if not upstox_client or not instrument_key:
         return pd.DataFrame()
     
     try:
-        from upstox import HistoryApi
         from datetime import datetime, timedelta
         
-        # Create history API instance
-        history_api = HistoryApi(upstox_client)
-        
-        # Map interval to Upstox v2 format
+        # Map interval to Upstox format
         interval_map = {
-            'minute': '1minute',
-            '5minute': '5minute', 
-            'day': 'day',
-            'week': 'week'
+            'minute': Upstox.INTERVAL_1MINUTE,
+            '5minute': Upstox.INTERVAL_5MINUTE, 
+            'day': Upstox.INTERVAL_1DAY,
+            'week': Upstox.INTERVAL_1WEEK
         }
         
-        upstox_interval = interval_map.get(interval, 'day')
+        upstox_interval = interval_map.get(interval, Upstox.INTERVAL_1DAY)
         
         # Calculate date range based on period
         end_date = datetime.now()
@@ -512,80 +509,76 @@ def get_upstox_historical_data(upstox_client, instrument_key, interval, period=N
         else:
             start_date = end_date - timedelta(days=30)
         
-        # Format dates for API
-        start_date_str = start_date.strftime('%Y-%m-%d')
-        end_date_str = end_date.strftime('%Y-%m-%d')
-        
-        # Fetch historical data from Upstox v2
-        historical_data = history_api.get_historical_candle_data(
-            instrument_key, upstox_interval, start_date_str, end_date_str
+        # Fetch historical data from Upstox
+        historical_data = upstox_client.get_historical_candles(
+            instrument_key, upstox_interval, start_date, end_date
         )
         
-        if historical_data and historical_data.data and historical_data.data.candles:
-            candles = historical_data.data.candles
+        if historical_data:
             # Convert to DataFrame
-            df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'oi'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], format='%Y-%m-%d %H:%M:%S')
-            df.set_index('timestamp', inplace=True)
+            df = pd.DataFrame(historical_data)
+            # Rename columns to match expected format
+            df.rename(columns={
+                'timestamp': 'date',
+                'open': 'open',
+                'high': 'high', 
+                'low': 'low',
+                'close': 'close',
+                'volume': 'volume'
+            }, inplace=True)
+            
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
+            
             return df
         else:
             return pd.DataFrame()
             
     except Exception as e:
-        st.error(f"Upstox API v2 Error (Historical): {e}")
+        st.error(f"Upstox API Error (Historical): {e}")
         return pd.DataFrame()
-        
+
 def get_upstox_instruments(upstox_client, exchange='NSE_EQ'):
-    """Fetches instrument list from Upstox v2."""
+    """Fetches instrument list from Upstox."""
     if not upstox_client:
         return pd.DataFrame()
     
     try:
-        from upstox import MasterContractApi
-        
-        master_api = MasterContractApi(upstox_client)
-        
         # Get master contract for the exchange
-        master_contract = master_api.get_master_contract(exchange)
+        master_contract = upstox_client.get_master_contract(exchange)
         
         instrument_list = []
         
-        if master_contract and master_contract.data:
-            for instrument in master_contract.data:
+        if master_contract:
+            for symbol, contract in master_contract.items():
                 instrument_list.append({
-                    'tradingsymbol': instrument.trading_symbol,
-                    'name': instrument.name,
-                    'instrument_token': instrument.instrument_key,
+                    'tradingsymbol': symbol,
+                    'name': contract.get('name', symbol),
+                    'instrument_token': contract.get('instrument_key', ''),
                     'exchange': exchange,
-                    'lot_size': instrument.lot_size if hasattr(instrument, 'lot_size') else 1,
-                    'instrument_type': instrument.instrument_type if hasattr(instrument, 'instrument_type') else 'EQ'
+                    'lot_size': contract.get('lot_size', 1),
+                    'instrument_type': 'EQ'
                 })
         
         return pd.DataFrame(instrument_list)
         
     except Exception as e:
-        st.error(f"Upstox API v2 Error (Instruments): {e}")
+        st.error(f"Upstox API Error (Instruments): {e}")
         return pd.DataFrame()
-        
+
 def get_upstox_quote(upstox_client, instrument_key):
-    """Fetches quote data from Upstox v2."""
+    """Fetches quote data from Upstox."""
     if not upstox_client or not instrument_key:
         return None
     
     try:
-        from upstox import MarketQuoteApi
-        
-        quote_api = MarketQuoteApi(upstox_client)
-        
-        # Get market quote
-        quote_data = quote_api.get_market_quote(instrument_key)
-        
-        if quote_data and quote_data.data:
-            return quote_data.data
-        return None
+        # Get live quote
+        quote_data = upstox_client.get_live_feed(instrument_key, Upstox.FEED_QUOTE)
+        return quote_data
         
     except Exception as e:
-        st.error(f"Upstox API v2 Error (Quote): {e}")
+        st.error(f"Upstox API Error (Quote): {e}")
         return None
 
 
@@ -1077,7 +1070,6 @@ def get_instrument_token(symbol, instrument_df, exchange='NSE'):
     return match.iloc[0]['instrument_token'] if not match.empty else None
 
 @st.cache_data(ttl=60)
-@st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
     """Fetches historical data from the broker's API (supports both Zerodha and Upstox)."""
     client = get_broker_client()
@@ -1114,6 +1106,28 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
     
     else:
         st.warning(f"Historical data for {broker} not implemented.")
+        return pd.DataFrame()
+
+@st.cache_resource(ttl=3600)
+def get_instrument_df():
+    """Fetches the full list of tradable instruments from the broker (supports both Zerodha and Upstox)."""
+    client = get_broker_client()
+    broker = st.session_state.get('broker')
+    
+    if not client: 
+        return pd.DataFrame()
+    
+    if broker == "Zerodha":
+        df = pd.DataFrame(client.instruments())
+        if 'expiry' in df.columns:
+            df['expiry'] = pd.to_datetime(df['expiry'])
+        return df
+    
+    elif broker == "Upstox":
+        return get_upstox_instruments(client)
+    
+    else:
+        st.warning(f"Instrument list for {broker} not implemented.")
         return pd.DataFrame()
 
 @st.cache_data(ttl=15)
@@ -9519,13 +9533,14 @@ def show_login_animation():
     st.rerun()
 
 def login_page():
-    """Displays the login page for broker authentication with support for both Zerodha and Upstox."""
+    """Displays the login page for broker authentication with correct Upstox API v2."""
     st.title("BlockVista Terminal")
     st.subheader("Broker Login")
     
     broker = st.selectbox("Select Your Broker", ["Zerodha", "Upstox"])
     
     if broker == "Zerodha":
+        # Your existing Zerodha code remains the same
         api_key = st.secrets.get("ZERODHA_API_KEY")
         api_secret = st.secrets.get("ZERODHA_API_SECRET")
         
@@ -9547,7 +9562,7 @@ def login_page():
                 st.query_params.clear()
                 st.rerun()
             except Exception as e:
-                st.error(f"Zerodha authentication failed: {e}")
+                st.error(f"Authentication failed: {e}")
                 st.query_params.clear()
         else:
             st.link_button("Login with Zerodha Kite", kite.login_url())
@@ -9555,8 +9570,8 @@ def login_page():
     
     elif broker == "Upstox":
         try:
-            import upstox
-            from upstox.rest import ApiException
+            # Correct import for Upstox v2
+            from upstox_api.api import Upstox
             import urllib.parse
             import hashlib
             import base64
@@ -9570,63 +9585,30 @@ def login_page():
                 st.error("Upstox API credentials not found. Please set UPSTOX_API_KEY and UPSTOX_API_SECRET in your Streamlit secrets.")
                 st.stop()
             
-            # Generate code verifier and challenge for PKCE (required for v2)
-            code_verifier = secrets.token_urlsafe(64)
-            code_challenge = base64.urlsafe_b64encode(
-                hashlib.sha256(code_verifier.encode()).digest()
-            ).decode().rstrip('=')
-            
-            # Store code_verifier in session state for later use
-            st.session_state.upstox_code_verifier = code_verifier
-            
             # Check for authorization code in URL parameters
             auth_code = st.query_params.get("code")
             
             if auth_code:
                 try:
-                    # Configure Upstox API client
-                    configuration = upstox.Configuration()
-                    configuration.access_token = None  # We'll get this next
-                    
-                    # Create API instance
-                    api_instance = upstox.LoginApi(upstox.ApiClient(configuration))
-                    
-                    # Exchange authorization code for access token
-                    token_request = upstox.AccessTokenRequest(
-                        code=auth_code,
-                        client_id=api_key,
-                        client_secret=api_secret,
-                        redirect_uri=redirect_uri,
-                        grant_type="authorization_code",
-                        code_verifier=st.session_state.upstox_code_verifier
-                    )
+                    # Initialize Upstox with the authorization code
+                    upstox_client = Upstox(api_key, redirect_uri)
+                    upstox_client.set_code(auth_code)
                     
                     # Get access token
-                    token_response = api_instance.token(token_request)
-                    access_token = token_response.access_token
-                    
-                    # Set up the main Upstox client with the access token
-                    configuration = upstox.Configuration()
-                    configuration.access_token = access_token
-                    
-                    upstox_client = upstox.ApiClient(configuration)
+                    upstox_client.get_access_token()
                     
                     # Store in session state
-                    st.session_state.upstox_client = upstox_client
-                    st.session_state.upstox_access_token = access_token
+                    st.session_state.upstox = upstox_client
                     st.session_state.broker = "Upstox"
                     
                     # Get user profile
                     try:
-                        user_api = upstox.UserApi(upstox_client)
-                        profile_response = user_api.get_profile()
-                        
+                        profile_response = upstox_client.get_profile()
                         st.session_state.profile = {
-                            'user_name': profile_response.data.name if profile_response.data.name else 'Upstox User',
-                            'email': profile_response.data.email if profile_response.data.email else '',
-                            'user_id': profile_response.data.client_code if profile_response.data.client_code else 'upstox_user'
+                            'user_name': profile_response.get('name', 'Upstox User'),
+                            'email': profile_response.get('email', ''),
+                            'user_id': profile_response.get('member_id', 'upstox_user')
                         }
-                        
                     except Exception as profile_error:
                         st.session_state.profile = {
                             'user_name': 'Upstox User',
@@ -9636,34 +9618,20 @@ def login_page():
                     
                     st.success("Upstox login successful!")
                     st.query_params.clear()
-                    # Clean up code verifier
-                    if 'upstox_code_verifier' in st.session_state:
-                        del st.session_state.upstox_code_verifier
                     st.rerun()
                     
-                except ApiException as e:
+                except Exception as e:
                     st.error(f"Upstox authentication failed: {e}")
                     st.query_params.clear()
-                except Exception as e:
-                    st.error(f"Upstox authentication error: {e}")
-                    st.query_params.clear()
             else:
-                # Generate login URL for Upstox v2 with PKCE
-                base_url = "https://api.upstox.com/v2/login/authorization/dialog"
-                params = {
-                    'response_type': 'code',
-                    'client_id': api_key,
-                    'redirect_uri': redirect_uri,
-                    'code_challenge': code_challenge,
-                    'code_challenge_method': 'S256'
-                }
-                
-                login_url = f"{base_url}?{urllib.parse.urlencode(params)}"
+                # Generate login URL for Upstox
+                upstox_client = Upstox(api_key, redirect_uri)
+                login_url = upstox_client.get_login_url()
                 st.link_button("Login with Upstox", login_url)
                 st.info("Please login with Upstox to begin. You will be redirected back to the app.")
                 
         except ImportError:
-            st.error("Upstox API v2 package not found. Please install it using: pip install upstox-python-sdk")
+            st.error("Upstox API package not found. Please install it using: pip install upstox")
         except Exception as e:
             st.error(f"Upstox initialization failed: {e}")
             
