@@ -476,23 +476,57 @@ def upstox_logout():
         st.error(f"An error occurred during Upstox logout: {str(e)}")
 
 
-def get_upstox_instruments():
-    """Fetch Upstox instruments master."""
+def get_upstox_instruments(access_token, exchange='NSE'):
+    """Fetches instrument list from Upstox REST API v2 with correct exchange codes."""
+    if not access_token:
+        return pd.DataFrame()
+    
     try:
-        client = get_broker_client()
-        if not client or st.session_state.broker != "Upstox":
-            return pd.DataFrame()
-            
-        # Get instruments from Upstox
-        api_instance = upstox.MasterApi(client['api_client'])
-        response = api_instance.get_master_csv(exchange="NSE_EQ")  # Can be NSE_FO, BSE_EQ, etc.
+        # Correct exchange codes for Upstox v2
+        exchange_map = {
+            'NSE': 'NSE',      # NSE Equity
+            'BSE': 'BSE',      # BSE Equity  
+            'NFO': 'NFO',      # NSE Futures & Options
+            'MCX': 'MCX',      # MCX Commodities
+            'BFO': 'BFO',      # BSE Futures & Options
+            'CDS': 'CDS'       # NSE Currency Derivatives
+        }
         
-        # Parse CSV response
-        instruments_df = pd.read_csv(io.StringIO(response))
-        return instruments_df
+        upstox_exchange = exchange_map.get(exchange, 'NSE')
+        
+        url = f"https://api.upstox.com/v2/master-contract/{upstox_exchange}"
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json'
+        }
+        
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            data = response.json()
+            instrument_list = []
+            
+            if data.get('status') == 'success' and 'data' in data:
+                for instrument in data['data']:
+                    instrument_list.append({
+                        'tradingsymbol': instrument.get('trading_symbol', ''),
+                        'name': instrument.get('name', ''),
+                        'instrument_token': instrument.get('instrument_key', ''),
+                        'exchange': upstox_exchange,
+                        'lot_size': instrument.get('lot_size', 1),
+                        'instrument_type': instrument.get('instrument_type', 'EQ')
+                    })
+                
+                return pd.DataFrame(instrument_list)
+            else:
+                st.error(f"Upstox API response error: {data}")
+        else:
+            st.error(f"Upstox API Error (Instruments): {response.status_code} - {response.text}")
+            
+        return pd.DataFrame()
         
     except Exception as e:
-        st.error(f"Error fetching Upstox instruments: {e}")
+        st.error(f"Upstox API Error (Instruments): {e}")
         return pd.DataFrame()
 
 def get_upstox_historical_data(access_token, instrument_key, interval, period=None):
@@ -543,14 +577,16 @@ def get_upstox_historical_data(access_token, instrument_key, interval, period=No
         
         if response.status_code == 200:
             data = response.json()
-            if data['status'] == 'success' and 'data' in data and 'candles' in data['data']:
+            if data.get('status') == 'success' and 'data' in data and 'candles' in data['data']:
                 candles = data['data']['candles']
                 df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'oi'])
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
                 df.set_index('timestamp', inplace=True)
                 return df
+            else:
+                st.error(f"Upstox API response error: {data}")
         else:
-            st.error(f"Upstox API Error: {response.text}")
+            st.error(f"Upstox API Error: {response.status_code} - {response.text}")
             
         return pd.DataFrame()
             
@@ -1070,10 +1106,10 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
     fig.update_layout(title=f'{ticker} Price Chart ({chart_type})', yaxis_title='Price (INR)', xaxis_rangeslider_visible=False, template=template, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     return fig
 
-@st.cache_resource(ttl=3600)
+
 @st.cache_resource(ttl=3600)
 def get_instrument_df():
-    """Fetches the full list of tradable instruments from the broker (supports both Zerodha and Upstox)."""
+    """Fetches the full list of tradable instruments from the broker."""
     client = get_broker_client()
     broker = st.session_state.get('broker')
     
@@ -1087,7 +1123,29 @@ def get_instrument_df():
         return df
     
     elif broker == "Upstox":
-        return get_upstox_instruments(client)
+        access_token = st.session_state.get('upstox_access_token')
+        if not access_token:
+            st.error("Upstox access token not found. Please login again.")
+            return pd.DataFrame()
+        
+        # Fetch instruments from multiple exchanges
+        exchanges = ['NSE', 'BSE', 'NFO', 'MCX', 'CDS']
+        all_instruments = []
+        
+        for exchange in exchanges:
+            try:
+                exchange_instruments = get_upstox_instruments(access_token, exchange)
+                if not exchange_instruments.empty:
+                    all_instruments.append(exchange_instruments)
+                    st.success(f"Loaded {len(exchange_instruments)} instruments from {exchange}")
+            except Exception as e:
+                st.error(f"Failed to load instruments from {exchange}: {e}")
+        
+        if all_instruments:
+            return pd.concat(all_instruments, ignore_index=True)
+        else:
+            st.error("Could not load any instruments from Upstox")
+            return pd.DataFrame()
     
     else:
         st.warning(f"Instrument list for {broker} not implemented.")
@@ -1099,7 +1157,7 @@ def get_instrument_token(symbol, instrument_df, exchange='NSE'):
     match = instrument_df[(instrument_df['tradingsymbol'] == symbol.upper()) & (instrument_df['exchange'] == exchange)]
     return match.iloc[0]['instrument_token'] if not match.empty else None
 
-@st.cache_data(ttl=60)
+
 @st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
     """Fetches historical data from the broker's API."""
@@ -1141,27 +1199,6 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         return pd.DataFrame()
 
 @st.cache_resource(ttl=3600)
-def get_instrument_df():
-    """Fetches the full list of tradable instruments from the broker."""
-    client = get_broker_client()
-    broker = st.session_state.get('broker')
-    
-    if not client: 
-        return pd.DataFrame()
-    
-    if broker == "Zerodha":
-        df = pd.DataFrame(client.instruments())
-        if 'expiry' in df.columns:
-            df['expiry'] = pd.to_datetime(df['expiry'])
-        return df
-    
-    elif broker == "Upstox":
-        access_token = st.session_state.get('upstox_access_token')
-        return get_upstox_instruments(access_token)
-    
-    else:
-        st.warning(f"Instrument list for {broker} not implemented.")
-        return pd.DataFrame()
 
 @st.cache_data(ttl=15)
 def get_watchlist_data(symbols_with_exchange):
@@ -9686,7 +9723,10 @@ def login_page():
                             }
                         
                         st.success("Upstox login successful!")
-                        st.query_params.clear()
+                        if st.session_state.get('broker') == "Upstox" and st.session_state.get('upstox_access_token'):
+                            if st.button("🔧 Debug Upstox API"):
+                                debug_upstox_api(st.session_state.upstox_access_token)
+                                st.query_params.clear()
                         # Clean up code verifier
                         if 'upstox_code_verifier' in st.session_state:
                             del st.session_state.upstox_code_verifier
