@@ -32,7 +32,6 @@ import random
 from streamlit_autorefresh import st_autorefresh
 
 # ================ UPSTOX API INTEGRATION ================
-import upstox
 import requests
 import json
 
