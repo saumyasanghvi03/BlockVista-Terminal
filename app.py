@@ -35,6 +35,15 @@ from streamlit_autorefresh import st_autorefresh
 import requests
 import json
 
+# Note: upstox-python library might be needed.
+try:
+    import upstox_client as upstox
+    from upstox_client.api import login_api
+    from upstox_client.rest import ApiException
+    UPSTOX_AVAILABLE = True
+except ImportError:
+    UPSTOX_AVAILABLE = False
+
 # ================ 1. STYLING AND CONFIGURATION ===============
 
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -242,6 +251,7 @@ UPSTOX_CONFIG = {
     "api_key": "your_upstox_api_key",  # Will be set from secrets
     "redirect_uri": "https://your-redirect-uri.com",  # Set in Upstox developer console
     "api_secret": "your_upstox_api_secret"  # Will be set from secrets
+
 }
 # ================ 1.5 INITIALIZATION ========================
 
@@ -308,8 +318,30 @@ def initialize_session_state():
             'performance_metrics': {},
             'last_signal_check': None
         }
-
+    
+    # Add special trading days
+    if 'special_trading_days' not in st.session_state:
+        st.session_state.special_trading_days = []
 # ================ 2. HELPER FUNCTIONS ================
+def get_ist_time():
+    """Get current time in IST timezone."""
+    ist = pytz.timezone('Asia/Kolkata')
+    return datetime.now(ist)
+
+def check_for_special_session():
+    """Checks if the current time falls within any special trading session."""
+    if 'special_trading_days' not in st.session_state:
+        return None
+    
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+    now_date = now.date()
+    now_time = now.time()
+
+    for session in st.session_state.special_trading_days:
+        if now_date == session['date'] and session['start'] <= now_time <= session['end']:
+            return session # Return the active session details
+    return None
 
 def get_broker_client():
     """Gets current broker client from session state - UPDATED FOR UPSTOX."""
@@ -323,46 +355,6 @@ def get_broker_client():
         return st.session_state.get('upstox_client')
     
     return None
-
-def initialize_upstox_client():
-    """Initialize Upstox client with stored credentials."""
-    try:
-        if not UPSTOX_AVAILABLE:
-            st.error("Upstox package not installed. Run: pip install upstox-python")
-            return None
-            
-        api_key = st.secrets.get("UPSTOX_API_KEY")
-        access_token = st.session_state.get('upstox_access_token')
-        
-        if not api_key:
-            st.error("UPSTOX_API_KEY not found in secrets")
-            return None
-            
-        if not access_token:
-            st.error("Upstox access token not available")
-            return None
-            
-        # Initialize Upstox configuration
-        configuration = upstox.Configuration()
-        configuration.access_token = access_token
-        
-        # Create API client
-        api_client = upstox.ApiClient(configuration)
-        
-        # Initialize various API clients
-        st.session_state.upstox_client = {
-            'api_client': api_client,
-            'user_api': upstox.UserApi(api_client),
-            'order_api': upstox.OrderApi(api_client),
-            'portfolio_api': upstox.PortfolioApi(api_client),
-            'market_quote_api': upstox.MarketQuoteApi(api_client),
-            'history_api': upstox.HistoryApi(api_client)
-        }
-        return st.session_state.upstox_client
-        
-    except Exception as e:
-        st.error(f"Failed to initialize Upstox client: {e}")
-        return None
 
 def get_upstox_login_url():
     """Generate Upstox login URL."""
@@ -393,12 +385,8 @@ def get_upstox_login_url():
         return None
 
 def upstox_generate_session(authorization_code):
-    """Generate Upstox session using authorization code."""
+    """Generate Upstox session using authorization code via direct API call."""
     try:
-        if not UPSTOX_AVAILABLE:
-            st.error("Upstox package not available")
-            return False
-            
         api_key = st.secrets.get("UPSTOX_API_KEY")
         api_secret = st.secrets.get("UPSTOX_API_SECRET")
         redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI")
@@ -406,31 +394,69 @@ def upstox_generate_session(authorization_code):
         if not all([api_key, api_secret, redirect_uri]):
             st.error("Missing Upstox credentials in secrets")
             return False
+            
+        url = 'https://api.upstox.com/v2/login/authorization/token'
+        headers = {
+            'accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+        }
+        data = {
+            'code': authorization_code,
+            'client_id': api_key,
+            'client_secret': api_secret,
+            'redirect_uri': redirect_uri,
+            'grant_type': 'authorization_code',
+        }
+
+        response = requests.post(url, headers=headers, data=data)
+        response.raise_for_status() # Raise an exception for bad status codes
         
-        # Create a basic API client for token generation
-        api_instance = upstox.LoginApi()
+        token_data = response.json()
         
-        # Generate session - using the API directly
-        token_response = api_instance.token(
-            code=authorization_code,
-            client_id=api_key,
-            client_secret=api_secret,
-            redirect_uri=redirect_uri,
-            grant_type="authorization_code"
-        )
-        
-        if hasattr(token_response, 'access_token'):
-            st.session_state.upstox_access_token = token_response.access_token
-            st.session_state.upstox_token_type = getattr(token_response, 'token_type', 'bearer')
+        if 'access_token' in token_data:
+            st.session_state.upstox_access_token = token_data['access_token']
+            st.session_state.upstox_token_type = token_data.get('token_type', 'bearer')
             st.success("Upstox authentication successful!")
             return True
         else:
-            st.error("No access token in response")
+            st.error(f"No access token in response: {token_data.get('error_description', 'Unknown error')}")
             return False
-        
+            
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"Upstox session generation failed (HTTP Error): {http_err.response.status_code} - {http_err.response.text}")
+        return False
     except Exception as e:
         st.error(f"Upstox session generation failed: {str(e)}")
         return False
+
+def upstox_logout():
+    """Logs out the user from the Upstox API."""
+    try:
+        access_token = st.session_state.get('upstox_access_token')
+        if not access_token:
+            st.warning("No active Upstox session to log out from.")
+            return
+
+        url = 'https://api.upstox.com/v2/logout'
+        headers = {
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {access_token}'
+        }
+
+        response = requests.delete(url, headers=headers)
+        response.raise_for_status()
+        
+        logout_data = response.json()
+        if logout_data.get("status") == "success":
+            st.toast("Successfully logged out from Upstox.")
+        else:
+            st.warning(f"Upstox logout may not have been fully successful: {logout_data.get('message', '')}")
+
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"Upstox logout failed (HTTP Error): {http_err.response.status_code} - {http_err.response.text}")
+    except Exception as e:
+        st.error(f"An error occurred during Upstox logout: {str(e)}")
+
 
 def get_upstox_instruments():
     """Fetch Upstox instruments master."""
@@ -440,7 +466,7 @@ def get_upstox_instruments():
             return pd.DataFrame()
             
         # Get instruments from Upstox
-        api_instance = upstox_api.MasterApi(client['api_client'])
+        api_instance = upstox.MasterApi(client['api_client'])
         response = api_instance.get_master_csv(exchange="NSE_EQ")  # Can be NSE_FO, BSE_EQ, etc.
         
         # Parse CSV response
@@ -458,7 +484,7 @@ def get_upstox_historical_data(instrument_key, interval, from_date, to_date):
         if not client or st.session_state.broker != "Upstox":
             return pd.DataFrame()
             
-        api_instance = upstox_api.HistoryApi(client['api_client'])
+        api_instance = upstox.HistoryApi(client['api_client'])
         
         # Convert dates to required format
         from_date_str = from_date.strftime("%Y-%m-%d")
@@ -491,7 +517,7 @@ def get_upstox_quote(instruments):
         if not client or st.session_state.broker != "Upstox":
             return {}
             
-        api_instance = upstox_api.MarketQuoteApi(client['api_client'])
+        api_instance = upstox.MarketQuoteApi(client['api_client'])
         
         # Format: "NSE_EQ|INE002A01018" or "NSE_FO|NIFTY23NOV23000CE"
         response = api_instance.get_market_quote_full(instruments)
@@ -521,10 +547,10 @@ def place_upstox_order(order_params):
         if not client or st.session_state.broker != "Upstox":
             return None
             
-        api_instance = upstox_api.OrderApi(client['api_client'])
+        api_instance = upstox.OrderApi(client['api_client'])
         
         # Prepare order parameters
-        order_request = upstox_api.PlaceOrderRequest(
+        order_request = upstox.PlaceOrderRequest(
             quantity=order_params['quantity'],
             product=order_params['product'],
             validity=order_params['validity'],
@@ -555,7 +581,7 @@ def get_upstox_positions():
         if not client or st.session_state.broker != "Upstox":
             return pd.DataFrame()
             
-        api_instance = upstox_api.PortfolioApi(client['api_client'])
+        api_instance = upstox.PortfolioApi(client['api_client'])
         response = api_instance.get_positions()
         
         positions = []
@@ -583,7 +609,7 @@ def get_upstox_holdings():
         if not client or st.session_state.broker != "Upstox":
             return pd.DataFrame()
             
-        api_instance = upstox_api.PortfolioApi(client['api_client'])
+        api_instance = upstox.PortfolioApi(client['api_client'])
         response = api_instance.get_holdings()
         
         holdings = []
@@ -611,7 +637,7 @@ def get_upstox_order_book():
         if not client or st.session_state.broker != "Upstox":
             return pd.DataFrame()
             
-        api_instance = upstox_api.OrderApi(client['api_client'])
+        api_instance = upstox.OrderApi(client['api_client'])
         response = api_instance.get_order_book()
         
         orders = []
@@ -675,156 +701,155 @@ def get_market_holidays(year):
     }
     return holidays_by_year.get(year, [])
 
+
 # =============================================================================
 # MARKET TIMING FUNCTIONS - REPLACE EXISTING ONES
 # =============================================================================
 def is_market_hours():
-    """Check if current time is within market hours (9:15 AM to 3:30 PM, Monday to Friday) using IST"""
+    """Check if current time is within market hours OR a special session."""
+    if check_for_special_session():
+        return True
+
     ist = pytz.timezone('Asia/Kolkata')
     now = datetime.now(ist)
-    current_time = now.time()
-    current_day = now.weekday()  # Monday=0, Sunday=6
     
-    # Check if it's a weekday (Monday to Friday)
-    if current_day >= 5:  # Saturday (5) or Sunday (6)
+    if now.strftime('%Y-%m-%d') in get_market_holidays(now.year):
+        return False
+        
+    current_time = now.time()
+    current_day = now.weekday()
+    
+    if current_day >= 5:
         return False
     
-    # Market hours: 9:15 AM to 3:30 PM IST
     market_open = time(9, 15)
     market_close = time(15, 30)
     
     return market_open <= current_time <= market_close
 
 def is_pre_market_hours():
-    """Check if current time is pre-market hours (9:00 AM to 9:15 AM, Monday to Friday) using IST"""
+    """Check for pre-market hours, but not during a special session."""
+    if check_for_special_session():
+        return False
+
     ist = pytz.timezone('Asia/Kolkata')
     now = datetime.now(ist)
     current_time = now.time()
     current_day = now.weekday()
     
-    # Check if it's a weekday
-    if current_day >= 5:
+    if current_day >= 5 or now.strftime('%Y-%m-%d') in get_market_holidays(now.year):
         return False
     
-    # Pre-market hours: 9:00 AM to 9:15 AM IST
     pre_market_start = time(9, 0)
     market_open = time(9, 15)
     
     return pre_market_start <= current_time < market_open
 
 def is_square_off_time():
-    """Check if current time is square-off time for Equity/Cash (3:20 PM to 3:30 PM, Monday to Friday) using IST"""
+    """Check for square-off time, but not during a special session."""
+    if check_for_special_session():
+        return False
+
     ist = pytz.timezone('Asia/Kolkata')
     now = datetime.now(ist)
     current_time = now.time()
     current_day = now.weekday()
     
-    # Check if it's a weekday
-    if current_day >= 5:  # Saturday or Sunday
+    if current_day >= 5 or now.strftime('%Y-%m-%d') in get_market_holidays(now.year):
         return False
     
-    # Square-off time for Equity/Cash: 3:20 PM to 3:30 PM IST
-    square_off_start = time(15, 20)  # 3:20 PM
-    square_off_end = time(15, 30)    # 3:30 PM
+    square_off_start = time(15, 20)
+    square_off_end = time(15, 30)
     
     return square_off_start <= current_time <= square_off_end
 
 def is_derivatives_square_off_time():
-    """Check if current time is square-off time for Equity/Index Derivatives (3:25 PM to 3:30 PM) using IST"""
+    """Check for derivatives square-off time, but not during a special session."""
+    if check_for_special_session():
+        return False
+
     ist = pytz.timezone('Asia/Kolkata')
     now = datetime.now(ist)
     current_time = now.time()
     current_day = now.weekday()
     
-    if current_day >= 5:
+    if current_day >= 5 or now.strftime('%Y-%m-%d') in get_market_holidays(now.year):
         return False
     
-    # Square-off time for Derivatives: 3:25 PM to 3:30 PM IST
-    square_off_start = time(15, 25)  # 3:25 PM
-    square_off_end = time(15, 30)    # 3:30 PM
+    square_off_start = time(15, 25)
+    square_off_end = time(15, 30)
     
     return square_off_start <= current_time <= square_off_end
 
 def get_market_status():
-    """Get current market status and next market event with proper formatting for display using IST."""
+    """Get current market status, accounting for special sessions, holidays, and weekends."""
     ist = pytz.timezone('Asia/Kolkata')
     now = datetime.now(ist)
-    current_time = now.time()
-    current_day = now.weekday()
-    current_date = now.date()
     
-    # Weekend check
-    if current_day >= 5:  # Saturday or Sunday
-        days_until_monday = (7 - current_day) % 7
-        if days_until_monday == 0:  # Already Monday? (shouldn't happen but safe)
-            days_until_monday = 7
-        next_market = now + timedelta(days=days_until_monday)
+    active_session = check_for_special_session()
+    if active_session:
+        session_end_datetime = datetime.combine(active_session['date'], active_session['end'], tzinfo=ist)
+        return {
+            "status": "special_trading_session",
+            "next_market": session_end_datetime,
+            "color": "#9400D3"
+        }
+
+    if now.strftime('%Y-%m-%d') in get_market_holidays(now.year):
+        next_day = now + timedelta(days=1)
+        while next_day.weekday() >= 5 or next_day.strftime('%Y-%m-%d') in get_market_holidays(next_day.year):
+            next_day += timedelta(days=1)
+        return {
+            "status": "market_holiday",
+            "next_market": next_day.replace(hour=9, minute=0, second=0, microsecond=0),
+            "color": "#A52A2A"
+        }
+
+    current_day = now.weekday()
+    if current_day >= 5:
+        next_day = now + timedelta(days=(7 - current_day))
+        while next_day.strftime('%Y-%m-%d') in get_market_holidays(next_day.year):
+            next_day += timedelta(days=1)
         return {
             "status": "weekend",
-            "next_market": next_market.replace(hour=9, minute=0, second=0, microsecond=0),
-            "color": "#cccccc"
-        }
-    
-    # Market timing definitions in IST
-    pre_market_start = time(9, 0)
-    market_open = time(9, 15)
-    equity_square_off = time(15, 20)  # 3:20 PM for Equity/Cash
-    derivatives_square_off = time(15, 25)  # 3:25 PM for Derivatives
-    market_close = time(15, 30)
-    
-    if current_time < pre_market_start:
-        # Before pre-market (overnight)
-        next_market = now.replace(hour=9, minute=0, second=0, microsecond=0)
-        return {
-            "status": "market_closed",
-            "next_market": next_market,
-            "color": "#cccccc"
-        }
-    elif pre_market_start <= current_time < market_open:
-        # Pre-market hours (9:00 AM to 9:15 AM)
-        next_market = now.replace(hour=9, minute=15, second=0, microsecond=0)
-        return {
-            "status": "pre_market", 
-            "next_market": next_market,
-            "color": "#ffcc00"
-        }
-    elif market_open <= current_time < equity_square_off:
-        # Market open (9:15 AM to 3:20 PM)
-        next_market = now.replace(hour=15, minute=20, second=0, microsecond=0)
-        return {
-            "status": "market_open",
-            "next_market": next_market, 
-            "color": "#00cc00"
-        }
-    elif equity_square_off <= current_time < derivatives_square_off:
-        # Equity square-off time (3:20 PM to 3:25 PM)
-        next_market = now.replace(hour=15, minute=25, second=0, microsecond=0)
-        return {
-            "status": "equity_square_off",
-            "next_market": next_market,
-            "color": "#ff9900"
-        }
-    elif derivatives_square_off <= current_time <= market_close:
-        # Derivatives square-off time (3:25 PM to 3:30 PM)
-        next_market = now.replace(hour=15, minute=30, second=0, microsecond=0)
-        return {
-            "status": "derivatives_square_off",
-            "next_market": next_market,
-            "color": "#ff6600"
-        }
-    else:
-        # Market closed for the day (after 3:30 PM)
-        next_day = now + timedelta(days=1)
-        # Skip weekends
-        while next_day.weekday() >= 5:
-            next_day += timedelta(days=1)
-        next_market = next_day.replace(hour=9, minute=0, second=0, microsecond=0)
-        return {
-            "status": "market_closed",
-            "next_market": next_market,
+            "next_market": next_day.replace(hour=9, minute=0, second=0, microsecond=0),
             "color": "#cccccc"
         }
 
+    current_time = now.time()
+    pre_market_start = time(9, 0)
+    market_open = time(9, 15)
+    equity_square_off = time(15, 20)
+    derivatives_square_off = time(15, 25)
+    market_close = time(15, 30)
+
+    if current_time < pre_market_start:
+        status, next_event_time, color = "market_closed", time(9, 0), "#cccccc"
+    elif current_time < market_open:
+        status, next_event_time, color = "pre_market", time(9, 15), "#ffcc00"
+    elif current_time < equity_square_off:
+        status, next_event_time, color = "market_open", time(15, 20), "#00cc00"
+    elif current_time < derivatives_square_off:
+        status, next_event_time, color = "equity_square_off", time(15, 25), "#ff9900"
+    elif current_time <= market_close:
+        status, next_event_time, color = "derivatives_square_off", time(15, 30), "#ff6600"
+    else:
+        status, color = "market_closed", "#cccccc"
+        next_day = now + timedelta(days=1)
+        while next_day.weekday() >= 5 or next_day.strftime('%Y-%m-%d') in get_market_holidays(next_day.year):
+            next_day += timedelta(days=1)
+        return {
+            "status": status,
+            "next_market": next_day.replace(hour=9, minute=0, second=0, microsecond=0),
+            "color": color
+        }
+
+    return {
+        "status": status,
+        "next_market": now.replace(hour=next_event_time.hour, minute=next_event_time.minute, second=0, microsecond=0),
+        "color": color
+    }
+    
 def display_header():
     """Displays the main header with market status, a live clock, and trade buttons."""
     status_info = get_market_status()
@@ -853,6 +878,7 @@ def display_header():
             st.rerun()
 
     st.markdown("<hr style='margin-top: 10px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+
 
 @st.cache_data(ttl=300)
 def get_global_indices_data(tickers):
@@ -973,7 +999,6 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
     return fig
 
 @st.cache_resource(ttl=3600)
-@st.cache_data(ttl=3600)
 def get_instrument_df():
     """Fetches the full list of tradable instruments - UPDATED FOR UPSTOX."""
     client = get_broker_client()
@@ -1001,7 +1026,6 @@ def get_instrument_token(symbol, instrument_df, exchange='NSE'):
     match = instrument_df[(instrument_df['tradingsymbol'] == symbol.upper()) & (instrument_df['exchange'] == exchange)]
     return match.iloc[0]['instrument_token'] if not match.empty else None
 
-@st.cache_data(ttl=60)
 @st.cache_data(ttl=60)
 def get_historical_data(instrument_token, interval, period=None, from_date=None, to_date=None):
     """Fetches historical data - UPDATED FOR UPSTOX."""
@@ -1048,7 +1072,6 @@ def get_historical_data(instrument_token, interval, period=None, from_date=None,
         st.warning(f"Historical data for {broker} not implemented.")
         return pd.DataFrame()
 
-@st.cache_data(ttl=15)
 @st.cache_data(ttl=15)
 def get_watchlist_data(symbols_with_exchange):
     """Fetches live prices - UPDATED FOR UPSTOX."""
@@ -1125,6 +1148,7 @@ def get_watchlist_data(symbols_with_exchange):
         st.warning(f"Watchlist for {broker} not implemented.")
         return pd.DataFrame()
 
+
 @st.cache_data(ttl=2)
 def get_market_depth(instrument_token):
     """Fetches market depth (order book) for a given instrument."""
@@ -1193,7 +1217,6 @@ def get_options_chain(underlying, instrument_df, expiry_date=None):
         return pd.DataFrame(), None, 0.0, []
 
 @st.cache_data(ttl=10)
-@st.cache_data(ttl=10)
 def get_portfolio():
     """Fetches real-time portfolio - UPDATED FOR UPSTOX."""
     client = get_broker_client()
@@ -1234,6 +1257,7 @@ def get_portfolio():
     else:
         st.warning(f"Portfolio for {broker} not implemented.")
         return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0
+
 
 def place_order(instrument_df, symbol, quantity, order_type, transaction_type, product, price=None):
     """Places a single order - UPDATED FOR UPSTOX."""
@@ -1352,7 +1376,7 @@ def place_order(instrument_df, symbol, quantity, order_type, transaction_type, p
     else:
         st.warning(f"Order placement for {broker} not implemented.")
 
-@st.cache_data(ttl=900)
+
 @st.cache_data(ttl=1800)  # Cache for 30 minutes
 def fetch_and_analyze_news(query=None):
     """Enhanced news fetcher with multiple fallback sources and better error handling."""
@@ -1742,7 +1766,7 @@ def show_most_active_dialog(underlying, instrument_df):
             except Exception as e:
                 st.error(f"Could not fetch most active options: {e}")
 
-@st.cache_data(ttl=60)
+
 @st.cache_data(ttl=300)  # 5 minute cache
 def get_global_indices_data_enhanced(tickers):
     """Enhanced global indices data fetcher with multiple fallbacks."""
