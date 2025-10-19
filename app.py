@@ -9594,11 +9594,9 @@ def login_page():
             st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
     
     elif broker == "Upstox":
-    # Temporary debug button
-    if st.button("🔧 Debug Upstox Installation"):
-        def debug_upstox_installation():
-            """Debug function to check Upstox installation."""
-            try:
+        if st.button("🔧 Debug Upstox Installation"):
+            def debug_upstox_installation():
+                try:
                 from upstox_api.api import Upstox
                 st.success("✓ Upstox package imported successfully")
                 
