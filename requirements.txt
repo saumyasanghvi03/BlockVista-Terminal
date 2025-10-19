@@ -16,4 +16,4 @@ Pillow==10.3.0
 requests==2.32.3
 streamlit-autorefresh==0.0.1
 ta-lib
-upstox<=2.0.3
+upstox-python-sdk
