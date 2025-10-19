@@ -34,6 +34,16 @@ from streamlit_autorefresh import st_autorefresh
 # ================ UPSTOX API INTEGRATION ================
 import requests
 import json
+
+# ================ UPSTOX API INTEGRATION ================
+# Note: upstox-python library might be needed.
+try:
+    import upstox_client as upstox
+    from upstox_client.api import login_api
+    from upstox_client.rest import ApiException
+    UPSTOX_AVAILABLE = True
+except ImportError:
+    UPSTOX_AVAILABLE = False
 # ================ 1. STYLING AND CONFIGURATION ===============
 
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -5046,6 +5056,62 @@ def display_bot_configuration_tab():
             st.warning("No symbols in active watchlist")
 
 # ================ 5. PAGE DEFINITIONS ============
+
+def page_settings():
+    """A page for platform-wide configurations, including special trading days."""
+    display_header()
+    st.title("⚙️ Platform Settings")
+    st.info("Configure platform settings and add special trading sessions like Muhurat Trading.", icon="🛠️")
+
+    st.subheader("Special Trading Sessions")
+    st.write("Add custom market days and times. The market status indicators will respect these overrides.")
+
+    # Form to add a new special session
+    with st.form("special_session_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            session_date = st.date_input("Date")
+        with col2:
+            start_time = st.time_input("Start Time", time(18, 15)) # Default for Muhurat
+        with col3:
+            end_time = st.time_input("End Time", time(19, 15))
+
+        submitted = st.form_submit_button("Add Special Session")
+        if submitted:
+            if start_time >= end_time:
+                st.error("Error: Start time must be before end time.")
+            else:
+                st.session_state.special_trading_days.append({
+                    'date': session_date,
+                    'start': start_time,
+                    'end': end_time
+                })
+                st.success(f"Added special session for {session_date.strftime('%d %b %Y')} from {start_time.strftime('%H:%M')} to {end_time.strftime('%H:%M')}.")
+
+    st.markdown("---")
+
+    # Display current special sessions
+    st.subheader("Configured Special Sessions")
+    if not st.session_state.special_trading_days:
+        st.info("No special trading sessions have been added.")
+    else:
+        for i, session in enumerate(st.session_state.special_trading_days):
+            col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+            col1.write(session['date'].strftime("%A, %d %B %Y"))
+            col2.write(f"Start: {session['start'].strftime('%H:%M')}")
+            col3.write(f"End: {session['end'].strftime('%H:%M')}")
+            if col4.button("Remove", key=f"remove_session_{i}"):
+                st.session_state.special_trading_days.pop(i)
+                st.rerun()
+
+    st.markdown("---")
+    st.subheader("Platform Configuration")
+    st.write("Manage other platform settings here.")
+    
+    theme = st.radio("Theme", ["Dark", "Light"], index=0 if st.session_state.get('theme', 'Dark') == 'Dark' else 1, horizontal=True)
+    if theme != st.session_state.get('theme'):
+        st.session_state.theme = theme
+        st.rerun()
 
 # --- Bharatiya Market Pulse (BMP) Functions ---
 
