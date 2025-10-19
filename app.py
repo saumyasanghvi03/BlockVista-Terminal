@@ -35,15 +35,6 @@ from streamlit_autorefresh import st_autorefresh
 import requests
 import json
 
-# ================ UPSTOX API INTEGRATION ================
-# Note: upstox-python library might be needed.
-try:
-    import upstox_client as upstox
-    from upstox_client.api import login_api
-    from upstox_client.rest import ApiException
-    UPSTOX_AVAILABLE = True
-except ImportError:
-    UPSTOX_AVAILABLE = False
 # ================ 1. STYLING AND CONFIGURATION ===============
 
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
