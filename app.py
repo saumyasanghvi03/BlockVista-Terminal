@@ -9596,7 +9596,7 @@ def login_page():
     elif broker == "Upstox":
         if st.button("🔧 Debug Upstox Installation"):
             def debug_upstox_installation():
-                try:
+            try:
                 from upstox_api.api import Upstox
                 st.success("✓ Upstox package imported successfully")
                 
