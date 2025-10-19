@@ -414,7 +414,7 @@ def debug_upstox_exchanges(access_token):
     
     return available_exchanges
 
-def debug_upstox_api(access_token):
+#def debug_upstox_api(access_token):
     """Debug function to test Upstox API connectivity."""
     if not access_token:
         st.error("No access token available")
