@@ -9604,6 +9604,7 @@ def main_app():
         "Forecasting (ML)": page_forecasting_ml,
         "Algo Strategy Hub": page_algo_strategy_maker,
         "Economic Calendar": page_economic_calendar,
+        "Settings": page_settings
         },
         "Options": {
             "F&O Analytics": page_fo_analytics,
