@@ -354,6 +354,25 @@ def get_broker_client():
     
     return None
 
+def debug_upstox_installation():
+    """Debug function to check Upstox installation."""
+    try:
+        from upstox_api.api import Upstox
+        st.success("✓ Upstox package imported successfully")
+        
+        # Check available methods
+        methods = [method for method in dir(Upstox) if not method.startswith('_')]
+        st.write("Available Upstox methods:", methods[:10])  # Show first 10 methods
+        
+        return True
+    except ImportError as e:
+        st.error(f"✗ Upstox import failed: {e}")
+        return False
+    except Exception as e:
+        st.error(f"✗ Upstox check failed: {e}")
+        return False
+# ===== END DEBUG FUNCTION =====
+
 def get_upstox_login_url():
     """Generate Upstox login URL."""
     try:
@@ -9575,6 +9594,36 @@ def login_page():
             st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
     
     elif broker == "Upstox":
+    # Temporary debug button
+    if st.button("🔧 Debug Upstox Installation"):
+        def debug_upstox_installation():
+            """Debug function to check Upstox installation."""
+            try:
+                from upstox_api.api import Upstox
+                st.success("✓ Upstox package imported successfully")
+                
+                # Check available methods
+                methods = [method for method in dir(Upstox) if not method.startswith('_')]
+                st.write("Available Upstox methods:", methods[:10])
+                
+                # Try to create an instance
+                api_key = st.secrets.get("UPSTOX_API_KEY", "test_key")
+                redirect_uri = st.secrets.get("UPSTOX_REDIRECT_URI", "https://test.com")
+                try:
+                    upstox_instance = Upstox(api_key, redirect_uri)
+                    st.success("✓ Upstox instance created successfully")
+                except Exception as instance_error:
+                    st.error(f"✗ Upstox instance creation failed: {instance_error}")
+                
+                return True
+            except ImportError as e:
+                st.error(f"✗ Upstox import failed: {e}")
+                return False
+            except Exception as e:
+                st.error(f"✗ Upstox check failed: {e}")
+                return False
+        
+        debug_upstox_installation()
         try:
             # Import the Upstox package that you already have
             from upstox_api.api import Upstox
