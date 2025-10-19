@@ -35,15 +35,6 @@ from streamlit_autorefresh import st_autorefresh
 import requests
 import json
 
-# Note: upstox-python library might be needed.
-try:
-    import upstox_client as upstox
-    from upstox_client.api import login_api
-    from upstox_client.rest import ApiException
-    UPSTOX_AVAILABLE = True
-except ImportError:
-    UPSTOX_AVAILABLE = False
-
 # ================ 1. STYLING AND CONFIGURATION ===============
 
 st.set_page_config(page_title="BlockVista Terminal", layout="wide", initial_sidebar_state="expanded")
@@ -414,7 +405,7 @@ def debug_upstox_exchanges(access_token):
     
     return available_exchanges
 
-#def debug_upstox_api(access_token):
+def debug_upstox_api(access_token):
     """Debug function to test Upstox API connectivity."""
     if not access_token:
         st.error("No access token available")
@@ -461,6 +452,7 @@ def debug_upstox_exchanges(access_token):
         except Exception as e:
             st.error(f"✗ {exchange} error: {e}")
 # ===== END DEBUG FUNCTION =====
+
 def get_upstox_login_url():
     """Generate Upstox login URL."""
     try:
@@ -563,7 +555,7 @@ def upstox_logout():
         st.error(f"An error occurred during Upstox logout: {str(e)}")
 
 
-#def get_upstox_instruments(access_token, exchange='NSE_EQ'):
+def get_upstox_instruments(access_token, exchange='NSE_EQ'):
     """Fetches instrument list from Upstox REST API v2 with correct exchange codes."""
     if not access_token:
         return pd.DataFrame()
