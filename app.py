@@ -372,6 +372,94 @@ def debug_upstox_installation():
     except Exception as e:
         st.error(f"✗ Upstox check failed: {e}")
         return False
+
+def debug_upstox_exchanges(access_token):
+    """Debug function to find available exchanges in Upstox API v2."""
+    if not access_token:
+        st.error("No access token available")
+        return
+    
+    st.subheader("🔧 Upstox API Debug - Available Exchanges")
+    
+    # Test various possible exchange codes
+    possible_exchanges = [
+        'NSE_EQ', 'NSE_FO', 'NSE_CD', 'BSE_EQ', 'BSE_FO', 
+        'MCX_FO', 'MCX_COMM', 'NSE', 'BSE', 'NFO', 'MCX', 'CDS'
+    ]
+    
+    available_exchanges = []
+    
+    for exchange in possible_exchanges:
+        try:
+            url = f"https://api.upstox.com/v2/master-contract/{exchange}"
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Accept': 'application/json'
+            }
+            
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'success':
+                    count = len(data.get('data', []))
+                    available_exchanges.append(exchange)
+                    st.success(f"✓ {exchange}: {count} instruments available")
+                else:
+                    st.warning(f"⚠ {exchange}: API returned error - {data.get('message', 'Unknown')}")
+            else:
+                st.info(f"✗ {exchange}: Not available (HTTP {response.status_code})")
+                
+        except Exception as e:
+            st.error(f"✗ {exchange} error: {e}")
+    
+    return available_exchanges
+
+def debug_upstox_api(access_token):
+    """Debug function to test Upstox API connectivity."""
+    if not access_token:
+        st.error("No access token available")
+        return
+    
+    # Test profile endpoint
+    try:
+        profile_url = "https://api.upstox.com/v2/user/profile"
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Accept': 'application/json'
+        }
+        
+        response = requests.get(profile_url, headers=headers)
+        if response.status_code == 200:
+            st.success("✓ Upstox profile API working")
+            profile_data = response.json()
+            st.write("Profile data:", profile_data)
+        else:
+            st.error(f"✗ Profile API failed: {response.status_code} - {response.text}")
+    except Exception as e:
+        st.error(f"✗ Profile API error: {e}")
+    
+    # Test available exchanges
+    exchanges = ['NSE', 'BSE', 'NFO', 'MCX', 'CDS']
+    for exchange in exchanges:
+        try:
+            url = f"https://api.upstox.com/v2/master-contract/{exchange}"
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Accept': 'application/json'
+            }
+            
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'success':
+                    count = len(data.get('data', []))
+                    st.success(f"✓ {exchange}: {count} instruments")
+                else:
+                    st.warning(f"⚠ {exchange}: {data.get('message', 'Unknown error')}")
+            else:
+                st.error(f"✗ {exchange}: {response.status_code} - {response.text}")
+        except Exception as e:
+            st.error(f"✗ {exchange} error: {e}")
 # ===== END DEBUG FUNCTION =====
 
 def get_upstox_login_url():
@@ -476,23 +564,22 @@ def upstox_logout():
         st.error(f"An error occurred during Upstox logout: {str(e)}")
 
 
-def get_upstox_instruments(access_token, exchange='NSE'):
+def get_upstox_instruments(access_token, exchange='NSE_EQ'):
     """Fetches instrument list from Upstox REST API v2 with correct exchange codes."""
     if not access_token:
         return pd.DataFrame()
     
     try:
-        # Correct exchange codes for Upstox v2
+        # Correct exchange codes for Upstox v2 (from their documentation)
         exchange_map = {
-            'NSE': 'NSE',      # NSE Equity
-            'BSE': 'BSE',      # BSE Equity  
-            'NFO': 'NFO',      # NSE Futures & Options
-            'MCX': 'MCX',      # MCX Commodities
-            'BFO': 'BFO',      # BSE Futures & Options
-            'CDS': 'CDS'       # NSE Currency Derivatives
+            'NSE': 'NSE_EQ',    # NSE Equity
+            'BSE': 'BSE_EQ',    # BSE Equity  
+            'NFO': 'NSE_FO',    # NSE Futures & Options
+            'MCX': 'MCX_FO',    # MCX Commodities
+            'CDS': 'NSE_CD',    # NSE Currency Derivatives
         }
         
-        upstox_exchange = exchange_map.get(exchange, 'NSE')
+        upstox_exchange = exchange_map.get(exchange, 'NSE_EQ')
         
         url = f"https://api.upstox.com/v2/master-contract/{upstox_exchange}"
         headers = {
@@ -500,6 +587,7 @@ def get_upstox_instruments(access_token, exchange='NSE'):
             'Accept': 'application/json'
         }
         
+        st.info(f"Fetching instruments for {exchange} -> {upstox_exchange}")
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
@@ -507,16 +595,24 @@ def get_upstox_instruments(access_token, exchange='NSE'):
             instrument_list = []
             
             if data.get('status') == 'success' and 'data' in data:
-                for instrument in data['data']:
+                instruments_data = data['data']
+                if not isinstance(instruments_data, list):
+                    st.error(f"Unexpected data format: {type(instruments_data)}")
+                    return pd.DataFrame()
+                
+                for instrument in instruments_data:
                     instrument_list.append({
                         'tradingsymbol': instrument.get('trading_symbol', ''),
                         'name': instrument.get('name', ''),
                         'instrument_token': instrument.get('instrument_key', ''),
-                        'exchange': upstox_exchange,
+                        'exchange': exchange,  # Keep our internal exchange code
                         'lot_size': instrument.get('lot_size', 1),
-                        'instrument_type': instrument.get('instrument_type', 'EQ')
+                        'instrument_type': instrument.get('instrument_type', 'EQ'),
+                        'strike_price': instrument.get('strike_price', 0),
+                        'expiry': instrument.get('expiry', '')
                     })
                 
+                st.success(f"Loaded {len(instrument_list)} instruments from {exchange}")
                 return pd.DataFrame(instrument_list)
             else:
                 st.error(f"Upstox API response error: {data}")
@@ -1108,19 +1204,26 @@ def create_chart(df, ticker, chart_type='Candlestick', forecast_df=None, conf_in
 
 
 @st.cache_resource(ttl=3600)
+@st.cache_resource(ttl=3600)
 def get_instrument_df():
     """Fetches the full list of tradable instruments from the broker."""
     client = get_broker_client()
     broker = st.session_state.get('broker')
     
     if not client: 
+        st.info("Please connect to a broker to view the dashboard.")
         return pd.DataFrame()
     
     if broker == "Zerodha":
-        df = pd.DataFrame(client.instruments())
-        if 'expiry' in df.columns:
-            df['expiry'] = pd.to_datetime(df['expiry'])
-        return df
+        try:
+            df = pd.DataFrame(client.instruments())
+            if 'expiry' in df.columns:
+                df['expiry'] = pd.to_datetime(df['expiry'])
+            st.success(f"Loaded {len(df)} instruments from Zerodha")
+            return df
+        except Exception as e:
+            st.error(f"Error loading Zerodha instruments: {e}")
+            return pd.DataFrame()
     
     elif broker == "Upstox":
         access_token = st.session_state.get('upstox_access_token')
@@ -1128,23 +1231,32 @@ def get_instrument_df():
             st.error("Upstox access token not found. Please login again.")
             return pd.DataFrame()
         
-        # Fetch instruments from multiple exchanges
-        exchanges = ['NSE', 'BSE', 'NFO', 'MCX', 'CDS']
+        # Try the most common exchanges first
+        exchanges_to_try = ['NSE', 'BSE', 'NFO', 'MCX', 'CDS']
         all_instruments = []
         
-        for exchange in exchanges:
+        for exchange in exchanges_to_try:
             try:
                 exchange_instruments = get_upstox_instruments(access_token, exchange)
                 if not exchange_instruments.empty:
                     all_instruments.append(exchange_instruments)
-                    st.success(f"Loaded {len(exchange_instruments)} instruments from {exchange}")
             except Exception as e:
                 st.error(f"Failed to load instruments from {exchange}: {e}")
+                continue
         
         if all_instruments:
-            return pd.concat(all_instruments, ignore_index=True)
+            combined_df = pd.concat(all_instruments, ignore_index=True)
+            st.success(f"Successfully loaded {len(combined_df)} instruments from Upstox")
+            return combined_df
         else:
-            st.error("Could not load any instruments from Upstox")
+            st.error("""
+            Could not load any instruments from Upstox. Possible reasons:
+            1. Your Upstox account may not have access to these market segments
+            2. There might be temporary API issues
+            3. Your API key might not have the required permissions
+            
+            Please use the debug button to check available exchanges.
+            """)
             return pd.DataFrame()
     
     else:
@@ -9724,8 +9836,9 @@ def login_page():
                         
                         st.success("Upstox login successful!")
                         if st.session_state.get('broker') == "Upstox" and st.session_state.get('upstox_access_token'):
-                            if st.button("🔧 Debug Upstox API"):
-                                debug_upstox_api(st.session_state.upstox_access_token)
+                            if st.button("🔧 Debug Upstox API & Exchanges"):
+                                available_exchanges = debug_upstox_exchanges(st.session_state.upstox_access_token)
+                                st.session_state.upstox_available_exchanges = available_exchanges
                                 st.query_params.clear()
                         # Clean up code verifier
                         if 'upstox_code_verifier' in st.session_state:
