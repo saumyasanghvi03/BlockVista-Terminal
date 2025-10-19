@@ -9749,8 +9749,9 @@ def login_page():
         else:
             st.link_button("Login with Zerodha Kite", kite.login_url())
             st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
-        elif broker == "Upstox":
-            try:
+    
+    elif broker == "Upstox":
+        try:
             import urllib.parse
             import hashlib
             import base64
