@@ -461,8 +461,7 @@ def debug_upstox_api(access_token):
         except Exception as e:
             st.error(f"✗ {exchange} error: {e}")
 # ===== END DEBUG FUNCTION =====
-
-#def get_upstox_login_url():
+def get_upstox_login_url():
     """Generate Upstox login URL."""
     try:
         api_key = st.secrets.get("UPSTOX_API_KEY")
@@ -9750,7 +9749,7 @@ def login_page():
             st.link_button("Login with Zerodha Kite", kite.login_url())
             st.info("Please login with Zerodha Kite to begin. You will be redirected back to the app.")
     
-    #elif broker == "Upstox":
+    elif broker == "Upstox":
         try:
             import urllib.parse
             import hashlib
