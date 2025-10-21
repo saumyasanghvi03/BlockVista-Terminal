@@ -18,3 +18,4 @@ streamlit-autorefresh==0.0.1
 ta-lib
 # Remove: upstox<=2.0.3
 praw
+textBlob
