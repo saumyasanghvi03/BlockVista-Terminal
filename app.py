@@ -3435,9 +3435,7 @@ def calculate_breakout_score(latest, data):
     """Calculate breakout score (0-1)."""
     score = 0
     factors = 0
-    
-    # Recent high breakout
- recent_high = data['high'].tail(20).max()
+    recent_high = data['high'].tail(20).max()
     if latest['close'] > recent_high:
         score += 0.4
     factors += 1
