@@ -3533,11 +3533,6 @@ def display_breakout_signals(signals_data, total_capital, risk_percent, auto_exe
     if auto_execute and top_signals:
         if st.button("🤖 Execute All Breakout Trades", type="primary", use_container_width=True):
             execute_batch_breakout_trades(top_signals, total_capital, risk_percent)
-    
-    # AUTO-EXECUTION
-    if auto_execute and top_signals:
-        if st.button("🤖 Execute All Breakout Trades", type="primary", use_container_width=True):
-            execute_batch_breakout_trades(top_signals, total_capital, risk_percent)
 
 def execute_batch_breakout_trades(signals, total_capital, risk_percent):
     """Execute multiple breakout trades in batch."""
@@ -3668,6 +3663,118 @@ def display_multi_signals(signals_data, total_capital, risk_percent, auto_execut
     if auto_execute and top_signals:
         if st.button("🤖 Execute All Multi-Signal Trades", type="primary", use_container_width=True):
             execute_batch_multi_trades(top_signals, total_capital, risk_percent)
+
+def calculate_breakout_position_size(signal, risk_amount):
+    """Calculate position size for breakout trades."""
+    current_price = signal['current_price']
+    stop_loss = signal['stop_loss']
+    
+    if current_price > stop_loss:  # For long trades
+        risk_per_share = current_price - stop_loss
+    else:  # For short trades
+        risk_per_share = stop_loss - current_price
+    
+    if risk_per_share > 0:
+        position_size = int(risk_amount / risk_per_share)
+    else:
+        position_size = int(risk_amount / (current_price * 0.02))  # Default 2% stop
+    
+    # Ensure minimum 1 share and reasonable maximum
+    return max(1, min(position_size, 1000))
+
+def calculate_risk_position_size(signal, risk_amount):
+    """Calculate position size based on ATR risk."""
+    current_price = signal['current_price']
+    atr = signal.get('atr', current_price * 0.02)  # Default 2% if ATR not available
+    
+    # Use 2x ATR for stop loss
+    risk_per_share = 2 * atr
+    
+    if risk_per_share > 0:
+        position_size = int(risk_amount / risk_per_share)
+    else:
+        position_size = int(risk_amount / (current_price * 0.02))
+    
+    return max(1, min(position_size, 1000))
+
+def execute_breakout_trade(signal, quantity):
+    """Execute a single breakout trade."""
+    try:
+        instrument_df = get_instrument_df()
+        place_order(
+            instrument_df,
+            signal['symbol'],
+            quantity,
+            'MARKET',
+            signal['signal'],
+            'MIS'
+        )
+        st.success(f"✅ {signal['signal']} order executed for {signal['symbol']} (Qty: {quantity})")
+        
+        # Log the trade
+        log_breakout_trade(signal, quantity, 'MANUAL')
+        
+    except Exception as e:
+        st.error(f"❌ Trade execution failed: {str(e)}")
+
+def execute_multi_signal_trade(signal, quantity):
+    """Execute a single multi-signal trade."""
+    try:
+        instrument_df = get_instrument_df()
+        place_order(
+            instrument_df,
+            signal['symbol'],
+            quantity,
+            'MARKET',
+            signal['signal'],
+            'MIS'
+        )
+        st.success(f"✅ {signal['signal']} order executed for {signal['symbol']} (Qty: {quantity})")
+        
+        # Log the trade
+        log_multi_signal_trade(signal, quantity, 'MANUAL')
+        
+    except Exception as e:
+        st.error(f"❌ Trade execution failed: {str(e)}")
+
+# Add these logging functions
+def log_breakout_trade(signal, quantity, execution_type):
+    """Log breakout trade execution."""
+    trade_log = {
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'symbol': signal['symbol'],
+        'signal': signal['signal'],
+        'quantity': quantity,
+        'price': signal['current_price'],
+        'type': 'BREAKOUT',
+        'execution': execution_type,
+        'confidence': signal['confidence'],
+        'pattern': signal['pattern_type']
+    }
+    
+    if 'trade_logs' not in st.session_state:
+        st.session_state.trade_logs = []
+    
+    st.session_state.trade_logs.append(trade_log)
+
+def log_multi_signal_trade(signal, quantity, execution_type):
+    """Log multi-signal trade execution."""
+    trade_log = {
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'symbol': signal['symbol'],
+        'signal': signal['signal'],
+        'quantity': quantity,
+        'price': signal['current_price'],
+        'type': 'MULTI_SIGNAL',
+        'execution': execution_type,
+        'confidence': signal['confidence'],
+        'combined_score': signal['combined_score']
+    }
+    
+    if 'trade_logs' not in st.session_state:
+        st.session_state.trade_logs = []
+    
+    st.session_state.trade_logs.append(trade_log)
 
 # Dictionary of automated bots
 AUTOMATED_BOTS = {
