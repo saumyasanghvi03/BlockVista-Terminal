@@ -2911,10 +2911,717 @@ def automated_mean_reversion(instrument_df, symbol):
     except Exception as e:
         return {"error": f"Analysis failed: {str(e)}"}
 
+def setup_breakout_bot(instrument_df, nifty25_auto_trade=False):
+    """Setup Breakout Detection Bot with advanced pattern recognition."""
+    st.write("**📈 Breakout Trading Bot**")
+    st.caption("Identifies and trades breakouts from consolidation patterns with volume confirmation")
+    
+    if nifty25_auto_trade:
+        st.info("🔷 Nifty 25 Auto-Trading is ACTIVE - Breakout Bot will scan Nifty 25 stocks")
+        symbols_to_scan = get_nifty25_instruments(instrument_df)
+    else:
+        # User-selected symbols
+        watchlist_symbols = st.session_state.get('watchlists', {}).get(
+            st.session_state.get('active_watchlist', 'Watchlist 1'), []
+        )
+        symbols_to_scan = watchlist_symbols
+        st.info(f"🔍 Breakout Bot will scan {len(symbols_to_scan)} symbols from your watchlist")
+    
+    if not symbols_to_scan:
+        st.warning("No symbols available for scanning. Please set up your watchlist or enable Nifty 25 mode.")
+        return
+    
+    # BREAKOUT BOT CONFIGURATION
+    with st.expander("⚙️ Breakout Bot Settings", expanded=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # CAPITAL AND RISK MANAGEMENT
+            st.subheader("💰 Capital & Risk")
+            total_capital = st.number_input(
+                "Total Capital (₹)", 
+                min_value=1000, 
+                max_value=1000000, 
+                value=10000, 
+                step=1000,
+                key="breakout_capital"
+            )
+            
+            risk_percent = st.slider(
+                "Risk per Trade (%)", 
+                min_value=0.5, 
+                max_value=10.0, 
+                value=2.0, 
+                step=0.5,
+                key="breakout_risk"
+            )
+            st.caption(f"Risk Amount: ₹{total_capital * risk_percent/100:.2f} per trade")
+            
+            consolidation_period = st.slider("Consolidation Period (days)", 10, 30, 15)
+            min_volume_ratio = st.slider("Min Volume Ratio", 1.2, 3.0, 1.8)
+        
+        with col2:
+            st.subheader("🎯 Breakout Parameters")
+            breakout_confirmation = st.selectbox(
+                "Breakout Confirmation", 
+                ["Close Above", "High Above", "Both Close and High"]
+            )
+            min_price_move = st.slider("Min Price Move %", 1.0, 5.0, 2.0)
+            stop_loss_type = st.selectbox(
+                "Stop Loss Type", 
+                ["ATR Based", "Percentage Based", "Support/Resistance"]
+            )
+            
+            if stop_loss_type == "Percentage Based":
+                stop_loss_pct = st.slider("Stop Loss %", 1.0, 5.0, 2.5)
+            elif stop_loss_type == "ATR Based":
+                atr_multiplier = st.slider("ATR Multiplier", 1.5, 3.0, 2.0)
+    
+    # TRADING CONTROLS
+    col_control1, col_control2, col_control3 = st.columns(3)
+    with col_control1:
+        auto_execute = st.checkbox("🤖 Auto-Execute Trades", value=False)
+    with col_control2:
+        max_positions = st.slider("Max Positions", 1, 10, 3, key="breakout_max_pos")
+    with col_control3:
+        min_confidence = st.slider("Min Confidence", 60, 90, 75, key="breakout_conf")
+    
+    # SCAN AND EXECUTE
+    if st.button("🔍 Scan Breakout Opportunities", type="primary", use_container_width=True):
+        with st.spinner(f"Scanning {len(symbols_to_scan)} symbols for breakout patterns..."):
+            breakout_signals = run_breakout_analysis(
+                symbols_to_scan, 
+                instrument_df,
+                consolidation_period,
+                min_volume_ratio,
+                min_price_move
+            )
+        
+        if breakout_signals and breakout_signals.get('signals'):
+            display_breakout_signals(
+                breakout_signals, 
+                total_capital, 
+                risk_percent, 
+                auto_execute,
+                max_positions
+            )
+        else:
+            st.info("🤖 No breakout signals found. Market may be in consolidation.")
+
+def run_breakout_analysis(symbols, instrument_df, consolidation_period=15, min_volume_ratio=1.8, min_price_move=2.0):
+    """Run breakout analysis on given symbols."""
+    breakout_signals = []
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, item in enumerate(symbols[:25]):  # Limit to 25 for performance
+        symbol = item['symbol']
+        exchange = item['exchange']
+        status_text.text(f"Analyzing {symbol}... ({i+1}/{min(25, len(symbols))})")
+        
+        try:
+            token = get_instrument_token(symbol, instrument_df, exchange)
+            if not token:
+                continue
+                
+            # Get 60 days historical data
+            data = get_historical_data_60days(token, 'day')
+            if data.empty or len(data) < 30:
+                continue
+            
+            # Analyze for breakouts
+            signal = analyze_breakout_pattern(data, symbol, consolidation_period, min_volume_ratio, min_price_move)
+            if signal and signal.get('signal') != 'NO_SIGNAL':
+                breakout_signals.append(signal)
+                
+        except Exception as e:
+            continue
+        
+        progress_bar.progress((i + 1) / min(25, len(symbols)))
+    
+    status_text.text("Breakout analysis complete!")
+    
+    return {
+        'signals': sorted(breakout_signals, key=lambda x: x.get('confidence', 0), reverse=True),
+        'total_scanned': min(25, len(symbols)),
+        'breakouts_found': len(breakout_signals),
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+def analyze_breakout_pattern(data, symbol, consolidation_period, min_volume_ratio, min_price_move):
+    """Analyze stock data for breakout patterns."""
+    if len(data) < consolidation_period + 5:
+        return None
+    
+    # Calculate technical indicators
+    data = calculate_advanced_indicators(data)
+    latest = data.iloc[-1]
+    prev_day = data.iloc[-2]
+    
+    # Calculate consolidation parameters
+    consolidation_high = data['high'].tail(consolidation_period).max()
+    consolidation_low = data['low'].tail(consolidation_period).min()
+    consolidation_range = consolidation_high - consolidation_low
+    current_close = latest['close']
+    current_high = latest['high']
+    current_volume = latest['volume']
+    
+    # Volume analysis
+    avg_volume = data['volume'].tail(consolidation_period).mean()
+    volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+    
+    # Price movement analysis
+    price_move_pct = ((current_close - prev_day['close']) / prev_day['close']) * 100
+    
+    # Initialize signal
+    signal = 'NO_SIGNAL'
+    confidence = 0
+    pattern_type = ""
+    breakout_level = 0
+    
+    # UPPER BREAKOUT DETECTION
+    if current_close > consolidation_high and volume_ratio >= min_volume_ratio:
+        signal = 'BUY'
+        pattern_type = "Upper Breakout"
+        breakout_level = consolidation_high
+        confidence = 70
+        
+        # Enhance confidence based on factors
+        if price_move_pct >= min_price_move:
+            confidence += 10
+        if current_high > consolidation_high * 1.01:  # Strong breakout
+            confidence += 10
+        if latest.get('EMA_20', 0) > latest.get('EMA_50', 0):  # Trend confirmation
+            confidence += 10
+    
+    # LOWER BREAKOUT DETECTION (Breakdown)
+    elif current_close < consolidation_low and volume_ratio >= min_volume_ratio:
+        signal = 'SELL'
+        pattern_type = "Lower Breakout"
+        breakout_level = consolidation_low
+        confidence = 65
+        
+        if price_move_pct <= -min_price_move:
+            confidence += 10
+        if latest.get('EMA_20', 0) < latest.get('EMA_50', 0):  # Downtrend confirmation
+            confidence += 10
+    
+    if signal != 'NO_SIGNAL':
+        # Calculate stop loss and target
+        if signal == 'BUY':
+            stop_loss = consolidation_low
+            target = current_close + (2 * (current_close - stop_loss))
+        else:  # SELL
+            stop_loss = consolidation_high
+            target = current_close - (2 * (stop_loss - current_close))
+        
+        risk_reward = abs((target - current_close) / (current_close - stop_loss)) if current_close != stop_loss else 0
+        
+        return {
+            'symbol': symbol,
+            'signal': signal,
+            'confidence': min(95, confidence),
+            'pattern_type': pattern_type,
+            'current_price': current_close,
+            'breakout_level': breakout_level,
+            'volume_ratio': volume_ratio,
+            'price_move_pct': price_move_pct,
+            'consolidation_high': consolidation_high,
+            'consolidation_low': consolidation_low,
+            'stop_loss': stop_loss,
+            'target': target,
+            'risk_reward': risk_reward,
+            'consolidation_range_pct': (consolidation_range / consolidation_low * 100) if consolidation_low > 0 else 0
+        }
+    
+    return None
+
+def setup_multi_signal_bot(instrument_df, nifty25_auto_trade=False):
+    """Setup Multi-Signal Bot that combines multiple technical strategies."""
+    st.write("**🎯 Multi-Signal Trading Bot**")
+    st.caption("Combines momentum, mean reversion, breakout, and volume signals for high-probability trades")
+    
+    if nifty25_auto_trade:
+        st.info("🔷 Nifty 25 Auto-Trading is ACTIVE - Multi-Signal Bot will scan Nifty 25 stocks")
+        symbols_to_scan = get_nifty25_instruments(instrument_df)
+    else:
+        watchlist_symbols = st.session_state.get('watchlists', {}).get(
+            st.session_state.get('active_watchlist', 'Watchlist 1'), []
+        )
+        symbols_to_scan = watchlist_symbols
+        st.info(f"🔍 Multi-Signal Bot will scan {len(symbols_to_scan)} symbols from your watchlist")
+    
+    if not symbols_to_scan:
+        st.warning("No symbols available for scanning. Please set up your watchlist or enable Nifty 25 mode.")
+        return
+    
+    # MULTI-SIGNAL BOT CONFIGURATION
+    with st.expander("⚙️ Multi-Signal Bot Settings", expanded=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("💰 Capital & Risk")
+            total_capital = st.number_input(
+                "Total Capital (₹)", 
+                min_value=1000, 
+                max_value=1000000, 
+                value=10000, 
+                step=1000,
+                key="multi_capital"
+            )
+            
+            risk_percent = st.slider(
+                "Risk per Trade (%)", 
+                min_value=0.5, 
+                max_value=10.0, 
+                value=1.5, 
+                step=0.5,
+                key="multi_risk"
+            )
+            st.caption(f"Risk Amount: ₹{total_capital * risk_percent/100:.2f} per trade")
+            
+            st.subheader("📊 Signal Weights")
+            momentum_weight = st.slider("Momentum Weight", 0.0, 1.0, 0.3)
+            mean_reversion_weight = st.slider("Mean Reversion Weight", 0.0, 1.0, 0.25)
+            breakout_weight = st.slider("Breakout Weight", 0.0, 1.0, 0.25)
+            volume_weight = st.slider("Volume Weight", 0.0, 1.0, 0.2)
+        
+        with col2:
+            st.subheader("🎯 Strategy Parameters")
+            min_combined_score = st.slider("Min Combined Score", 50, 90, 70)
+            require_volume_confirmation = st.checkbox("Require Volume Confirmation", value=True)
+            require_trend_alignment = st.checkbox("Require Trend Alignment", value=True)
+            
+            st.subheader("⏱️ Timeframe Settings")
+            primary_timeframe = st.selectbox("Primary Timeframe", ["Daily", "Hourly", "Both"])
+            lookback_period = st.slider("Lookback Period (days)", 20, 100, 60)
+    
+    # SIGNAL FILTERS
+    with st.expander("🔍 Signal Filters"):
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            min_rsi = st.slider("Min RSI", 20, 50, 30)
+            max_rsi = st.slider("Max RSI", 50, 80, 70)
+            min_volume_ratio = st.slider("Min Volume Ratio", 1.0, 2.0, 1.2)
+        with col_f2:
+            min_adx = st.slider("Min ADX", 15, 30, 20)
+            max_positions = st.slider("Max Positions", 1, 8, 4, key="multi_max_pos")
+    
+    # TRADING CONTROLS
+    col_control1, col_control2 = st.columns(2)
+    with col_control1:
+        auto_execute = st.checkbox("🤖 Auto-Execute Trades", value=False, key="multi_auto")
+    with col_control2:
+        if st.button("🚀 Scan Multi-Signal Opportunities", type="primary", use_container_width=True):
+            with st.spinner(f"Running multi-signal analysis on {len(symbols_to_scan)} symbols..."):
+                multi_signals = run_multi_signal_analysis(
+                    symbols_to_scan,
+                    instrument_df,
+                    {
+                        'momentum_weight': momentum_weight,
+                        'mean_reversion_weight': mean_reversion_weight,
+                        'breakout_weight': breakout_weight,
+                        'volume_weight': volume_weight,
+                        'min_combined_score': min_combined_score,
+                        'require_volume_confirmation': require_volume_confirmation,
+                        'require_trend_alignment': require_trend_alignment,
+                        'min_rsi': min_rsi,
+                        'max_rsi': max_rsi,
+                        'min_volume_ratio': min_volume_ratio,
+                        'min_adx': min_adx,
+                        'lookback_period': lookback_period
+                    }
+                )
+            
+            if multi_signals and multi_signals.get('signals'):
+                display_multi_signals(
+                    multi_signals,
+                    total_capital,
+                    risk_percent,
+                    auto_execute,
+                    max_positions
+                )
+            else:
+                st.info("🤖 No multi-signal opportunities found. Adjust parameters or try later.")
+
+def run_multi_signal_analysis(symbols, instrument_df, params):
+    """Run multi-signal analysis combining multiple strategies."""
+    multi_signals = []
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, item in enumerate(symbols[:20]):  # Limit for performance
+        symbol = item['symbol']
+        exchange = item['exchange']
+        status_text.text(f"Multi-signal analysis: {symbol}... ({i+1}/{min(20, len(symbols))})")
+        
+        try:
+            token = get_instrument_token(symbol, instrument_df, exchange)
+            if not token:
+                continue
+                
+            # Get historical data
+            data = get_historical_data_60days(token, 'day')
+            if data.empty or len(data) < 30:
+                continue
+            
+            # Run multi-signal analysis
+            signal = analyze_multi_signals(data, symbol, params)
+            if signal and signal.get('combined_score', 0) >= params['min_combined_score']:
+                multi_signals.append(signal)
+                
+        except Exception as e:
+            continue
+        
+        progress_bar.progress((i + 1) / min(20, len(symbols)))
+    
+    status_text.text("Multi-signal analysis complete!")
+    
+    return {
+        'signals': sorted(multi_signals, key=lambda x: x.get('combined_score', 0), reverse=True),
+        'total_scanned': min(20, len(symbols)),
+        'signals_found': len(multi_signals),
+        'params': params,
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+def analyze_multi_signals(data, symbol, params):
+    """Combine multiple technical signals into a unified score."""
+    if len(data) < 30:
+        return None
+    
+    data = calculate_advanced_indicators(data)
+    latest = data.iloc[-1]
+    
+    signal_scores = {
+        'momentum': 0,
+        'mean_reversion': 0,
+        'breakout': 0,
+        'volume': 0
+    }
+    
+    signal_details = []
+    final_signal = 'HOLD'
+    
+    # 1. MOMENTUM SIGNAL
+    momentum_score = calculate_momentum_score(latest, data)
+    signal_scores['momentum'] = momentum_score
+    
+    # 2. MEAN REVERSION SIGNAL  
+    mean_reversion_score = calculate_mean_reversion_score(latest, data, params)
+    signal_scores['mean_reversion'] = mean_reversion_score
+    
+    # 3. BREAKOUT SIGNAL
+    breakout_score = calculate_breakout_score(latest, data)
+    signal_scores['breakout'] = breakout_score
+    
+    # 4. VOLUME SIGNAL
+    volume_score = calculate_volume_score(latest, data, params)
+    signal_scores['volume'] = volume_score
+    
+    # COMBINE SCORES WITH WEIGHTS
+    combined_score = (
+        signal_scores['momentum'] * params['momentum_weight'] +
+        signal_scores['mean_reversion'] * params['mean_reversion_weight'] +
+        signal_scores['breakout'] * params['breakout_weight'] +
+        signal_scores['volume'] * params['volume_weight']
+    ) * 100
+    
+    # DETERMINE FINAL SIGNAL
+    buy_signals = 0
+    sell_signals = 0
+    
+    if momentum_score > 0.6: buy_signals += 1
+    if momentum_score < 0.4: sell_signals += 1
+    
+    if mean_reversion_score > 0.7: buy_signals += 1
+    if mean_reversion_score < 0.3: sell_signals += 1
+    
+    if breakout_score > 0.6: buy_signals += 1
+    if breakout_score < 0.4: sell_signals += 1
+    
+    if volume_score > 0.5: buy_signals += 1  # Volume usually confirms
+    
+    if buy_signals >= 3 and combined_score >= params['min_combined_score']:
+        final_signal = 'BUY'
+    elif sell_signals >= 3 and combined_score >= params['min_combined_score']:
+        final_signal = 'SELL'
+    
+    if final_signal != 'HOLD':
+        # Calculate position metrics
+        current_price = latest['close']
+        atr = latest.get('ATR', current_price * 0.02)  # Default 2% if ATR not available
+        
+        return {
+            'symbol': symbol,
+            'signal': final_signal,
+            'combined_score': combined_score,
+            'signal_breakdown': signal_scores,
+            'current_price': current_price,
+            'rsi': latest.get('RSI_14', 50),
+            'volume_ratio': latest.get('volume', 0) / data['volume'].tail(20).mean(),
+            'atr': atr,
+            'momentum_strength': "Strong" if momentum_score > 0.7 else "Medium" if momentum_score > 0.5 else "Weak",
+            'confidence': min(95, combined_score),
+            'buy_signals': buy_signals,
+            'sell_signals': sell_signals,
+            'timestamp': datetime.now().strftime("%H:%M:%S")
+        }
+    
+    return None
+
+def calculate_momentum_score(latest, data):
+    """Calculate momentum score (0-1)."""
+    score = 0
+    factors = 0
+    
+    # EMA Alignment
+    if (latest.get('EMA_20', 0) > latest.get('EMA_50', 0) > latest.get('EMA_200', 0)):
+        score += 0.3
+    factors += 1
+    
+    # RSI Momentum
+    rsi = latest.get('RSI_14', 50)
+    if 60 < rsi < 70:
+        score += 0.2  # Strong but not overbought
+    factors += 1
+    
+    # MACD
+    if latest.get('MACD', 0) > latest.get('MACD_Signal', 0):
+        score += 0.2
+    factors += 1
+    
+    # ADX Trend Strength
+    if latest.get('ADX', 0) > 25:
+        score += 0.3
+    factors += 1
+    
+    return score / factors if factors > 0 else 0
+
+def calculate_mean_reversion_score(latest, data, params):
+    """Calculate mean reversion score (0-1)."""
+    current_price = latest['close']
+    mean_price = data['close'].tail(50).mean()
+    std_price = data['close'].tail(50).std()
+    
+    score = 0
+    factors = 0
+    
+    if std_price > 0:
+        z_score = abs(current_price - mean_price) / std_price
+        
+        # Oversold conditions (higher score for more oversold)
+        if z_score > 1.5 and current_price < mean_price:
+            score += min(0.4, z_score * 0.2)
+            factors += 1
+    
+    # RSI based mean reversion
+    rsi = latest.get('RSI_14', 50)
+    if rsi < params['min_rsi']:
+        score += 0.3
+        factors += 1
+    
+    # Bollinger Band position
+    bb_lower = latest.get('BB_Lower', 0)
+    if current_price <= bb_lower * 1.02 and bb_lower > 0:
+        score += 0.3
+        factors += 1
+    
+    return score / factors if factors > 0 else 0
+
+def calculate_breakout_score(latest, data):
+    """Calculate breakout score (0-1)."""
+    score = 0
+    factors = 0
+    
+    # Recent high breakout
+ recent_high = data['high'].tail(20).max()
+    if latest['close'] > recent_high:
+        score += 0.4
+    factors += 1
+    
+    # Volume confirmation
+    volume_avg = data['volume'].tail(20).mean()
+    if latest['volume'] > volume_avg * 1.5:
+        score += 0.3
+    factors += 1
+    
+    # Price above key EMAs
+    if latest['close'] > latest.get('EMA_20', 0) > latest.get('EMA_50', 0):
+        score += 0.3
+    factors += 1
+    
+    return score / factors if factors > 0 else 0
+
+def calculate_volume_score(latest, data, params):
+    """Calculate volume confirmation score (0-1)."""
+    volume_avg = data['volume'].tail(20).mean()
+    current_volume = latest['volume']
+    volume_ratio = current_volume / volume_avg if volume_avg > 0 else 1
+    
+    if volume_ratio >= params['min_volume_ratio']:
+        return 0.8  # Strong volume confirmation
+    elif volume_ratio >= 1.0:
+        return 0.5  # Moderate volume
+    else:
+        return 0.2  # Weak volume
+
+def display_breakout_signals(signals_data, total_capital, risk_percent, auto_execute, max_positions):
+    """Display breakout signals with trading options."""
+    st.subheader("🎯 Breakout Signals Found")
+    
+    col_stats1, col_stats2, col_stats3 = st.columns(3)
+    with col_stats1:
+        st.metric("Total Scanned", signals_data['total_scanned'])
+    with col_stats2:
+        st.metric("Breakouts Found", signals_data['breakouts_found'])
+    with col_stats3:
+        st.metric("Last Scan", signals_data['timestamp'].split()[1])
+    
+    st.markdown("---")
+    
+    # Display top signals
+    top_signals = signals_data['signals'][:max_positions]
+    
+    for i, signal in enumerate(top_signals, 1):
+        with st.container():
+            col1, col2, col3, col4, col5 = st.columns([1, 2, 1, 1, 1])
+            
+            with col1:
+                st.write(f"**#{i}**")
+                st.write(f"**{signal['symbol']}**")
+                st.write(f"₹{signal['current_price']:.2f}")
+            
+            with col2:
+                # Signal visualization
+                confidence = signal['confidence']
+                if confidence > 80:
+                    color = "🟢"
+                    badge = "st.success"
+                elif confidence > 65:
+                    color = "🟡" 
+                    badge = "st.warning"
+                else:
+                    color = "🟠"
+                    badge = "st.info"
+                
+                st.write(f"{color} **{signal['signal']}** - {signal['pattern_type']}")
+                st.progress(confidence / 100)
+                
+                # Signal details
+                st.caption(f"Breakout: ₹{signal['breakout_level']:.2f | Volume: {signal['volume_ratio']:.1f}x | Move: {signal['price_move_pct']:.1f}%")
+            
+            with col3:
+                st.metric("Confidence", f"{confidence}%")
+                st.metric("R/R", f"{signal['risk_reward']:.1f}")
+            
+            with col4:
+                st.metric("Stop Loss", f"₹{signal['stop_loss']:.2f}")
+                st.metric("Target", f"₹{signal['target']:.2f}")
+            
+            with col5:
+                # Position sizing
+                risk_amount = total_capital * (risk_percent / 100)
+                position_size = calculate_breakout_position_size(signal, risk_amount)
+                
+                st.write(f"**Qty:** {position_size}")
+                st.write(f"**Risk:** ₹{risk_amount:.2f}")
+                
+                if st.button("🚀 Trade", key=f"breakout_trade_{signal['symbol']}", type="primary"):
+                    execute_breakout_trade(signal, position_size)
+            
+            st.markdown("---")
+    
+    # AUTO-EXECUTION
+    if auto_execute and top_signals:
+        if st.button("🤖 Execute All Breakout Trades", type="primary", use_container_width=True):
+            execute_batch_breakout_trades(top_signals, total_capital, risk_percent)
+
+def display_multi_signals(signals_data, total_capital, risk_percent, auto_execute, max_positions):
+    """Display multi-signal analysis results."""
+    st.subheader("🎯 Multi-Signal Opportunities")
+    
+    col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+    with col_stats1:
+        st.metric("Total Scanned", signals_data['total_scanned'])
+    with col_stats2:
+        st.metric("Signals Found", signals_data['signals_found'])
+    with col_stats3:
+        strong_signals = len([s for s in signals_data['signals'] if s['combined_score'] > 80])
+        st.metric("Strong Signals", strong_signals)
+    with col_stats4:
+        st.metric("Last Scan", signals_data['timestamp'].split()[1])
+    
+    st.markdown("---")
+    
+    # Display top signals
+    top_signals = signals_data['signals'][:max_positions]
+    
+    for i, signal in enumerate(top_signals, 1):
+        with st.container():
+            col1, col2, col3, col4, col5 = st.columns([1, 2, 1, 1, 1])
+            
+            with col1:
+                st.write(f"**#{i}**")
+                st.write(f"**{signal['symbol']}**")
+                st.write(f"₹{signal['current_price']:.2f}")
+            
+            with col2:
+                # Combined score visualization
+                score = signal['combined_score']
+                if score > 80:
+                    color = "🟢"
+                    strength = "VERY STRONG"
+                elif score > 70:
+                    color = "🟡"
+                    strength = "STRONG"
+                else:
+                    color = "🟠"
+                    strength = "MODERATE"
+                
+                st.write(f"{color} **{signal['signal']}** - {strength}")
+                st.progress(score / 100)
+                
+                # Signal breakdown
+                breakdown = signal['signal_breakdown']
+                breakdown_text = f"M:{breakdown['momentum']:.1f} • R:{breakdown['mean_reversion']:.1f} • B:{breakdown['breakout']:.1f} • V:{breakdown['volume']:.1f}"
+                st.caption(breakdown_text)
+                st.caption(f"Buy Signals: {signal['buy_signals']} | Sell Signals: {signal['sell_signals']}")
+            
+            with col3:
+                st.metric("Combined Score", f"{score:.0f}")
+                st.metric("RSI", f"{signal['rsi']:.1f}")
+            
+            with col4:
+                st.metric("Volume", f"{signal['volume_ratio']:.1f}x")
+                st.metric("Confidence", f"{signal['confidence']}%")
+            
+            with col5:
+                # Position sizing
+                risk_amount = total_capital * (risk_percent / 100)
+                position_size = calculate_risk_position_size(signal, risk_amount)
+                
+                st.write(f"**Qty:** {position_size}")
+                st.write(f"**Risk:** ₹{risk_amount:.2f}")
+                
+                if st.button("🚀 Trade", key=f"multi_trade_{signal['symbol']}", type="primary"):
+                    execute_multi_signal_trade(signal, position_size)
+            
+            st.markdown("---")
+    
+    # AUTO-EXECUTION
+    if auto_execute and top_signals:
+        if st.button("🤖 Execute All Multi-Signal Trades", type="primary", use_container_width=True):
+            execute_batch_multi_trades(top_signals, total_capital, risk_percent)
+
 # Dictionary of automated bots
 AUTOMATED_BOTS = {
     "Auto Momentum Trader": automated_momentum_trader,
-    "Auto Mean Reversion": automated_mean_reversion
+    "Auto Mean Reversion": automated_mean_reversion,
+    "Breakout Bot": setup_breakout_bot,
+    "Multi-Signal Bot": setup_multi_signal_bot
 }
 
 # ================ ALGO BOTS PAGE FUNCTIONS ================
