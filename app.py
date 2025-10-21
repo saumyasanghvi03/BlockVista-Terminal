@@ -6544,7 +6544,7 @@ def display_header():
     </style>
     """, unsafe_allow_html=True)
     
-    st.markdown('<h1 class="main-header">Market Sentiment AI</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">BlockVista Terminal</h1>', unsafe_allow_html=True)
 
 def display_overall_sentiment():
     """Display overall market sentiment analysis with real-time data."""
