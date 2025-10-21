@@ -4310,6 +4310,79 @@ def get_live_trading_performance():
         'volatility': 15.5
     }
 
+def get_nifty25_instruments(instrument_df):
+    """Get top 25 Nifty stocks by market cap."""
+    # Top 25 Nifty stocks (you can update this list periodically)
+    nifty_25_symbols = [
+        'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'HINDUNILVR', 'ICICIBANK', 'ITC', 
+        'KOTAKBANK', 'LT', 'SBIN', 'BHARTIARTL', 'AXISBANK', 'ASIANPAINT', 
+        'MARUTI', 'SUNPHARMA', 'TITAN', 'ULTRACEMCO', 'WIPRO', 'NESTLEIND', 
+        'POWERGRID', 'NTPC', 'HCLTECH', 'BAJFINANCE', 'ADANIPORTS', 'TATAMOTORS'
+    ]
+    
+    nifty_instruments = []
+    
+    for symbol in nifty_25_symbols:
+        # Find instrument in NSE
+        instrument = instrument_df[
+            (instrument_df['tradingsymbol'] == symbol) |
+            (instrument_df['tradingsymbol'].str.startswith(symbol + '-')) |
+            (instrument_df['name'].str.contains(symbol, case=False, na=False))
+        ].head(1)
+        
+        if not instrument.empty:
+            nifty_instruments.append({
+                'symbol': instrument.iloc[0]['tradingsymbol'],
+                'exchange': instrument.iloc[0]['exchange'],
+                'token': instrument.iloc[0]['instrument_token'],
+                'name': instrument.iloc[0]['name']
+            })
+        else:
+            # Try alternative search if exact match not found
+            alt_instrument = instrument_df[
+                instrument_df['tradingsymbol'].str.contains(symbol, case=False, na=False)
+            ].head(1)
+            if not alt_instrument.empty:
+                nifty_instruments.append({
+                    'symbol': alt_instrument.iloc[0]['tradingsymbol'],
+                    'exchange': alt_instrument.iloc[0]['exchange'],
+                    'token': alt_instrument.iloc[0]['instrument_token'],
+                    'name': alt_instrument.iloc[0]['name']
+                })
+    
+    return nifty_instruments
+
+def get_nifty25_auto_trading_status():
+    """Get current status of Nifty 25 auto-trading."""
+    # This would typically query your trading database
+    return {
+        'active_positions': st.session_state.automated_mode.get('active_nifty_positions', 0),
+        'signals_today': st.session_state.automated_mode.get('nifty_signals_today', 0),
+        'success_rate': st.session_state.automated_mode.get('nifty_success_rate', 0),
+        'pnl_today': st.session_state.automated_mode.get('nifty_pnl_today', 0.0),
+        'total_trades': st.session_state.automated_mode.get('nifty_total_trades', 0),
+        'win_rate': st.session_state.automated_mode.get('nifty_win_rate', 0)
+    }
+
+def initialize_automated_mode():
+    """Initialize automated trading mode with default values."""
+    st.session_state.automated_mode = {
+        'enabled': False,
+        'running': False,
+        'live_trading': False,
+        'total_capital': 10000.0,
+        'risk_per_trade': 2.0,
+        'nifty25_auto_trade': False,
+        'paper_portfolio': {
+            'cash_balance': 10000.0,
+            'positions': {},
+            'initial_capital': 10000.0,
+            'total_value': 10000.0
+        },
+        'active_bots': {},
+        'trade_history': []
+    }
+
 def get_automated_bot_performance():
     """Get paper trading performance metrics"""
     paper_portfolio = st.session_state.automated_mode.get('paper_portfolio', {})
@@ -4649,6 +4722,78 @@ def page_fully_automated_bots(instrument_df):
         market_status = "unknown"
         next_market = datetime.now()
     
+    # 🎯 ENHANCED NIFTY 25 AUTO-TRADING TOGGLE SECTION
+    st.markdown("---")
+    st.subheader("🔷 Nifty 25 Auto-Trading")
+    
+    col_nifty1, col_nifty2, col_nifty3 = st.columns([2, 1, 1])
+    with col_nifty1:
+        nifty25_auto_trade = st.toggle(
+            "🎯 Enable Nifty 25 Auto-Trading",
+            value=st.session_state.automated_mode.get('nifty25_auto_trade', False),
+            help="Automatically trade all top 25 Nifty stocks based on AI signals",
+            key="nifty25_toggle"
+        )
+        st.session_state.automated_mode['nifty25_auto_trade'] = nifty25_auto_trade
+    
+    with col_nifty2:
+        if nifty25_auto_trade:
+            st.success("🟢 ACTIVE")
+            # Show Nifty 25 count
+            nifty_instruments = get_nifty25_instruments(instrument_df)
+            st.caption(f"{len(nifty_instruments)} stocks")
+        else:
+            st.info("⚪ INACTIVE")
+    
+    with col_nifty3:
+        if nifty25_auto_trade:
+            if st.button("🔄 Refresh Nifty", use_container_width=True):
+                st.rerun()
+    
+    # NIFTY 25 CONFIGURATION WHEN ENABLED
+    if nifty25_auto_trade:
+        with st.expander("⚙️ Nifty 25 Auto-Trading Settings", expanded=True):
+            col_nifty_settings1, col_nifty_settings2 = st.columns(2)
+            
+            with col_nifty_settings1:
+                nifty_bot_strategy = st.selectbox(
+                    "Trading Strategy",
+                    ["Momentum", "Mean Reversion", "Breakout", "Multi-Signal"],
+                    key="nifty_strategy"
+                )
+                nifty_max_positions = st.slider("Max Open Positions", 1, 10, 5, key="nifty_max_pos")
+                
+                # Strategy-specific settings
+                if nifty_bot_strategy == "Momentum":
+                    nifty_momentum_period = st.slider("Momentum Period (days)", 5, 30, 10)
+                elif nifty_bot_strategy == "Mean Reversion":
+                    nifty_reversion_threshold = st.slider("Deviation Threshold (std)", 1.0, 3.0, 1.5)
+            
+            with col_nifty_settings2:
+                nifty_risk_per_trade = st.slider("Risk per Trade (%)", 0.5, 10.0, 2.0, key="nifty_risk")
+                nifty_min_confidence = st.slider("Min Confidence", 70, 90, 80, key="nifty_conf")
+                
+                nifty_position_size = st.selectbox(
+                    "Position Sizing",
+                    ["Fixed", "Dynamic Risk-Based", "Volatility Adjusted"],
+                    key="nifty_size"
+                )
+            
+            # NIFTY 25 STATUS DASHBOARD
+            nifty_status = get_nifty25_auto_trading_status()
+            st.markdown("---")
+            st.subheader("📊 Nifty 25 Auto-Trading Status")
+            
+            col_status1, col_status2, col_status3, col_status4 = st.columns(4)
+            with col_status1:
+                st.metric("Active Positions", f"{nifty_status['active_positions']}/{nifty_max_positions}")
+            with col_status2:
+                st.metric("Signals Today", nifty_status['signals_today'])
+            with col_status3:
+                st.metric("Success Rate", f"{nifty_status['success_rate']}%")
+            with col_status4:
+                st.metric("P&L Today", f"₹{nifty_status['pnl_today']:+.2f}")
+    
     # 🎯 ENHANCED MARKET STATUS WITH SEGMENT TIMING
     st.markdown("---")
     
@@ -4775,15 +4920,15 @@ def page_fully_automated_bots(instrument_df):
     with col5:
         st.write("**⚡ Risk**")
         current_risk = float(st.session_state.automated_mode.get('risk_per_trade', 2.0))
-        current_risk = max(0.5, min(5.0, current_risk))
+        current_risk = max(0.5, min(10.0, current_risk))  # Updated to 10% max as requested
         
         risk_per_trade = st.number_input(
             "Risk per Trade (%)",
             min_value=0.5,
-            max_value=5.0,
+            max_value=10.0,  # Updated to 10% max
             value=current_risk,
             step=0.5,
-            help="Risk percentage per trade",
+            help="Risk percentage per trade (0.5% to 10%)",
             key="auto_risk",
             label_visibility="collapsed"
         )
@@ -4857,7 +5002,7 @@ def page_fully_automated_bots(instrument_df):
         tab1, tab2, tab3, tab4, tab5 = st.tabs(["🤖 Bot Configuration", "📊 Live Dashboard", "🔍 Live Thinking", "🎯 Symbol Override", "📋 Trade History"])
         
         with tab1:
-            display_bot_configuration_tab()
+            display_bot_configuration_tab(instrument_df, nifty25_auto_trade)
         
         with tab2:
             # Live performance dashboard - CALL THE ACTUAL FUNCTION
@@ -6357,43 +6502,104 @@ def execute_automated_trade(instrument_df, bot_result, risk_per_trade):
         st.error(f"Automated trade execution failed: {e}")
         return None
 
-def display_bot_configuration_tab():
-    """Display bot configuration tab"""
+def display_bot_configuration_tab(instrument_df, nifty25_auto_trade=False):
+    """Display bot configuration tab with Nifty 25 integration and enhanced controls."""
     st.subheader("⚙️ Bot Configuration")
     
     col_config1, col_config2 = st.columns(2)
     
     with col_config1:
         st.write("**🤖 Active Bots**")
-        for bot_name in AUTOMATED_BOTS.keys():
-            is_active = st.session_state.automated_mode.get('bots_active', {}).get(bot_name, False)
-            if st.checkbox(bot_name, value=is_active, key=f"auto_{bot_name}"):
-                if 'bots_active' not in st.session_state.automated_mode:
-                    st.session_state.automated_mode['bots_active'] = {}
-                st.session_state.automated_mode['bots_active'][bot_name] = True
-            else:
-                if 'bots_active' not in st.session_state.automated_mode:
-                    st.session_state.automated_mode['bots_active'] = {}
-                st.session_state.automated_mode['bots_active'][bot_name] = False
+        
+        # Define available bots
+        available_bots = {
+            "Momentum Bot": "Trades stocks showing strong upward momentum",
+            "Mean Reversion Bot": "Identifies oversold/overbought conditions for reversal trades",
+            "Breakout Bot": "Detects breakouts from consolidation patterns with volume confirmation",
+            "Multi-Signal Bot": "Combines multiple strategies for high-probability trades",
+            "Custom Bot": "User-defined trading strategy"
+        }
+        
+        # Initialize bots_active if not exists
+        if 'bots_active' not in st.session_state.automated_mode:
+            st.session_state.automated_mode['bots_active'] = {}
+        
+        # Display bot toggles with descriptions
+        for bot_name, bot_description in available_bots.items():
+            col_bot1, col_bot2 = st.columns([3, 1])
+            with col_bot1:
+                is_active = st.session_state.automated_mode['bots_active'].get(bot_name, False)
+                if st.checkbox(f"**{bot_name}**", value=is_active, key=f"auto_{bot_name}"):
+                    st.session_state.automated_mode['bots_active'][bot_name] = True
+                else:
+                    st.session_state.automated_mode['bots_active'][bot_name] = False
+            
+            with col_bot2:
+                if st.session_state.automated_mode['bots_active'].get(bot_name, False):
+                    st.success("🟢 ON")
+                else:
+                    st.info("⚪ OFF")
+            
+            # Show bot description
+            with st.expander("ℹ️ Info", key=f"info_{bot_name}"):
+                st.caption(bot_description)
         
         st.markdown("---")
         st.write("**📊 Trading Limits**")
-        max_trades = st.slider(
-            "Max Open Trades",
-            min_value=1,
-            max_value=20,
-            value=st.session_state.automated_mode.get('max_open_trades', 5),
-            help="Maximum simultaneous trades",
-            key="auto_max_trades"
+        
+        col_limits1, col_limits2 = st.columns(2)
+        
+        with col_limits1:
+            max_trades = st.slider(
+                "Max Open Trades",
+                min_value=1,
+                max_value=20,
+                value=st.session_state.automated_mode.get('max_open_trades', 5),
+                help="Maximum simultaneous trades across all bots",
+                key="auto_max_trades"
+            )
+            st.session_state.automated_mode['max_open_trades'] = max_trades
+        
+        with col_limits2:
+            max_daily_trades = st.slider(
+                "Max Daily Trades",
+                min_value=5,
+                max_value=100,
+                value=st.session_state.automated_mode.get('max_daily_trades', 20),
+                help="Maximum trades per day to manage risk",
+                key="auto_max_daily"
+            )
+            st.session_state.automated_mode['max_daily_trades'] = max_daily_trades
+        
+        # Risk per trade settings
+        st.markdown("---")
+        st.write("**⚡ Risk Management**")
+        
+        current_risk = st.session_state.automated_mode.get('risk_per_trade', 2.0)
+        risk_per_trade = st.slider(
+            "Risk per Trade (%)",
+            min_value=0.5,
+            max_value=10.0,
+            value=current_risk,
+            step=0.5,
+            help="Risk percentage per individual trade (0.5% to 10%)",
+            key="config_risk"
         )
-        st.session_state.automated_mode['max_open_trades'] = max_trades
+        st.session_state.automated_mode['risk_per_trade'] = risk_per_trade
+        
+        # Calculate risk amount
+        total_capital = st.session_state.automated_mode.get('total_capital', 10000.0)
+        risk_amount = total_capital * (risk_per_trade / 100)
+        st.caption(f"💰 Risk Amount: ₹{risk_amount:.2f} per trade")
     
     with col_config2:
-        st.write("**⏰ Analysis Frequency**")
-        current_interval = st.session_state.automated_mode.get('check_interval', '1 minute')
-        frequency_options = ["15 seconds", "30 seconds", "1 minute", "5 minutes", "15 minutes"]
+        st.write("**⏰ Analysis & Execution**")
         
-        current_index = 2
+        # Analysis frequency
+        current_interval = st.session_state.automated_mode.get('check_interval', '1 minute')
+        frequency_options = ["15 seconds", "30 seconds", "1 minute", "5 minutes", "15 minutes", "30 minutes"]
+        
+        current_index = 2  # Default to "1 minute"
         if current_interval in frequency_options:
             current_index = frequency_options.index(current_interval)
         
@@ -6401,32 +6607,126 @@ def display_bot_configuration_tab():
             "Analysis Frequency",
             options=frequency_options,
             index=current_index,
-            help="How often bots analyze the market",
+            help="How often bots analyze the market and check for signals",
             key="auto_freq"
         )
         st.session_state.automated_mode['check_interval'] = check_interval
         
-        # Frequency warnings
+        # Frequency warnings and info
         if check_interval == "15 seconds":
-            st.warning("⚡ High frequency - May hit API limits")
+            st.warning("⚡ **High Frequency** - May hit API limits, use with caution")
         elif check_interval == "30 seconds":
-            st.info("🚀 Active trading - Good balance")
+            st.info("🚀 **Active Trading** - Good balance for day trading")
+        elif check_interval == "1 minute":
+            st.success("🔄 **Standard Frequency** - Stable and reliable")
         else:
-            st.success("🔄 Standard frequency - Stable")
+            st.info("📊 **Swing Trading** - Lower frequency for longer-term positions")
+        
+        # Execution settings
+        st.markdown("---")
+        st.write("**🎯 Execution Settings**")
+        
+        execution_mode = st.selectbox(
+            "Execution Mode",
+            options=["Aggressive", "Moderate", "Conservative"],
+            index=1,
+            help="Aggressive: Take all signals, Conservative: Only highest confidence",
+            key="execution_mode"
+        )
+        st.session_state.automated_mode['execution_mode'] = execution_mode
+        
+        # Confidence threshold based on execution mode
+        if execution_mode == "Aggressive":
+            min_confidence = st.slider("Min Confidence", 60, 90, 65, key="agg_confidence")
+        elif execution_mode == "Moderate":
+            min_confidence = st.slider("Min Confidence", 60, 90, 75, key="mod_confidence")
+        else:  # Conservative
+            min_confidence = st.slider("Min Confidence", 60, 90, 85, key="con_confidence")
+        
+        st.session_state.automated_mode['min_confidence'] = min_confidence
         
         st.markdown("---")
-        st.write("**📋 Trading Symbols**")
-        active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-        watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
+        st.write("**📋 Trading Universe**")
         
-        if watchlist_symbols:
-            st.success(f"Trading from: **{active_watchlist}**")
-            with st.expander(f"View {len(watchlist_symbols)} symbols"):
-                for symbol in watchlist_symbols:
-                    st.write(f"• {symbol}")
+        # Nifty 25 status display
+        if nifty25_auto_trade:
+            st.success("🔷 **Nifty 25 Mode Active**")
+            nifty_instruments = get_nifty25_instruments(instrument_df)
+            st.caption(f"Trading {len(nifty_instruments)} Nifty 25 stocks")
+            
+            with st.expander("View Nifty 25 Symbols"):
+                for i, inst in enumerate(nifty_instruments[:25], 1):
+                    st.write(f"{i}. {inst['symbol']} - {inst['name']}")
         else:
-            st.warning("No symbols in active watchlist")
+            # Watchlist-based trading
+            active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+            watchlist_symbols = st.session_state.watchlists.get(active_watchlist, [])
+            
+            if watchlist_symbols:
+                st.success(f"📊 **Watchlist Mode**: {active_watchlist}")
+                st.caption(f"Trading {len(watchlist_symbols)} symbols from watchlist")
+                
+                with st.expander(f"View {len(watchlist_symbols)} symbols"):
+                    for i, item in enumerate(watchlist_symbols[:20], 1):
+                        st.write(f"{i}. {item['symbol']}")
+                    
+                    if len(watchlist_symbols) > 20:
+                        st.caption(f"... and {len(watchlist_symbols) - 20} more symbols")
+            else:
+                st.warning("⚠️ **No Trading Symbols**")
+                st.caption("Add symbols to your watchlist or enable Nifty 25 mode")
+        
+        # Quick actions
+        st.markdown("---")
+        st.write("**🔧 Quick Actions**")
+        
+        col_actions1, col_actions2 = st.columns(2)
+        
+        with col_actions1:
+            if st.button("🔄 Reset Settings", use_container_width=True):
+                reset_bot_configuration()
+                st.success("Bot configuration reset to defaults!")
+                st.rerun()
+        
+        with col_actions2:
+            if st.button("💾 Save Config", use_container_width=True):
+                save_bot_configuration()
+                st.success("Configuration saved!")
 
+# Add these helper functions if not already defined
+def reset_bot_configuration():
+    """Reset bot configuration to default values."""
+    st.session_state.automated_mode.update({
+        'bots_active': {
+            'Momentum Bot': True,
+            'Mean Reversion Bot': True,
+            'Breakout Bot': False,
+            'Multi-Signal Bot': False,
+            'Custom Bot': False
+        },
+        'max_open_trades': 5,
+        'max_daily_trades': 20,
+        'check_interval': '1 minute',
+        'execution_mode': 'Moderate',
+        'min_confidence': 75
+    })
+
+def save_bot_configuration():
+    """Save current bot configuration."""
+    config = {
+        'bots_active': st.session_state.automated_mode.get('bots_active', {}),
+        'max_open_trades': st.session_state.automated_mode.get('max_open_trades', 5),
+        'max_daily_trades': st.session_state.automated_mode.get('max_daily_trades', 20),
+        'check_interval': st.session_state.automated_mode.get('check_interval', '1 minute'),
+        'execution_mode': st.session_state.automated_mode.get('execution_mode', 'Moderate'),
+        'min_confidence': st.session_state.automated_mode.get('min_confidence', 75),
+        'saved_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    # Store in session state (in production, you'd save to file/database)
+    st.session_state.automated_mode['saved_config'] = config
+    return config
+            
 # ================ 5. PAGE DEFINITIONS ============
 
 def page_settings():
