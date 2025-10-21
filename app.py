@@ -6455,27 +6455,29 @@ def display_bot_configuration_tab(instrument_df, nifty25_auto_trade=False):
         if 'bots_active' not in st.session_state.automated_mode:
             st.session_state.automated_mode['bots_active'] = {}
         
-        # Display bot toggles with descriptions
+        # Display bot toggles with descriptions - FIXED: Removed problematic expander
         for bot_name, bot_description in available_bots.items():
-            col_bot1, col_bot2 = st.columns([3, 1])
-            with col_bot1:
-                is_active = st.session_state.automated_mode['bots_active'].get(bot_name, False)
-                if st.checkbox(f"**{bot_name}**", value=is_active, key=f"auto_{bot_name}"):
-                    st.session_state.automated_mode['bots_active'][bot_name] = True
-                else:
-                    st.session_state.automated_mode['bots_active'][bot_name] = False
-            
-            with col_bot2:
-                if st.session_state.automated_mode['bots_active'].get(bot_name, False):
-                    st.success("🟢 ON")
-                else:
-                    st.info("⚪ OFF")
-            
-            # Show bot description
-            with st.expander("ℹ️ Info", key=f"info_{bot_name}"):
-                st.caption(bot_description)
+            # Create a container for each bot
+            with st.container():
+                col_bot1, col_bot2 = st.columns([3, 1])
+                with col_bot1:
+                    is_active = st.session_state.automated_mode['bots_active'].get(bot_name, False)
+                    if st.checkbox(f"**{bot_name}**", value=is_active, key=f"auto_{bot_name}"):
+                        st.session_state.automated_mode['bots_active'][bot_name] = True
+                    else:
+                        st.session_state.automated_mode['bots_active'][bot_name] = False
+                    
+                    # Show description as caption instead of expander
+                    st.caption(f"📝 {bot_description}")
+                
+                with col_bot2:
+                    if st.session_state.automated_mode['bots_active'].get(bot_name, False):
+                        st.success("🟢 ON")
+                    else:
+                        st.info("⚪ OFF")
+                
+                st.markdown("---")
         
-        st.markdown("---")
         st.write("**📊 Trading Limits**")
         
         col_limits1, col_limits2 = st.columns(2)
@@ -6582,12 +6584,20 @@ def display_bot_configuration_tab(instrument_df, nifty25_auto_trade=False):
         # Nifty 25 status display
         if nifty25_auto_trade:
             st.success("🔷 **Nifty 25 Mode Active**")
-            nifty_instruments = get_nifty25_instruments(instrument_df)
-            st.caption(f"Trading {len(nifty_instruments)} Nifty 25 stocks")
-            
-            with st.expander("View Nifty 25 Symbols"):
-                for i, inst in enumerate(nifty_instruments[:25], 1):
-                    st.write(f"{i}. {inst['symbol']} - {inst['name']}")
+            try:
+                nifty_instruments = get_nifty25_instruments(instrument_df)
+                st.caption(f"Trading {len(nifty_instruments)} Nifty 25 stocks")
+                
+                # Use a button to show symbols instead of expander
+                if st.button("📋 View Nifty 25 Symbols", key="view_nifty"):
+                    st.session_state.show_nifty_symbols = not st.session_state.get('show_nifty_symbols', False)
+                
+                if st.session_state.get('show_nifty_symbols', False):
+                    symbol_text = "\n".join([f"{i+1}. {inst['symbol']} - {inst.get('name', 'N/A')}" 
+                                           for i, inst in enumerate(nifty_instruments[:25])])
+                    st.text_area("Nifty 25 Symbols", value=symbol_text, height=200, key="nifty_display")
+            except Exception as e:
+                st.error(f"Error loading Nifty 25: {e}")
         else:
             # Watchlist-based trading
             active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
@@ -6597,12 +6607,14 @@ def display_bot_configuration_tab(instrument_df, nifty25_auto_trade=False):
                 st.success(f"📊 **Watchlist Mode**: {active_watchlist}")
                 st.caption(f"Trading {len(watchlist_symbols)} symbols from watchlist")
                 
-                with st.expander(f"View {len(watchlist_symbols)} symbols"):
-                    for i, item in enumerate(watchlist_symbols[:20], 1):
-                        st.write(f"{i}. {item['symbol']}")
-                    
-                    if len(watchlist_symbols) > 20:
-                        st.caption(f"... and {len(watchlist_symbols) - 20} more symbols")
+                # Use button to show symbols instead of expander
+                if st.button("📋 View Watchlist Symbols", key="view_watchlist"):
+                    st.session_state.show_watchlist_symbols = not st.session_state.get('show_watchlist_symbols', False)
+                
+                if st.session_state.get('show_watchlist_symbols', False):
+                    symbol_text = "\n".join([f"{i+1}. {item['symbol']}" 
+                                           for i, item in enumerate(watchlist_symbols[:20])])
+                    st.text_area("Watchlist Symbols", value=symbol_text, height=150, key="watchlist_display")
             else:
                 st.warning("⚠️ **No Trading Symbols**")
                 st.caption("Add symbols to your watchlist or enable Nifty 25 mode")
@@ -6614,13 +6626,13 @@ def display_bot_configuration_tab(instrument_df, nifty25_auto_trade=False):
         col_actions1, col_actions2 = st.columns(2)
         
         with col_actions1:
-            if st.button("🔄 Reset Settings", use_container_width=True):
+            if st.button("🔄 Reset Settings", use_container_width=True, key="reset_bots"):
                 reset_bot_configuration()
                 st.success("Bot configuration reset to defaults!")
                 st.rerun()
         
         with col_actions2:
-            if st.button("💾 Save Config", use_container_width=True):
+            if st.button("💾 Save Config", use_container_width=True, key="save_bots"):
                 save_bot_configuration()
                 st.success("Configuration saved!")
 
