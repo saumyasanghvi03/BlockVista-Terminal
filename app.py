@@ -7594,19 +7594,16 @@ def page_ai_assistant():
         
         if st.button("📊 Portfolio Health Check", use_container_width=True):
             st.session_state.assistant_messages.append({"role": "user", "content": "Analyze my portfolio health and suggest improvements"})
-            analyze_portfolio_health()
+            # This will trigger the response in the main chat
             
         if st.button("📈 Market Outlook", use_container_width=True):
             st.session_state.assistant_messages.append({"role": "user", "content": "What's the current market outlook and any opportunities?"})
-            provide_market_outlook()
             
         if st.button("🎯 Trade Ideas", use_container_width=True):
             st.session_state.assistant_messages.append({"role": "user", "content": "Suggest some high-probability trade ideas"})
-            generate_trade_ideas()
             
         if st.button("⚠️ Risk Assessment", use_container_width=True):
             st.session_state.assistant_messages.append({"role": "user", "content": "Assess my portfolio risk and suggest hedging"})
-            assess_portfolio_risk()
             
         st.markdown("---")
         st.subheader("🔧 Configuration")
@@ -7635,11 +7632,11 @@ def page_ai_assistant():
                 st.markdown(message["content"])
                 
                 # Display additional context for assistant messages
-                if message["role"] == "assistant" and "analysis" in message:
+                if "analysis" in message:
                     with st.expander("📊 Detailed Analysis"):
                         st.write(message["analysis"])
                         
-                if message["role"] == "assistant" and "recommendations" in message:
+                if "recommendations" in message:
                     with st.expander("🎯 Actionable Recommendations"):
                         for rec in message["recommendations"]:
                             st.write(f"• {rec}")
@@ -7649,8 +7646,11 @@ def page_ai_assistant():
         
         # Portfolio snapshot
         positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
-        st.metric("Portfolio P&L", f"₹{total_pnl:,.2f}")
-        st.metric("Total Investment", f"₹{total_investment:,.2f}")
+        if total_investment > 0:
+            st.metric("Portfolio P&L", f"₹{total_pnl:,.2f}")
+            st.metric("Total Investment", f"₹{total_investment:,.2f}")
+        else:
+            st.info("No portfolio data")
         
         # Market status
         status_info = get_market_status()
@@ -7679,17 +7679,21 @@ def page_ai_assistant():
                 st.markdown(response["answer"])
                 
                 # Store enhanced response
-                st.session_state.assistant_messages.append({
+                enhanced_message = {
                     "role": "assistant", 
-                    "content": response["answer"],
-                    "analysis": response.get("analysis", ""),
-                    "recommendations": response.get("recommendations", [])
-                })
+                    "content": response["answer"]
+                }
+                
+                if "analysis" in response:
+                    enhanced_message["analysis"] = response["analysis"]
+                if "recommendations" in response:
+                    enhanced_message["recommendations"] = response["recommendations"]
+                
+                st.session_state.assistant_messages.append(enhanced_message)
 
 def process_ai_assistant_query(prompt, instrument_df):
     """Enhanced query processing with advanced analytics."""
     prompt_lower = prompt.lower()
-    client = get_broker_client()
     
     # Update context
     update_assistant_context()
@@ -7720,30 +7724,31 @@ def process_ai_assistant_query(prompt, instrument_df):
 
 def update_assistant_context():
     """Update the AI assistant's context with current market and portfolio data."""
-    positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
-    
-    # Portfolio snapshot
-    st.session_state.assistant_context["portfolio_snapshot"] = {
-        "total_pnl": total_pnl,
-        "total_investment": total_investment,
-        "positions_count": len(positions_df) if not positions_df.empty else 0,
-        "holdings_count": len(holdings_df) if not holdings_df.empty else 0,
-        "winning_positions": len([p for p in positions_df.to_dict('records') if p.get('pnl', 0) > 0]) if not positions_df.empty else 0
-    }
-    
-    # Market conditions
-    status_info = get_market_status()
-    st.session_state.assistant_context["market_conditions"] = {
-        "status": status_info['status'],
-        "market_hours": is_market_hours(),
-        "pre_market": is_pre_market_hours(),
-        "square_off_time": is_square_off_time()
-    }
+    try:
+        positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
+        
+        # Portfolio snapshot
+        st.session_state.assistant_context["portfolio_snapshot"] = {
+            "total_pnl": total_pnl,
+            "total_investment": total_investment,
+            "positions_count": len(positions_df) if not positions_df.empty else 0,
+            "holdings_count": len(holdings_df) if not holdings_df.empty else 0,
+            "winning_positions": len([p for p in positions_df.to_dict('records') if p.get('pnl', 0) > 0]) if not positions_df.empty else 0
+        }
+        
+        # Market conditions
+        status_info = get_market_status()
+        st.session_state.assistant_context["market_conditions"] = {
+            "status": status_info['status'],
+            "market_hours": is_market_hours(),
+            "pre_market": is_pre_market_hours(),
+            "square_off_time": is_square_off_time()
+        }
+    except Exception as e:
+        st.error(f"Error updating context: {e}")
 
 def handle_portfolio_queries(prompt_lower, instrument_df):
     """Handle portfolio-related queries with advanced analytics."""
-    positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
-    
     if "health" in prompt_lower or "how is my portfolio" in prompt_lower:
         return analyze_portfolio_health()
     elif "diversification" in prompt_lower:
@@ -7755,132 +7760,420 @@ def handle_portfolio_queries(prompt_lower, instrument_df):
 
 def analyze_portfolio_health():
     """Comprehensive portfolio health analysis."""
-    positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
-    
-    # Calculate metrics
-    total_value = total_investment + total_pnl
-    return_pct = (total_pnl / total_investment * 100) if total_investment > 0 else 0
-    
-    # Risk assessment
-    risk_score = calculate_portfolio_risk(holdings_df)
-    
-    # Generate insights
-    if return_pct > 10:
-        health_status = "Excellent"
-        color = "green"
-    elif return_pct > 5:
-        health_status = "Good" 
-        color = "blue"
-    elif return_pct > 0:
-        health_status = "Fair"
-        color = "orange"
-    else:
-        health_status = "Needs Attention"
-        color = "red"
-    
-    analysis = f"""
-    **Portfolio Health Analysis:**
-    
-    - **Total Value:** ₹{total_value:,.2f}
-    - **Total P&L:** ₹{total_pnl:,.2f} ({return_pct:.2f}%)
-    - **Health Status:** <span style='color:{color}'>{health_status}</span>
-    - **Risk Score:** {risk_score}/10
-    - **Positions:** {len(positions_df) if not positions_df.empty else 0} active
-    - **Holdings:** {len(holdings_df) if not holdings_df.empty else 0} investments
-    """
-    
-    recommendations = []
-    
-    if risk_score > 7:
-        recommendations.append("Consider reducing exposure to high-risk positions")
-    if return_pct < 0:
-        recommendations.append("Review underperforming positions and consider stop-losses")
-    if len(holdings_df) < 5:
-        recommendations.append("Diversify across more sectors for better risk management")
-    
-    return {
-        "answer": f"Your portfolio shows **{health_status}** health with a {return_pct:.2f}% return. " +
-                 f"Risk level is {risk_score}/10. " +
-                 ("I recommend reviewing the detailed analysis below." if recommendations else "Your portfolio is well-maintained."),
-        "analysis": analysis,
-        "recommendations": recommendations
-    }
+    try:
+        positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
+        
+        # Calculate metrics
+        total_value = total_investment + total_pnl
+        return_pct = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+        
+        # Risk assessment
+        risk_score = calculate_portfolio_risk(holdings_df)
+        
+        # Generate insights
+        if return_pct > 10:
+            health_status = "Excellent"
+            color = "green"
+        elif return_pct > 5:
+            health_status = "Good" 
+            color = "blue"
+        elif return_pct > 0:
+            health_status = "Fair"
+            color = "orange"
+        else:
+            health_status = "Needs Attention"
+            color = "red"
+        
+        analysis = f"""
+        **Portfolio Health Analysis:**
+        
+        - **Total Value:** ₹{total_value:,.2f}
+        - **Total P&L:** ₹{total_pnl:,.2f} ({return_pct:.2f}%)
+        - **Health Status:** <span style='color:{color}'>{health_status}</span>
+        - **Risk Score:** {risk_score}/10
+        - **Positions:** {len(positions_df) if not positions_df.empty else 0} active
+        - **Holdings:** {len(holdings_df) if not holdings_df.empty else 0} investments
+        """
+        
+        recommendations = []
+        
+        if risk_score > 7:
+            recommendations.append("Consider reducing exposure to high-risk positions")
+        if return_pct < 0:
+            recommendations.append("Review underperforming positions and consider stop-losses")
+        if len(holdings_df) < 5:
+            recommendations.append("Diversify across more sectors for better risk management")
+        
+        return {
+            "answer": f"Your portfolio shows **{health_status}** health with a {return_pct:.2f}% return. " +
+                     f"Risk level is {risk_score}/10. " +
+                     ("I recommend reviewing the detailed analysis below." if recommendations else "Your portfolio is well-maintained."),
+            "analysis": analysis,
+            "recommendations": recommendations
+        }
+    except Exception as e:
+        return {
+            "answer": "Unable to analyze portfolio health at the moment. Please ensure you're connected to your broker.",
+            "analysis": "Error in portfolio analysis",
+            "recommendations": ["Check broker connection", "Verify portfolio data availability"]
+        }
 
 def calculate_portfolio_risk(holdings_df):
     """Calculate portfolio risk score (1-10)."""
-    if holdings_df.empty:
+    try:
+        if holdings_df.empty:
+            return 5
+        
+        # Simple risk calculation based on concentration and volatility
+        total_value = (holdings_df['quantity'] * holdings_df['last_price']).sum()
+        
+        # Concentration risk (higher if few holdings dominate)
+        if len(holdings_df) < 3:
+            concentration_risk = 8
+        elif len(holdings_df) < 5:
+            concentration_risk = 6
+        else:
+            concentration_risk = 4
+        
+        # Volatility estimate (simplified)
+        avg_pnl_pct = (holdings_df['pnl'].abs() / (holdings_df['quantity'] * holdings_df['average_price'])).mean() * 100
+        volatility_risk = min(10, avg_pnl_pct / 2)
+        
+        return min(10, (concentration_risk + volatility_risk) / 2)
+    except:
         return 5
-    
-    # Simple risk calculation based on concentration and volatility
-    total_value = (holdings_df['quantity'] * holdings_df['last_price']).sum()
-    
-    # Concentration risk (higher if few holdings dominate)
-    if len(holdings_df) < 3:
-        concentration_risk = 8
-    elif len(holdings_df) < 5:
-        concentration_risk = 6
-    else:
-        concentration_risk = 4
-    
-    # Volatility estimate (simplified)
-    avg_pnl_pct = (holdings_df['pnl'].abs() / (holdings_df['quantity'] * holdings_df['average_price'])).mean() * 100
-    volatility_risk = min(10, avg_pnl_pct / 2)
-    
-    return min(10, (concentration_risk + volatility_risk) / 2)
 
 def analyze_portfolio_diversification():
     """Analyze portfolio diversification."""
-    sector_df = get_sector_data()
-    holdings_df, _, _, _ = get_portfolio()
-    
-    if holdings_df.empty:
-        return {
-            "answer": "No holdings found for diversification analysis.",
-            "analysis": "Please add holdings to your portfolio to analyze diversification.",
-            "recommendations": ["Start building your portfolio with diversified sectors"]
-        }
-    
-    # Merge with sector data
-    if sector_df is not None:
-        holdings_df = pd.merge(holdings_df, sector_df, left_on='tradingsymbol', right_on='Symbol', how='left')
-        holdings_df['Sector'].fillna('Unknown', inplace=True)
+    try:
+        holdings_df, _, _, _ = get_portfolio()
         
-        sector_allocation = holdings_df.groupby('Sector').agg({
-            'tradingsymbol': 'count',
-            'quantity': 'sum'
-        }).rename(columns={'tradingsymbol': 'Count', 'quantity': 'TotalQuantity'})
+        if holdings_df.empty:
+            return {
+                "answer": "No holdings found for diversification analysis.",
+                "analysis": "Please add holdings to your portfolio to analyze diversification.",
+                "recommendations": ["Start building your portfolio with diversified sectors"]
+            }
         
-        analysis = "**Sector Diversification Analysis:**\n\n"
-        for sector, data in sector_allocation.iterrows():
-            analysis += f"- **{sector}:** {data['Count']} stocks, {data['TotalQuantity']} shares\n"
+        # Simple diversification analysis
+        num_holdings = len(holdings_df)
         
-        # Diversification score
-        unique_sectors = len(sector_allocation)
-        if unique_sectors >= 5:
+        if num_holdings >= 8:
             div_score = "Excellent"
             color = "green"
-        elif unique_sectors >= 3:
+        elif num_holdings >= 5:
             div_score = "Good"
             color = "blue"
+        elif num_holdings >= 3:
+            div_score = "Fair"
+            color = "orange"
         else:
             div_score = "Low"
             color = "red"
         
-        analysis += f"\n**Diversification Score:** <span style='color:{color}'>{div_score}</span> ({unique_sectors} sectors)"
+        analysis = f"""
+        **Portfolio Diversification Analysis:**
         
-    else:
-        analysis = "Sector data not available for detailed diversification analysis."
+        - **Number of Holdings:** {num_holdings}
+        - **Diversification Score:** <span style='color:{color}'>{div_score}</span>
+        - **Recommendation:** {'Well diversified' if div_score in ['Excellent', 'Good'] else 'Consider adding more positions'}
+        """
+        
+        recommendations = [
+            "Aim for at least 5 different holdings for optimal diversification",
+            "Consider adding exposure to different market sectors",
+            "Rebalance periodically to maintain target allocation"
+        ]
+        
+        if num_holdings < 5:
+            recommendations.append("Add 2-3 more positions from different sectors")
+        
+        return {
+            "answer": f"Your portfolio has {num_holdings} holdings with **{div_score}** diversification.",
+            "analysis": analysis,
+            "recommendations": recommendations
+        }
+    except Exception as e:
+        return {
+            "answer": "Unable to analyze diversification at the moment.",
+            "analysis": "Error in diversification analysis",
+            "recommendations": ["Check portfolio data", "Try again later"]
+        }
+
+def analyze_portfolio_performance():
+    """Analyze portfolio performance."""
+    try:
+        positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
+        
+        if holdings_df.empty:
+            return {
+                "answer": "No portfolio data available for performance analysis.",
+                "analysis": "Please connect to your broker or add manual holdings.",
+                "recommendations": ["Connect to broker", "Add portfolio data"]
+            }
+        
+        total_value = total_investment + total_pnl
+        return_pct = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+        
+        # Performance rating
+        if return_pct > 15:
+            rating = "Outstanding"
+            color = "green"
+        elif return_pct > 8:
+            rating = "Good"
+            color = "blue"
+        elif return_pct > 0:
+            rating = "Positive"
+            color = "orange"
+        else:
+            rating = "Needs Improvement"
+            color = "red"
+        
+        analysis = f"""
+        **Portfolio Performance Analysis:**
+        
+        - **Total Value:** ₹{total_value:,.2f}
+        - **Total Return:** ₹{total_pnl:,.2f} ({return_pct:.2f}%)
+        - **Performance Rating:** <span style='color:{color}'>{rating}</span>
+        - **Number of Positions:** {len(positions_df) if not positions_df.empty else 0}
+        """
+        
+        recommendations = []
+        
+        if return_pct < 5:
+            recommendations.append("Consider reviewing your trading strategy")
+        if return_pct > 20:
+            recommendations.append("Consider profit booking on high-performing positions")
+        
+        return {
+            "answer": f"Your portfolio has delivered {return_pct:.2f}% returns with **{rating}** performance.",
+            "analysis": analysis,
+            "recommendations": recommendations
+        }
+    except Exception as e:
+        return {
+            "answer": "Unable to analyze portfolio performance.",
+            "analysis": "Error in performance analysis",
+            "recommendations": ["Check data connection", "Verify portfolio details"]
+        }
+
+def generate_portfolio_summary():
+    """Generate comprehensive portfolio summary."""
+    try:
+        positions_df, holdings_df, total_pnl, total_investment = get_portfolio()
+        
+        if holdings_df.empty:
+            return {
+                "answer": "No portfolio data available.",
+                "analysis": "Please connect to your broker to view portfolio summary.",
+                "recommendations": ["Connect to broker account", "Add manual holdings if needed"]
+            }
+        
+        total_value = total_investment + total_pnl
+        return_pct = (total_pnl / total_investment * 100) if total_investment > 0 else 0
+        
+        analysis = f"""
+        **Portfolio Summary:**
+        
+        - **Total Portfolio Value:** ₹{total_value:,.2f}
+        - **Total Investment:** ₹{total_investment:,.2f}
+        - **Total P&L:** ₹{total_pnl:,.2f} ({return_pct:.2f}%)
+        - **Active Positions:** {len(positions_df) if not positions_df.empty else 0}
+        - **Long-term Holdings:** {len(holdings_df) if not holdings_df.empty else 0}
+        """
+        
+        # Top performers
+        if not holdings_df.empty:
+            top_performers = holdings_df.nlargest(3, 'pnl')
+            analysis += "\n**Top Performers:**\n"
+            for _, holding in top_performers.iterrows():
+                analysis += f"- {holding['tradingsymbol']}: ₹{holding['pnl']:,.2f}\n"
+        
+        recommendations = [
+            "Regularly review your portfolio allocation",
+            "Set stop-losses for active positions",
+            "Consider rebalancing if any position grows beyond 15% of portfolio"
+        ]
+        
+        return {
+            "answer": f"Your portfolio is valued at ₹{total_value:,.2f} with {return_pct:.2f}% returns.",
+            "analysis": analysis,
+            "recommendations": recommendations
+        }
+    except Exception as e:
+        return {
+            "answer": "Unable to generate portfolio summary.",
+            "analysis": "Error in portfolio summary generation",
+            "recommendations": ["Check broker connection", "Verify portfolio data"]
+        }
+
+def handle_market_queries(prompt_lower, instrument_df):
+    """Handle market-related queries."""
+    try:
+        status_info = get_market_status()
+        market_status = status_info['status'].replace('_', ' ').title()
+        
+        # Get NIFTY data for market context
+        nifty_data = get_watchlist_data([{'symbol': 'NIFTY 50', 'exchange': 'NSE'}])
+        nifty_price = nifty_data.iloc[0]['Price'] if not nifty_data.empty else 0
+        nifty_change = nifty_data.iloc[0]['Change'] if not nifty_data.empty else 0
+        
+        analysis = f"""
+        **Current Market Conditions:**
+        
+        - **Market Status:** {market_status}
+        - **NIFTY 50:** ₹{nifty_price:.2f} ({nifty_change:+.2f})
+        - **Trading Hours:** 9:15 AM - 3:30 PM IST
+        - **Market Phase:** {'Open' if is_market_hours() else 'Closed'}
+        """
+        
+        recommendations = [
+            "Monitor key support and resistance levels",
+            "Watch for sector rotation opportunities",
+            "Stay updated with corporate announcements"
+        ]
+        
+        if "outlook" in prompt_lower:
+            outlook = "cautiously optimistic" if nifty_change > 0 else "cautious" if nifty_change < 0 else "neutral"
+            answer = f"The market is currently **{market_status}** with NIFTY at ₹{nifty_price:.2f}. The near-term outlook appears **{outlook}**."
+        else:
+            answer = f"The market is **{market_status}**. NIFTY 50 is trading at ₹{nifty_price:.2f} ({nifty_change:+.2f})."
+        
+        return {
+            "answer": answer,
+            "analysis": analysis,
+            "recommendations": recommendations
+        }
+    except Exception as e:
+        return {
+            "answer": "Unable to fetch market data at the moment.",
+            "analysis": "Market data temporarily unavailable",
+            "recommendations": ["Check internet connection", "Try again shortly"]
+        }
+
+def handle_trade_queries(prompt_lower, instrument_df):
+    """Handle trade-related queries."""
+    try:
+        # Get current market conditions
+        status_info = get_market_status()
+        
+        if not is_market_hours() and not is_pre_market_hours():
+            return {
+                "answer": "Markets are currently closed. Trading recommendations are available during market hours (9:15 AM - 3:30 PM IST).",
+                "analysis": "Market Hours: 9:15 AM - 3:30 PM IST\nNext trading session: Tomorrow 9:15 AM",
+                "recommendations": ["Prepare your watchlist for tomorrow", "Review overnight global market moves"]
+            }
+        
+        # Generate simple trade ideas based on market conditions
+        if "buy" in prompt_lower:
+            ideas = ["RELIANCE (Strong fundamentals)", "INFY (IT sector momentum)", "HDFCBANK (Banking recovery)"]
+            answer = "Based on current market conditions, consider these potential buy opportunities:"
+        elif "sell" in prompt_lower:
+            ideas = ["Consider profit booking on positions with >20% gains", "Review underperforming holdings", "Reduce exposure to high-beta stocks if market appears overbought"]
+            answer = "For selling considerations, review these aspects:"
+        else:
+            ideas = ["Momentum plays in IT sector", "Value opportunities in banking", "Defensive positions in FMCG"]
+            answer = "Current market environment suggests these trade ideas:"
+        
+        analysis = f"""
+        **Trade Analysis Context:**
+        
+        - **Market Status:** {status_info['status'].replace('_', ' ').title()}
+        - **Recommended Strategy:** {st.session_state.assistant_context['trading_style'].replace('_', ' ').title()}
+        - **Risk Profile:** {st.session_state.assistant_context['risk_profile'].title()}
+        """
+        
+        recommendations = ideas + [
+            "Always use stop-loss orders",
+            "Position size according to your risk tolerance",
+            "Monitor market news for unexpected events"
+        ]
+        
+        return {
+            "answer": answer,
+            "analysis": analysis,
+            "recommendations": recommendations
+        }
+    except Exception as e:
+        return {
+            "answer": "Unable to generate trade ideas at the moment.",
+            "analysis": "Trade analysis temporarily unavailable",
+            "recommendations": ["Check market data connection", "Try again during market hours"]
+        }
+
+def handle_risk_queries(prompt_lower, instrument_df):
+    """Handle risk-related queries."""
+    analysis = """
+    **Portfolio Risk Management Framework:**
+    
+    - **Diversification:** Spread across sectors and market caps
+    - **Position Sizing:** Limit single positions to 5-10% of portfolio
+    - **Stop-Loss:** Essential for risk management
+    - **Hedging:** Consider options for portfolio protection
+    """
     
     recommendations = [
-        "Aim for at least 5 different sectors for optimal diversification",
-        "Consider adding exposure to underrepresented sectors",
-        "Rebalance periodically to maintain target allocation"
+        "Set stop-losses for all active positions",
+        "Diversify across at least 5 sectors",
+        "Avoid over-concentration in single stocks",
+        "Consider hedging with put options in volatile markets",
+        "Regularly review and adjust position sizes"
     ]
     
     return {
-        "answer": f"Your portfolio is diversified across {unique_sectors} sectors with a **{div_score}** diversification score.",
+        "answer": "Effective risk management is crucial for long-term trading success. Here's my risk assessment framework:",
         "analysis": analysis,
         "recommendations": recommendations
+    }
+
+def handle_technical_queries(prompt_lower, instrument_df):
+    """Handle technical analysis queries."""
+    analysis = """
+    **Technical Analysis Framework:**
+    
+    - **Trend Analysis:** Identify primary trends using moving averages
+    - **Support/Resistance:** Key price levels for entry/exit decisions
+    - **Momentum Indicators:** RSI, MACD for timing entries
+    - **Volume Analysis:** Confirm price moves with volume
+    - **Pattern Recognition:** Chart patterns for predictive signals
+    """
+    
+    recommendations = [
+        "Use multiple timeframes for confirmation (daily + hourly)",
+        "Combine technical with fundamental analysis",
+        "Wait for confirmation before entering trades",
+        "Use stop-losses based on technical levels",
+        "Monitor key indicators like RSI and moving averages"
+    ]
+    
+    return {
+        "answer": "Technical analysis helps identify trading opportunities through price patterns and indicators. Key aspects include:",
+        "analysis": analysis,
+        "recommendations": recommendations
+    }
+
+def handle_general_queries(prompt_lower, instrument_df):
+    """Handle general trading queries."""
+    general_responses = {
+        "hello": "Hello! I'm your AI trading assistant. I can help with portfolio analysis, market insights, and trading strategies. What would you like to know?",
+        "help": "I can assist with:\n- Portfolio analysis and health checks\n- Market outlook and trends\n- Trade ideas and opportunities\n- Risk management strategies\n- Technical analysis insights\n\nJust ask me anything about trading or your portfolio!",
+        "hours": "Indian stock market trading hours:\n- Pre-open: 9:00-9:15 AM\n- Normal market: 9:15 AM - 3:30 PM\n- Special sessions may vary\nMarkets are closed on weekends and holidays.",
+        "broker": "This platform supports Zerodha and Upstox integration. You can connect your broker in the settings section."
+    }
+    
+    for key, response in general_responses.items():
+        if key in prompt_lower:
+            return {
+                "answer": response,
+                "analysis": "",
+                "recommendations": []
+            }
+    
+    # Default response for unrecognized queries
+    return {
+        "answer": "I'm here to help with your trading and investment needs. You can ask me about:\n\n• Your portfolio performance and health\n• Current market conditions and outlook\n• Trade ideas and opportunities\n• Risk management strategies\n• Technical analysis insights\n\nPlease try rephrasing your question if I didn't understand it correctly.",
+        "analysis": "",
+        "recommendations": ["Try asking about your portfolio", "Request market analysis", "Ask for trade ideas", "Get risk management advice"]
     }
     
 def page_fundamental_analytics():
@@ -9228,16 +9521,22 @@ def page_ai_discovery():
     st.info("Advanced pattern recognition, predictive analytics, and AI-driven trade discovery using machine learning.", icon="🤖")
     
     instrument_df = get_instrument_df()
-    active_list = st.session_state.get('watchlists', {}).get(st.session_state.get('active_watchlist', 'Watchlist 1'), [])
+    if instrument_df.empty:
+        st.info("Please connect to a broker to use AI Discovery.")
+        return
+
+    # Get active watchlist
+    active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
+    active_list = st.session_state.watchlists.get(active_watchlist, [])
     
-    if not active_list or instrument_df.empty:
+    if not active_list:
         st.warning("Please set up your watchlist on the Dashboard page to enable AI Discovery.")
         return
 
     # Enhanced discovery modes
     discovery_mode = st.radio(
         "Discovery Mode",
-        ["Pattern Recognition", "Predictive Signals", "Risk-Adjusted Opportunities", "Sector Rotation", "Market Regime"],
+        ["Pattern Recognition", "Predictive Signals", "Risk-Adjusted Opportunities", "Technical Setups"],
         horizontal=True
     )
     
@@ -9253,10 +9552,8 @@ def page_ai_discovery():
                 results = predictive_signals_analysis(active_list, instrument_df)
             elif discovery_mode == "Risk-Adjusted Opportunities":
                 results = risk_adjusted_opportunities(active_list, instrument_df)
-            elif discovery_mode == "Sector Rotation":
-                results = sector_rotation_analysis(active_list, instrument_df)
-            else:  # Market Regime
-                results = market_regime_analysis(active_list, instrument_df)
+            else:  # Technical Setups
+                results = technical_setups_analysis(active_list, instrument_df)
     
     with col2:
         st.subheader("⚙️ Discovery Settings")
@@ -9283,7 +9580,7 @@ def page_ai_discovery():
 
     # Display results
     if results and not results.get("error"):
-        display_enhanced_discovery_results(results, discovery_mode)
+        display_enhanced_discovery_results(results, discovery_mode, confidence_threshold)
     else:
         st.error("No patterns found or analysis failed. Try adjusting parameters.")
 
@@ -9291,7 +9588,7 @@ def enhanced_pattern_recognition(active_list, instrument_df):
     """Advanced pattern recognition with ML-based technical analysis."""
     patterns = []
     
-    for item in active_list[:15]:  # Limit for performance
+    for item in active_list[:10]:  # Limit for performance
         try:
             symbol = item['symbol']
             exchange = item['exchange']
@@ -9301,16 +9598,15 @@ def enhanced_pattern_recognition(active_list, instrument_df):
                 continue
                 
             # Get multi-timeframe data
-            daily_data = get_historical_data(token, 'day', period='6mo')
-            hourly_data = get_historical_data(token, '60minute', period='1mo')
+            daily_data = get_historical_data(token, 'day', period='3mo')
             
-            if daily_data.empty or hourly_data.empty:
+            if daily_data.empty:
                 continue
             
             # Advanced technical analysis
-            pattern_analysis = analyze_advanced_patterns(daily_data, hourly_data, symbol)
+            pattern_analysis = analyze_advanced_patterns(daily_data, symbol)
             
-            if pattern_analysis["confidence"] > 70:
+            if pattern_analysis["confidence"] > 60:
                 patterns.append(pattern_analysis)
                 
         except Exception as e:
@@ -9322,29 +9618,26 @@ def enhanced_pattern_recognition(active_list, instrument_df):
         "high_confidence_patterns": len([p for p in patterns if p["confidence"] > 80])
     }
 
-def analyze_advanced_patterns(daily_data, hourly_data, symbol):
+def analyze_advanced_patterns(daily_data, symbol):
     """Analyze advanced technical patterns with confidence scoring."""
     
     # Calculate multiple indicators
     daily_data = calculate_advanced_indicators(daily_data)
-    hourly_data = calculate_advanced_indicators(hourly_data)
-    
-    latest_daily = daily_data.iloc[-1]
-    latest_hourly = hourly_data.iloc[-1]
+    latest = daily_data.iloc[-1]
     
     patterns_detected = []
     confidence = 0
     signal_strength = "Neutral"
     
     # Trend analysis
-    if (latest_daily.get('EMA_20', 0) > latest_daily.get('EMA_50', 0) > latest_daily.get('EMA_200', 0) and
-        latest_daily.get('ADX', 0) > 25):
+    if (latest.get('EMA_20', 0) > latest.get('EMA_50', 0) and
+        latest.get('EMA_50', 0) > latest.get('EMA_200', 0)):
         patterns_detected.append("Strong Uptrend")
-        confidence += 30
+        confidence += 25
         signal_strength = "Bullish"
     
     # Momentum confirmation
-    rsi = latest_daily.get('RSI_14', 50)
+    rsi = latest.get('RSI_14', 50)
     if 40 < rsi < 70:  # Avoid extremes
         if rsi > 55:
             patterns_detected.append("Positive Momentum")
@@ -9355,39 +9648,36 @@ def analyze_advanced_patterns(daily_data, hourly_data, symbol):
             signal_strength = "Bearish"
     
     # Volume analysis
-    if (latest_daily.get('volume', 0) > daily_data['volume'].tail(20).mean() * 1.2 and
-        latest_daily.get('close', 0) > latest_daily.get('open', 0)):
-        patterns_detected.append("Volume Breakout")
-        confidence += 20
+    if len(daily_data) > 20:
+        volume_avg = daily_data['volume'].tail(20).mean()
+        if (latest.get('volume', 0) > volume_avg * 1.2 and
+            latest.get('close', 0) > latest.get('open', 0)):
+            patterns_detected.append("Volume Breakout")
+            confidence += 20
     
     # Support/Resistance breaks
-    resistance = daily_data['high'].tail(20).max()
-    support = daily_data['low'].tail(20).min()
-    current_price = latest_daily.get('close', 0)
-    
-    if current_price >= resistance * 0.99:
-        patterns_detected.append("Resistance Break")
-        confidence += 25
-        signal_strength = "Bullish"
-    elif current_price <= support * 1.01:
-        patterns_detected.append("Support Break")
-        confidence += 25
-        signal_strength = "Bearish"
-    
-    # Multi-timeframe alignment
-    if (latest_daily.get('EMA_20', 0) > latest_daily.get('EMA_50', 0) and
-        latest_hourly.get('EMA_20', 0) > latest_hourly.get('EMA_50', 0)):
-        patterns_detected.append("Multi-timeframe Bullish")
-        confidence += 10
+    if len(daily_data) > 20:
+        resistance = daily_data['high'].tail(20).max()
+        support = daily_data['low'].tail(20).min()
+        current_price = latest.get('close', 0)
+        
+        if current_price >= resistance * 0.99:
+            patterns_detected.append("Resistance Break")
+            confidence += 20
+            signal_strength = "Bullish"
+        elif current_price <= support * 1.01:
+            patterns_detected.append("Support Break")
+            confidence += 20
+            signal_strength = "Bearish"
     
     return {
         "symbol": symbol,
         "patterns": patterns_detected,
         "confidence": min(100, confidence),
         "signal_strength": signal_strength,
-        "current_price": current_price,
+        "current_price": latest.get('close', 0),
         "rsi": rsi,
-        "volume_ratio": latest_daily.get('volume', 0) / daily_data['volume'].tail(20).mean() if daily_data['volume'].tail(20).mean() > 0 else 1
+        "volume_ratio": latest.get('volume', 0) / volume_avg if volume_avg > 0 else 1
     }
 
 def calculate_advanced_indicators(df):
@@ -9402,14 +9692,7 @@ def calculate_advanced_indicators(df):
     df['RSI_14'] = talib.RSI(df['close'], timeperiod=14)
     
     # Advanced indicators
-    df['ADX'] = talib.ADX(df['high'], df['low'], df['close'], timeperiod=14)
     df['MACD'], df['MACD_Signal'], _ = talib.MACD(df['close'])
-    
-    # Volatility
-    df['ATR'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=14)
-    
-    # Bollinger Bands
-    df['BB_Upper'], df['BB_Middle'], df['BB_Lower'] = talib.BBANDS(df['close'], timeperiod=20)
     
     return df
 
@@ -9417,7 +9700,7 @@ def predictive_signals_analysis(active_list, instrument_df):
     """Predictive analysis using ML-inspired signals."""
     signals = []
     
-    for item in active_list[:12]:
+    for item in active_list[:8]:
         try:
             symbol = item['symbol']
             exchange = item['exchange']
@@ -9426,8 +9709,8 @@ def predictive_signals_analysis(active_list, instrument_df):
             if not token:
                 continue
                 
-            data = get_historical_data(token, 'day', period='1y')
-            if data.empty or len(data) < 100:
+            data = get_historical_data(token, 'day', period='6mo')
+            if data.empty or len(data) < 50:
                 continue
             
             # Predictive signal generation
@@ -9441,8 +9724,7 @@ def predictive_signals_analysis(active_list, instrument_df):
     
     return {
         "signals": sorted(signals, key=lambda x: x["probability"], reverse=True),
-        "analysis_type": "Predictive ML Signals",
-        "market_regime": determine_market_regime()
+        "analysis_type": "Predictive ML Signals"
     }
 
 def generate_predictive_signal(data, symbol):
@@ -9468,17 +9750,12 @@ def generate_predictive_signal(data, symbol):
             score += 20
             features.append("MACD Bullish")
     
-    # Volatility features
-    atr_percentage = (latest.get('ATR', 0) / latest.get('close', 1)) * 100
-    if 1 < atr_percentage < 5:  # Reasonable volatility
-        score += 15
-        features.append("Optimal Volatility")
-    
     # Volume features
-    volume_avg = data['volume'].tail(20).mean()
-    if latest.get('volume', 0) > volume_avg * 1.1:
-        score += 20
-        features.append("Volume Surge")
+    if len(data) > 20:
+        volume_avg = data['volume'].tail(20).mean()
+        if latest.get('volume', 0) > volume_avg * 1.1:
+            score += 20
+            features.append("Volume Surge")
     
     # Price action features
     if (latest.get('close', 0) > latest.get('EMA_20', 0) and 
@@ -9506,13 +9783,157 @@ def generate_predictive_signal(data, symbol):
         "volume_ratio": latest.get('volume', 0) / volume_avg if volume_avg > 0 else 1
     }
 
-def display_enhanced_discovery_results(results, discovery_mode):
+def risk_adjusted_opportunities(active_list, instrument_df):
+    """Find risk-adjusted trading opportunities."""
+    opportunities = []
+    
+    for item in active_list[:8]:
+        try:
+            symbol = item['symbol']
+            exchange = item['exchange']
+            token = get_instrument_token(symbol, instrument_df, exchange)
+            
+            if not token:
+                continue
+                
+            data = get_historical_data(token, 'day', period='3mo')
+            if data.empty:
+                continue
+            
+            opportunity = analyze_risk_adjusted_opportunity(data, symbol)
+            
+            if opportunity["risk_reward_ratio"] > 1.5:
+                opportunities.append(opportunity)
+                
+        except Exception:
+            continue
+    
+    return {
+        "opportunities": sorted(opportunities, key=lambda x: x["risk_reward_ratio"], reverse=True),
+        "analysis_type": "Risk-Adjusted Opportunities"
+    }
+
+def analyze_risk_adjusted_opportunity(data, symbol):
+    """Analyze risk-reward ratio for trading opportunities."""
+    data = calculate_advanced_indicators(data)
+    latest = data.iloc[-1]
+    
+    # Calculate support and resistance
+    support = data['low'].tail(20).min()
+    resistance = data['high'].tail(20).max()
+    current_price = latest.get('close', 0)
+    
+    # Risk-reward calculation
+    if current_price > data['close'].tail(20).mean():
+        # Bullish scenario
+        potential_upside = resistance - current_price
+        potential_downside = current_price - support
+    else:
+        # Bearish scenario
+        potential_upside = current_price - support
+        potential_downside = resistance - current_price
+    
+    risk_reward_ratio = potential_upside / potential_downside if potential_downside > 0 else 1
+    
+    # Volatility assessment
+    volatility = data['close'].pct_change().std() * 100
+    
+    return {
+        "symbol": symbol,
+        "current_price": current_price,
+        "support": support,
+        "resistance": resistance,
+        "risk_reward_ratio": round(risk_reward_ratio, 2),
+        "volatility": round(volatility, 2),
+        "rsi": round(latest.get('RSI_14', 50), 1)
+    }
+
+def technical_setups_analysis(active_list, instrument_df):
+    """Analyze technical setups for trading."""
+    setups = []
+    
+    for item in active_list[:10]:
+        try:
+            symbol = item['symbol']
+            exchange = item['exchange']
+            token = get_instrument_token(symbol, instrument_df, exchange)
+            
+            if not token:
+                continue
+                
+            data = get_historical_data(token, 'day', period='3mo')
+            if data.empty:
+                continue
+            
+            setup = analyze_technical_setup(data, symbol)
+            
+            if setup["setup_quality"] > 60:
+                setups.append(setup)
+                
+        except Exception:
+            continue
+    
+    return {
+        "setups": sorted(setups, key=lambda x: x["setup_quality"], reverse=True),
+        "analysis_type": "Technical Setups"
+    }
+
+def analyze_technical_setup(data, symbol):
+    """Analyze technical trading setups."""
+    data = calculate_advanced_indicators(data)
+    latest = data.iloc[-1]
+    
+    setup_quality = 0
+    setup_type = "Neutral"
+    characteristics = []
+    
+    # Trend characteristics
+    if latest.get('EMA_20', 0) > latest.get('EMA_50', 0):
+        setup_quality += 25
+        characteristics.append("Uptrend")
+        setup_type = "Bullish"
+    
+    # Momentum characteristics
+    rsi = latest.get('RSI_14', 50)
+    if 40 < rsi < 65:
+        setup_quality += 20
+        characteristics.append("Healthy Momentum")
+    
+    # Volume characteristics
+    if len(data) > 20:
+        volume_avg = data['volume'].tail(20).mean()
+        if latest.get('volume', 0) > volume_avg:
+            setup_quality += 15
+            characteristics.append("Above Average Volume")
+    
+    # Pattern characteristics
+    if (latest.get('close', 0) > latest.get('EMA_20', 0) and
+        latest.get('close', 0) > data['close'].tail(10).mean()):
+        setup_quality += 20
+        characteristics.append("Price Strength")
+    
+    return {
+        "symbol": symbol,
+        "setup_type": setup_type,
+        "setup_quality": min(100, setup_quality),
+        "characteristics": characteristics,
+        "current_price": latest.get('close', 0),
+        "rsi": round(rsi, 1)
+    }
+
+def display_enhanced_discovery_results(results, discovery_mode, confidence_threshold):
     """Display enhanced discovery results with interactive elements."""
     
     if discovery_mode == "Pattern Recognition":
         st.subheader("🎯 High-Confidence Patterns")
         
-        for pattern in results["patterns"][:10]:  # Top 10
+        filtered_patterns = [p for p in results["patterns"] if p["confidence"] >= confidence_threshold]
+        
+        if not filtered_patterns:
+            st.info(f"No patterns found above {confidence_threshold}% confidence threshold.")
+            return
+            
+        for pattern in filtered_patterns[:8]:  # Top 8
             with st.container():
                 col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
                 
@@ -9547,7 +9968,13 @@ def display_enhanced_discovery_results(results, discovery_mode):
     elif discovery_mode == "Predictive Signals":
         st.subheader("🔮 Predictive Signals")
         
-        for signal in results["signals"][:8]:
+        filtered_signals = [s for s in results["signals"] if s["probability"] >= confidence_threshold]
+        
+        if not filtered_signals:
+            st.info(f"No signals found above {confidence_threshold}% probability threshold.")
+            return
+            
+        for signal in filtered_signals[:6]:
             with st.container():
                 col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
                 
@@ -9582,6 +10009,113 @@ def display_enhanced_discovery_results(results, discovery_mode):
                         execute_ai_trade(signal)
                 
                 st.markdown("---")
+    
+    elif discovery_mode == "Risk-Adjusted Opportunities":
+        st.subheader("⚖️ Risk-Adjusted Opportunities")
+        
+        for opportunity in results["opportunities"][:6]:
+            with st.container():
+                col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
+                
+                with col1:
+                    st.write(f"**{opportunity['symbol']}**")
+                    st.write(f"₹{opportunity['current_price']:.2f}")
+                
+                with col2:
+                    rr_ratio = opportunity['risk_reward_ratio']
+                    if rr_ratio > 2:
+                        color = "green"
+                        rating = "Excellent"
+                    elif rr_ratio > 1.5:
+                        color = "blue" 
+                        rating = "Good"
+                    else:
+                        color = "orange"
+                        rating = "Fair"
+                    
+                    st.markdown(f"**Risk-Reward:** <span style='color:{color}'>{rr_ratio}:1 ({rating})</span>", unsafe_allow_html=True)
+                    st.caption(f"Support: ₹{opportunity['support']:.2f} | Resistance: ₹{opportunity['resistance']:.2f}")
+                
+                with col3:
+                    st.metric("Volatility", f"{opportunity['volatility']:.1f}%")
+                
+                with col4:
+                    st.metric("RSI", f"{opportunity['rsi']:.1f}")
+                
+                st.markdown("---")
+    
+    elif discovery_mode == "Technical Setups":
+        st.subheader("📊 Technical Setups")
+        
+        filtered_setups = [s for s in results["setups"] if s["setup_quality"] >= confidence_threshold]
+        
+        if not filtered_setups:
+            st.info(f"No setups found above {confidence_threshold}% quality threshold.")
+            return
+            
+        for setup in filtered_setups[:6]:
+            with st.container():
+                col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
+                
+                with col1:
+                    st.write(f"**{setup['symbol']}**")
+                    st.write(f"₹{setup['current_price']:.2f}")
+                
+                with col2:
+                    quality = setup['setup_quality']
+                    if quality > 80:
+                        color = "green"
+                    elif quality > 60:
+                        color = "blue"
+                    else:
+                        color = "orange"
+                    
+                    st.markdown(f"**{setup['setup_type']} Setup** <span style='color:{color}'>({quality}%)</span>", unsafe_allow_html=True)
+                    characteristics_text = " • ".join(setup['characteristics'][:2])
+                    st.caption(characteristics_text)
+                
+                with col3:
+                    st.metric("RSI", f"{setup['rsi']:.1f}")
+                
+                with col4:
+                    if st.button("Analyze", key=f"setup_{setup['symbol']}"):
+                        st.info(f"Detailed technical analysis for {setup['symbol']} would show chart patterns and indicators.")
+                
+                st.markdown("---")
+
+def display_symbol_technical_analysis(symbol, pattern_data):
+    """Display detailed technical analysis for a symbol."""
+    st.write(f"**Detailed Technical Analysis for {symbol}**")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.metric("Current Price", f"₹{pattern_data['current_price']:.2f}")
+        st.metric("RSI", f"{pattern_data['rsi']:.1f}")
+        st.metric("Confidence", f"{pattern_data['confidence']}%")
+    
+    with col2:
+        st.metric("Signal Strength", pattern_data['signal_strength'])
+        st.metric("Volume Ratio", f"{pattern_data['volume_ratio']:.2f}x")
+        st.metric("Patterns Found", len(pattern_data['patterns']))
+    
+    # Pattern details
+    st.write("**Detected Patterns:**")
+    for pattern in pattern_data['patterns']:
+        st.write(f"• {pattern}")
+    
+    # Trading recommendation
+    if pattern_data['confidence'] > 75:
+        recommendation = "Strong trading opportunity"
+        color = "green"
+    elif pattern_data['confidence'] > 60:
+        recommendation = "Moderate trading opportunity" 
+        color = "blue"
+    else:
+        recommendation = "Watch for confirmation"
+        color = "orange"
+    
+    st.markdown(f"**Recommendation:** <span style='color:{color}'>{recommendation}</span>", unsafe_allow_html=True)
 
 def execute_ai_trade(signal):
     """Execute trade based on AI signal with confirmation."""
@@ -9599,7 +10133,7 @@ def execute_ai_trade(signal):
     """)
     
     # Execute on confirmation
-    if st.button(f"Confirm {signal['signal']} Order", type="primary"):
+    if st.button(f"Confirm {signal['signal']} Order", type="primary", key=f"confirm_{signal['symbol']}"):
         instrument_df = get_instrument_df()
         quantity = 1  # Default quantity
         place_order(instrument_df, signal['symbol'], quantity, 'MARKET', signal['signal'], 'MIS')
