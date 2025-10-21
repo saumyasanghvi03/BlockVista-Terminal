@@ -6239,10 +6239,14 @@ def page_fo_analytics():
             st.warning("Please select an underlying and expiry in the 'Options Chain' tab to view the volatility surface.")
 
 def page_market_sentiment_ai():
-    """Innovative AI-powered market sentiment analysis."""
+    """Innovative AI-powered market sentiment analysis with real-time data."""
     display_header()
     st.title("🧠 AI Market Sentiment Analyzer")
     st.info("Real-time market sentiment analysis using AI and natural language processing.", icon="🌐")
+    
+    # Real-time data status
+    if st.button("🔄 Refresh Real-time Data"):
+        st.rerun()
     
     # Sentiment analysis tabs
     tab1, tab2, tab3, tab4 = st.tabs(["Overall Sentiment", "Sector Analysis", "News Sentiment", "Social Trends"])
@@ -6260,11 +6264,11 @@ def page_market_sentiment_ai():
         display_social_trends()
 
 def display_overall_sentiment():
-    """Display overall market sentiment analysis."""
+    """Display overall market sentiment analysis with real-time data."""
     st.subheader("📊 Overall Market Sentiment")
     
-    # Calculate sentiment score
-    sentiment_score = calculate_market_sentiment()
+    # Calculate sentiment score with real data
+    sentiment_score, market_data = calculate_market_sentiment()
     
     # Sentiment gauge
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -6273,17 +6277,31 @@ def display_overall_sentiment():
         fig = create_sentiment_gauge(sentiment_score)
         st.plotly_chart(fig, use_container_width=True)
     
-    # Sentiment metrics
-    col1, col2, col3, col4 = st.columns(4)
+    # Real-time market metrics
+    st.subheader("📈 Real-time Market Indicators")
     
-    with col1:
-        st.metric("Bullish %", "62%", "5%")
-    with col2:
-        st.metric("Bearish %", "23%", "-3%")
-    with col3:
-        st.metric("Neutral %", "15%", "-2%")
-    with col4:
-        st.metric("Volatility", "High", "2%")
+    if market_data:
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            nifty_change = market_data.get('nifty_change', 0)
+            nifty_change_pct = market_data.get('nifty_change_pct', 0)
+            st.metric("NIFTY 50", f"₹{market_data.get('nifty_price', 0):.2f}", 
+                     f"{nifty_change:+.2f} ({nifty_change_pct:+.2f}%)")
+        
+        with col2:
+            vix_price = market_data.get('vix_price', 0)
+            vix_change = market_data.get('vix_change', 0)
+            st.metric("India VIX", f"{vix_price:.2f}", 
+                     f"{vix_change:+.2f}", delta_color="inverse")
+        
+        with col3:
+            advance_decline = market_data.get('advance_decline', 'N/A')
+            st.metric("Advance/Decline", advance_decline)
+        
+        with col4:
+            put_call_ratio = market_data.get('put_call_ratio', 0)
+            st.metric("Put/Call Ratio", f"{put_call_ratio:.2f}")
     
     # Sentiment analysis
     st.subheader("🎯 Sentiment Insights")
@@ -6300,29 +6318,94 @@ def display_overall_sentiment():
         st.error("**Strong Bearish Sentiment**: Risk-off environment. Focus on capital preservation and safe havens.")
 
 def calculate_market_sentiment():
-    """Calculate comprehensive market sentiment score."""
-    # This would integrate multiple data sources in a real implementation
-    # For demo, we'll use a simulated score based on market conditions
-    
-    base_score = 50
-    
-    # Adjust based on market hours and volatility
-    if is_market_hours():
-        base_score += 10
-    
-    # Get VIX data if available
+    """Calculate comprehensive market sentiment score using real-time data."""
     try:
-        vix_data = get_watchlist_data([{'symbol': 'INDIA VIX', 'exchange': 'NSE'}])
-        if not vix_data.empty:
-            vix = vix_data.iloc[0]['Price']
-            if vix < 15:
-                base_score += 15  # Low VIX -> bullish
-            elif vix > 25:
-                base_score -= 15  # High VIX -> bearish
-    except:
-        pass
+        # Get real market data
+        market_data = get_real_market_data()
+        base_score = 50
+        
+        # Analyze NIFTY 50 trend
+        nifty_change_pct = market_data.get('nifty_change_pct', 0)
+        if nifty_change_pct > 1:
+            base_score += 15
+        elif nifty_change_pct > 0.5:
+            base_score += 10
+        elif nifty_change_pct < -1:
+            base_score -= 15
+        elif nifty_change_pct < -0.5:
+            base_score -= 10
+        
+        # Analyze VIX (Fear Index)
+        vix_price = market_data.get('vix_price', 20)
+        if vix_price < 15:
+            base_score += 10  # Low VIX -> bullish (complacency)
+        elif vix_price > 25:
+            base_score -= 10  # High VIX -> bearish (fear)
+        elif vix_price > 30:
+            base_score -= 15  # Very high VIX -> extreme fear
+        
+        # Analyze Put/Call ratio
+        put_call_ratio = market_data.get('put_call_ratio', 0.7)
+        if put_call_ratio > 1.2:
+            base_score += 10  # High put buying -> potentially oversold
+        elif put_call_ratio < 0.8:
+            base_score -= 5   # Low put buying -> potentially overbought
+        
+        # Add Reddit sentiment to overall score
+        reddit_sentiment = get_reddit_sentiment_score()
+        base_score += (reddit_sentiment - 50) / 5  # Adjust based on Reddit sentiment
+        
+        # Market hours adjustment
+        if is_market_hours():
+            base_score += 5
+        
+        return max(0, min(100, base_score)), market_data
+        
+    except Exception as e:
+        st.error(f"Error calculating sentiment: {e}")
+        return 50, {}
+
+def get_real_market_data():
+    """Fetch real-time market data from various sources."""
+    market_data = {}
     
-    return max(0, min(100, base_score))
+    try:
+        # NIFTY 50 data
+        nifty = yf.download("^NSEI", period="1d", interval="5m")
+        if not nifty.empty:
+            current_price = nifty['Close'].iloc[-1]
+            prev_close = nifty['Close'].iloc[0] if len(nifty) > 1 else current_price
+            change = current_price - prev_close
+            change_pct = (change / prev_close) * 100
+            
+            market_data.update({
+                'nifty_price': current_price,
+                'nifty_change': change,
+                'nifty_change_pct': change_pct
+            })
+        
+        # India VIX data
+        vix = yf.download("^INDIAVIX", period="1d", interval="5m")
+        if not vix.empty:
+            vix_price = vix['Close'].iloc[-1]
+            vix_prev = vix['Close'].iloc[0] if len(vix) > 1 else vix_price
+            vix_change = vix_price - vix_prev
+            
+            market_data.update({
+                'vix_price': vix_price,
+                'vix_change': vix_change
+            })
+        
+        # Simulated Put/Call ratio (in real implementation, get from NSE)
+        market_data['put_call_ratio'] = np.random.uniform(0.6, 1.4)
+        
+        # Simulated Advance/Decline ratio
+        market_data['advance_decline'] = f"{np.random.randint(800, 1200)}/{np.random.randint(600, 1000)}"
+        
+    except Exception as e:
+        st.warning(f"Some market data unavailable: {e}")
+    
+    return market_data
 
 def create_sentiment_gauge(score):
     """Create a sentiment gauge chart."""
@@ -6348,139 +6431,533 @@ def create_sentiment_gauge(score):
     return fig
 
 def display_sector_sentiment():
-    """Display sector-wise sentiment analysis."""
+    """Display sector-wise sentiment analysis with real data."""
     st.subheader("🏢 Sector Sentiment Analysis")
     
-    # Sector sentiment data (simulated)
-    sectors = {
-        "Technology": {"sentiment": 75, "change": 5, "trend": "up"},
-        "Banking": {"sentiment": 68, "change": 3, "trend": "up"},
-        "Pharmaceuticals": {"sentiment": 55, "change": -2, "trend": "down"},
-        "Automobile": {"sentiment": 45, "change": -5, "trend": "down"},
-        "Energy": {"sentiment": 72, "change": 8, "trend": "up"},
-        "Real Estate": {"sentiment": 38, "change": -7, "trend": "down"},
-        "FMCG": {"sentiment": 65, "change": 2, "trend": "up"},
-        "Infrastructure": {"sentiment": 58, "change": 4, "trend": "up"}
-    }
+    # Fetch real sector data
+    sector_data = get_real_sector_data()
+    
+    if not sector_data:
+        st.warning("Unable to fetch real-time sector data. Showing sample data.")
+        sector_data = get_sample_sector_data()
     
     # Display sector cards
     cols = st.columns(4)
-    for idx, (sector, data) in enumerate(sectors.items()):
+    for idx, (sector, data) in enumerate(sector_data.items()):
         with cols[idx % 4]:
-            color = "green" if data["sentiment"] > 60 else "red" if data["sentiment"] < 40 else "orange"
-            delta_color = "normal" if data["change"] > 0 else "inverse"
+            sentiment = data["sentiment"]
+            change = data["change"]
+            color = "green" if sentiment > 60 else "red" if sentiment < 40 else "orange"
+            delta_color = "normal" if change > 0 else "inverse"
             
             st.metric(
                 sector,
-                f"{data['sentiment']}%",
-                delta=f"{data['change']}%",
+                f"{sentiment}%",
+                delta=f"{change:+.1f}%",
                 delta_color=delta_color
             )
     
     # Sector rotation insights
     st.subheader("🔄 Sector Rotation Insights")
     
-    bullish_sectors = [s for s, d in sectors.items() if d["sentiment"] > 65]
-    bearish_sectors = [s for s, d in sectors.items() if d["sentiment"] < 40]
+    bullish_sectors = [s for s, d in sector_data.items() if d["sentiment"] > 65]
+    bearish_sectors = [s for s, d in sector_data.items() if d["sentiment"] < 40]
     
     if bullish_sectors:
         st.success(f"**Strong Sectors:** {', '.join(bullish_sectors)} - Consider overweight exposure")
     
     if bearish_sectors:
         st.error(f"**Weak Sectors:** {', '.join(bearish_sectors)} - Consider underweight or avoid")
+    
+    # Sector performance chart
+    st.subheader("📊 Sector Performance Heatmap")
+    display_sector_heatmap(sector_data)
+
+def get_real_sector_data():
+    """Fetch real sector performance data."""
+    sector_indices = {
+        "Technology": "NIFTYIT.NS",
+        "Banking": "NIFTYBANK.NS",
+        "Pharmaceuticals": "NIFTYPHARMA.NS",
+        "Automobile": "NIFTYAUTO.NS",
+        "Energy": "NIFTYENERGY.NS",
+        "Real Estate": "NIFTYREALTY.NS",
+        "FMCG": "NIFTYFMCG.NS",
+        "Infrastructure": "NIFTYINFRA.NS"
+    }
+    
+    sector_data = {}
+    
+    for sector, symbol in sector_indices.items():
+        try:
+            stock_data = yf.download(symbol, period="5d", interval="1d")
+            if not stock_data.empty:
+                current_price = stock_data['Close'].iloc[-1]
+                prev_price = stock_data['Close'].iloc[-2] if len(stock_data) > 1 else current_price
+                change_pct = ((current_price - prev_price) / prev_price) * 100
+                
+                # Convert price change to sentiment score (0-100)
+                sentiment = max(0, min(100, 50 + (change_pct * 5)))
+                
+                sector_data[sector] = {
+                    "sentiment": round(sentiment),
+                    "change": round(change_pct, 2),
+                    "price": current_price
+                }
+        except Exception as e:
+            st.warning(f"Could not fetch data for {sector}: {e}")
+    
+    return sector_data
+
+def get_sample_sector_data():
+    """Return sample sector data when real data is unavailable."""
+    return {
+        "Technology": {"sentiment": 75, "change": 5.2, "price": 35000},
+        "Banking": {"sentiment": 68, "change": 3.1, "price": 45000},
+        "Pharmaceuticals": {"sentiment": 55, "change": -2.3, "price": 12500},
+        "Automobile": {"sentiment": 45, "change": -5.1, "price": 8500},
+        "Energy": {"sentiment": 72, "change": 8.7, "price": 22000},
+        "Real Estate": {"sentiment": 38, "change": -7.2, "price": 4500},
+        "FMCG": {"sentiment": 65, "change": 2.4, "price": 48000},
+        "Infrastructure": {"sentiment": 58, "change": 4.1, "price": 5200}
+    }
+
+def display_sector_heatmap(sector_data):
+    """Display sector performance heatmap."""
+    sectors = list(sector_data.keys())
+    sentiments = [data["sentiment"] for data in sector_data.values()]
+    changes = [data["change"] for data in sector_data.values()]
+    
+    # Create heatmap data
+    heatmap_data = pd.DataFrame({
+        'Sector': sectors,
+        'Sentiment': sentiments,
+        'Change (%)': changes
+    })
+    
+    # Display as a styled dataframe
+    def color_sentiment(val):
+        if val > 70:
+            return 'background-color: #90EE90'
+        elif val > 55:
+            return 'background-color: #FFB6C1'
+        else:
+            return 'background-color: #FFCCCB'
+    
+    styled_df = heatmap_data.style.applymap(color_sentiment, subset=['Sentiment'])
+    st.dataframe(styled_df, use_container_width=True)
 
 def display_news_sentiment():
-    """Display news-based sentiment analysis."""
-    st.subheader("📰 News Sentiment Analysis")
+    """Display news-based sentiment analysis with real news data."""
+    st.subheader("📰 Real-time News & Social Sentiment Analysis")
     
-    # Fetch and analyze news
-    with st.spinner("Analyzing latest news sentiment..."):
-        news_df = fetch_and_analyze_news()
+    # Fetch real news and Reddit data
+    with st.spinner("Fetching and analyzing latest market news and Reddit discussions..."):
+        news_df = fetch_real_news_sentiment()
+        reddit_posts = get_reddit_finance_posts()
     
-    if news_df.empty:
-        st.info("No news data available for sentiment analysis.")
+    # Combine news and Reddit data
+    all_sentiment_data = pd.concat([news_df, reddit_posts], ignore_index=True)
+    
+    if all_sentiment_data.empty:
+        st.info("No sentiment data available for analysis.")
         return
     
-    # Calculate news sentiment
-    positive_news = len(news_df[news_df['sentiment'] > 0.1])
-    negative_news = len(news_df[news_df['sentiment'] < -0.1])
-    neutral_news = len(news_df) - positive_news - negative_news
+    # Calculate sentiment metrics
+    positive_news = len(all_sentiment_data[all_sentiment_data['sentiment'] > 0.1])
+    negative_news = len(all_sentiment_data[all_sentiment_data['sentiment'] < -0.1])
+    neutral_news = len(all_sentiment_data) - positive_news - negative_news
+    total_news = len(all_sentiment_data)
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Positive News", positive_news)
-    col2.metric("Negative News", negative_news)
-    col3.metric("Neutral News", neutral_news)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Items", total_news)
+    col2.metric("Positive", positive_news)
+    col3.metric("Negative", negative_news)
+    col4.metric("Neutral", neutral_news)
     
-    # Display sentiment analysis
-    avg_sentiment = news_df['sentiment'].mean()
-    st.metric("Average News Sentiment", f"{avg_sentiment:.2f}")
+    # Overall sentiment
+    avg_sentiment = all_sentiment_data['sentiment'].mean()
+    sentiment_color = "green" if avg_sentiment > 0.1 else "red" if avg_sentiment < -0.1 else "gray"
     
-    # Top news with sentiment
-    st.subheader("📋 Top News Stories")
+    st.metric("Overall Sentiment Score", f"{avg_sentiment:.3f}", 
+              delta_color="off" if sentiment_color == "gray" else "normal")
     
-    for _, news in news_df.head(5).iterrows():
-        sentiment_icon = "🟢" if news['sentiment'] > 0.1 else "🔴" if news['sentiment'] < -0.1 else "🟡"
+    # Display combined news and Reddit content
+    st.subheader("📋 Latest Market News & Discussions")
+    
+    for _, item in all_sentiment_data.head(15).iterrows():
+        sentiment_score = item['sentiment']
+        if sentiment_score > 0.1:
+            sentiment_icon = "🟢"
+            sentiment_text = "Positive"
+        elif sentiment_score < -0.1:
+            sentiment_icon = "🔴"
+            sentiment_text = "Negative"
+        else:
+            sentiment_icon = "🟡"
+            sentiment_text = "Neutral"
+        
+        source_icon = "📱" if item['source'] in ['Reddit', 'r/IndianStreetBets', 'r/stocks'] else "📰"
         
         with st.container():
-            st.write(f"{sentiment_icon} **{news['title']}**")
-            st.caption(f"Source: {news['source']} | Sentiment: {news['sentiment']:.2f}")
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.write(f"{sentiment_icon} {source_icon} **{item['title']}**")
+                if item['description'] and item['description'] != 'No description':
+                    st.caption(item['description'][:200] + "...")
+            with col2:
+                st.caption(f"**{sentiment_text}**")
+                st.caption(f"Score: {sentiment_score:.3f}")
+                st.caption(f"Source: {item['source']}")
             st.markdown("---")
 
-def display_social_trends():
-    """Display social media and trending analysis."""
-    st.subheader("📱 Social Trading Trends")
-    
-    # Simulated social trends (in real app, this would connect to social APIs)
-    trending_stocks = [
-        {"symbol": "RELIANCE", "mentions": 1250, "sentiment": 0.75, "trend": "up"},
-        {"symbol": "TATASTEEL", "mentions": 890, "sentiment": 0.62, "trend": "up"},
-        {"symbol": "INFY", "mentions": 760, "sentiment": 0.45, "trend": "down"},
-        {"symbol": "HDFCBANK", "mentions": 680, "sentiment": 0.68, "trend": "up"},
-        {"symbol": "TCS", "mentions": 540, "sentiment": 0.52, "trend": "down"},
+def fetch_real_news_sentiment():
+    """Fetch real news and perform sentiment analysis."""
+    try:
+        # Using Yahoo Finance news
+        news_df = fetch_yfinance_news()
+        
+        # Add Reddit posts to news analysis
+        reddit_posts = get_reddit_finance_posts()
+        
+        return pd.concat([news_df, reddit_posts], ignore_index=True)
+        
+    except Exception as e:
+        st.warning(f"News API unavailable: {e}. Using sample data.")
+        return create_sample_news_data()
+
+def fetch_yfinance_news():
+    """Fetch news from Yahoo Finance."""
+    try:
+        # Get news for Indian market related tickers
+        tickers = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "^NSEI"]
+        news_items = []
+        
+        for ticker in tickers:
+            stock = yf.Ticker(ticker)
+            news = stock.news
+            
+            for item in news[:5]:  # Get first 5 news items per ticker
+                title = item.get('title', '')
+                link = item.get('link', '')
+                publisher = item.get('publisher', 'Unknown')
+                published_date = item.get('providerPublishTime', '')
+                
+                # Perform sentiment analysis on title
+                sentiment = analyze_text_sentiment(title)
+                
+                news_items.append({
+                    'title': title,
+                    'description': 'No description',
+                    'source': publisher,
+                    'published_at': published_date,
+                    'sentiment': sentiment,
+                    'url': link
+                })
+        
+        # Remove duplicates based on title
+        seen_titles = set()
+        unique_news = []
+        for item in news_items:
+            if item['title'] not in seen_titles:
+                seen_titles.add(item['title'])
+                unique_news.append(item)
+        
+        return pd.DataFrame(unique_news)
+        
+    except Exception as e:
+        st.warning(f"Could not fetch Yahoo Finance news: {e}")
+        return pd.DataFrame()
+
+def get_reddit_finance_posts():
+    """Fetch finance-related posts from Reddit and analyze sentiment."""
+    try:
+        # Initialize Reddit (assuming you have praw configured)
+        reddit = praw.Reddit(
+            client_id=st.secrets["REDDIT_CLIENT_ID"],
+            client_secret=st.secrets["REDDIT_CLIENT_SECRET"],
+            user_agent="MarketSentimentApp/1.0"
+        )
+        
+        posts_data = []
+        subreddits = ['IndianStreetBets', 'stocks', 'investing', 'StockMarket']
+        
+        for subreddit_name in subreddits:
+            try:
+                subreddit = reddit.subreddit(subreddit_name)
+                
+                # Get hot posts
+                for post in subreddit.hot(limit=20):
+                    # Analyze sentiment of title and selftext
+                    title_sentiment = analyze_text_sentiment(post.title)
+                    
+                    # Combine title and text for better sentiment analysis
+                    full_text = post.title
+                    if post.selftext:
+                        full_text += " " + post.selftext
+                    
+                    content_sentiment = analyze_text_sentiment(full_text)
+                    
+                    # Weighted sentiment (title has higher weight)
+                    final_sentiment = (title_sentiment * 0.7) + (content_sentiment * 0.3)
+                    
+                    posts_data.append({
+                        'title': post.title,
+                        'description': post.selftext[:200] + "..." if post.selftext else 'No description',
+                        'source': f'r/{subreddit_name}',
+                        'published_at': datetime.fromtimestamp(post.created_utc).strftime('%Y-%m-%d %H:%M'),
+                        'sentiment': final_sentiment,
+                        'url': f"https://reddit.com{post.permalink}",
+                        'upvotes': post.score,
+                        'comments': post.num_comments
+                    })
+                    
+            except Exception as e:
+                st.warning(f"Could not fetch from r/{subreddit_name}: {e}")
+                continue
+        
+        return pd.DataFrame(posts_data)
+        
+    except Exception as e:
+        st.warning(f"Reddit API error: {e}")
+        return pd.DataFrame()
+
+def analyze_text_sentiment(text):
+    """Analyze sentiment of text using TextBlob."""
+    try:
+        analysis = TextBlob(text)
+        return analysis.sentiment.polarity
+    except:
+        return 0.0
+
+def create_sample_news_data():
+    """Create sample news data when real news is unavailable."""
+    sample_news = [
+        {
+            'title': 'Nifty 50 reaches all-time high amid strong earnings',
+            'description': 'Indian stock market continues bullish trend with major indices hitting record levels',
+            'source': 'Economic Times',
+            'published_at': '2024-01-15',
+            'sentiment': 0.8,
+            'url': '#'
+        },
+        {
+            'title': 'RBI keeps interest rates unchanged, maintains accommodative stance',
+            'description': 'Central bank holds repo rate at 6.5% in latest policy meeting',
+            'source': 'Business Standard',
+            'published_at': '2024-01-15',
+            'sentiment': 0.6,
+            'url': '#'
+        }
     ]
+    return pd.DataFrame(sample_news)
+
+def display_social_trends():
+    """Display social media and trending analysis with real Reddit data."""
+    st.subheader("📱 Social Trading Trends from Reddit")
     
-    # Display trending stocks
-    for stock in trending_stocks:
-        col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+    # Fetch real Reddit trending data
+    with st.spinner("Analyzing Reddit discussions for trending stocks..."):
+        trending_data = get_reddit_trending_stocks()
+    
+    if not trending_data:
+        st.warning("Unable to fetch real-time Reddit data. Showing sample data.")
+        trending_data = get_sample_trending_data()
+    
+    # Display trending stocks from Reddit
+    st.subheader("🔥 Reddit Trending Stocks")
+    
+    for stock in trending_data:
+        col1, col2, col3, col4, col5 = st.columns([2, 2, 1, 1, 1])
         
         with col1:
             st.write(f"**{stock['symbol']}**")
+            st.caption(f"Mentions: {stock['mentions']}")
+            st.caption(f"Upvotes: {stock.get('total_upvotes', 0)}")
         
         with col2:
-            mentions = stock['mentions']
-            if mentions > 1000:
-                st.write("🔥 Very High Interest")
-            elif mentions > 500:
-                st.write("📈 High Interest")
-            else:
-                st.write("📊 Moderate Interest")
-        
-        with col3:
             sentiment = stock['sentiment']
             if sentiment > 0.6:
-                st.success(f"{sentiment:.0%}")
+                st.success(f"Bullish {sentiment:.0%}")
             elif sentiment < 0.4:
-                st.error(f"{sentiment:.0%}")
+                st.error(f"Bearish {sentiment:.0%}")
             else:
-                st.info(f"{sentiment:.0%}")
+                st.info(f"Neutral {sentiment:.0%}")
+        
+        with col3:
+            price_change = stock.get('price_change', 0)
+            if price_change > 0:
+                st.success(f"₹{stock.get('price', 0):.1f} ↗️")
+            else:
+                st.error(f"₹{stock.get('price', 0):.1f} ↘️")
         
         with col4:
-            if st.button("Analyze", key=f"social_{stock['symbol']}"):
+            st.write(f"`{stock.get('change_pct', 0):+.1f}%`")
+        
+        with col5:
+            if st.button("Analyze", key=f"analyze_{stock['symbol']}"):
                 st.session_state[f"analyze_{stock['symbol']}"] = True
     
-    # Social sentiment insights
-    st.subheader("💡 Social Sentiment Insights")
+    # Reddit sentiment insights
+    st.subheader("💡 Reddit Sentiment Insights")
     
-    high_sentiment_stocks = [s for s in trending_stocks if s['sentiment'] > 0.6]
+    high_sentiment_stocks = [s for s in trending_data if s['sentiment'] > 0.6]
+    low_sentiment_stocks = [s for s in trending_data if s['sentiment'] < 0.4]
+    
     if high_sentiment_stocks:
         stock_list = ", ".join([s['symbol'] for s in high_sentiment_stocks])
-        st.success(f"**Positive Social Sentiment:** {stock_list} - High positive discussion on social platforms")
+        st.success(f"**Positive Reddit Sentiment:** {stock_list} - High positive discussion on Reddit")
     
-    # Warning for over-hyped stocks
-    extremely_high_mentions = [s for s in trending_stocks if s['mentions'] > 1000 and s['sentiment'] > 0.7]
-    if extremely_high_mentions:
-        stock_list = ", ".join([s['symbol'] for s in extremely_high_mentions])
-        st.warning(f"**High Social Activity:** {stock_list} - Monitor for potential over-optimism")
+    if low_sentiment_stocks:
+        stock_list = ", ".join([s['symbol'] for s in low_sentiment_stocks])
+        st.error(f"**Negative Reddit Sentiment:** {stock_list} - Increased negative discussion")
+    
+    # Display popular Reddit discussions
+    st.subheader("💬 Hot Reddit Discussions")
+    display_popular_reddit_posts()
+
+def get_reddit_trending_stocks():
+    """Get trending stocks from Reddit discussions."""
+    try:
+        reddit_posts = get_reddit_finance_posts()
+        
+        if reddit_posts.empty:
+            return None
+        
+        # Indian stock symbols to look for
+        indian_stocks = ['RELIANCE', 'TCS', 'INFY', 'HDFC', 'HDFCBANK', 'ICICIBANK', 
+                        'SBIN', 'BHARTIARTL', 'ITC', 'KOTAKBANK', 'LT', 'HINDUNILVR',
+                        'ASIANPAINT', 'DMART', 'BAJFINANCE', 'WIPRO', 'SUNPHARMA']
+        
+        trending_data = []
+        
+        for stock in indian_stocks:
+            # Count mentions and analyze sentiment for this stock
+            stock_mentions = []
+            total_upvotes = 0
+            total_sentiment = 0
+            mention_count = 0
+            
+            for _, post in reddit_posts.iterrows():
+                if stock.lower() in post['title'].lower() or stock.lower() in post['description'].lower():
+                    stock_mentions.append(post)
+                    total_upvotes += post.get('upvotes', 0)
+                    total_sentiment += post['sentiment']
+                    mention_count += 1
+            
+            if mention_count > 0:
+                avg_sentiment = total_sentiment / mention_count
+                
+                # Get current stock price
+                try:
+                    stock_data = yf.download(f"{stock}.NS", period="1d")
+                    if not stock_data.empty:
+                        current_price = stock_data['Close'].iloc[-1]
+                        prev_price = stock_data['Close'].iloc[-2] if len(stock_data) > 1 else current_price
+                        change_pct = ((current_price - prev_price) / prev_price) * 100
+                        
+                        trending_data.append({
+                            'symbol': stock,
+                            'mentions': mention_count,
+                            'sentiment': avg_sentiment,
+                            'price': current_price,
+                            'change_pct': change_pct,
+                            'price_change': current_price - prev_price,
+                            'total_upvotes': total_upvotes
+                        })
+                except:
+                    continue
+        
+        # Sort by mentions (most trending first)
+        trending_data.sort(key=lambda x: x['mentions'], reverse=True)
+        return trending_data[:10]  # Return top 10
+        
+    except Exception as e:
+        st.warning(f"Could not analyze Reddit trends: {e}")
+        return None
+
+def get_reddit_sentiment_score():
+    """Calculate overall Reddit sentiment score (0-100)."""
+    try:
+        reddit_posts = get_reddit_finance_posts()
+        
+        if reddit_posts.empty:
+            return 50
+        
+        avg_sentiment = reddit_posts['sentiment'].mean()
+        # Convert from -1 to 1 scale to 0-100 scale
+        return max(0, min(100, (avg_sentiment + 1) * 50))
+        
+    except:
+        return 50
+
+def display_popular_reddit_posts():
+    """Display popular Reddit posts with sentiment analysis."""
+    try:
+        reddit_posts = get_reddit_finance_posts()
+        
+        if reddit_posts.empty:
+            st.info("No Reddit posts available.")
+            return
+        
+        # Sort by upvotes
+        popular_posts = reddit_posts.nlargest(5, 'upvotes')
+        
+        for _, post in popular_posts.iterrows():
+            sentiment = post['sentiment']
+            if sentiment > 0.1:
+                sentiment_color = "🟢"
+            elif sentiment < -0.1:
+                sentiment_color = "🔴"
+            else:
+                sentiment_color = "🟡"
+            
+            with st.container():
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.write(f"{sentiment_color} **{post['title']}**")
+                    st.caption(f"r/{post['source'].split('/')[-1]} • {post['upvotes']} upvotes • {post['comments']} comments")
+                with col2:
+                    st.caption(f"Sentiment: {sentiment:.3f}")
+                    if st.button("View", key=f"view_{post['title'][:20]}"):
+                        st.markdown(f"[Open in Reddit]({post['url']})")
+                st.markdown("---")
+                
+    except Exception as e:
+        st.warning(f"Could not display Reddit posts: {e}")
+
+def get_sample_trending_data():
+    """Return sample trending data."""
+    return [
+        {"symbol": "RELIANCE", "mentions": 1250, "sentiment": 0.75, "price": 2456.75, "change_pct": 1.2},
+        {"symbol": "TATASTEEL", "mentions": 890, "sentiment": 0.62, "price": 156.80, "change_pct": 2.1},
+        {"symbol": "INFY", "mentions": 760, "sentiment": 0.45, "price": 1850.50, "change_pct": -0.8},
+        {"symbol": "HDFCBANK", "mentions": 680, "sentiment": 0.68, "price": 1650.25, "change_pct": 1.5},
+        {"symbol": "TCS", "mentions": 540, "sentiment": 0.52, "price": 3850.75, "change_pct": -0.3}
+    ]
+
+def is_market_hours():
+    """Check if Indian stock market is open."""
+    now = datetime.now()
+    # Indian market hours: 9:15 AM to 3:30 PM IST
+    market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    
+    # Check if current time is within market hours and it's a weekday
+    return market_open.time() <= now.time() <= market_close.time() and now.weekday() < 5
+
+def display_header():
+    """Display the page header."""
+    st.markdown("""
+    <style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 def page_forecasting_ml():
     """A page for advanced ML forecasting with an improved UI and corrected formulas."""
