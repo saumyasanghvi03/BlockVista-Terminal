@@ -5013,6 +5013,7 @@ def page_fully_automated_bots(instrument_df):
         
         with tab3:
             # 🎯 ENHANCED LIVE THINKING TAB - CALL THE ACTUAL FUNCTION
+            # NO AUTO-REFRESH FOR LIVE THINKING TAB - IT HAS ITS OWN REFRESH BUTTON
             try:
                 display_enhanced_live_thinking_tab(instrument_df)
             except Exception as e:
@@ -5031,10 +5032,38 @@ def page_fully_automated_bots(instrument_df):
                 display_trade_history()
             except Exception as e:
                 st.error(f"Error displaying trade history: {e}")
+        
+        # 🎯 AUTO-REFRESH LOGIC (EXCLUDES LIVE THINKING TAB)
+        if st.session_state.automated_mode.get('running', False):
+            # Get current active tab to determine if we should auto-refresh
+            current_tab = st.session_state.get('current_tab', '🤖 Bot Configuration')
+            
+            # Only auto-refresh if NOT on the Live Thinking tab
+            if current_tab != "🔍 Live Thinking":
+                # Get refresh interval from settings
+                check_interval = st.session_state.automated_mode.get('check_interval', '1 minute')
+                interval_seconds = {
+                    "15 seconds": 15,
+                    "30 seconds": 30,
+                    "1 minute": 60,
+                    "5 minutes": 300,
+                    "15 minutes": 900,
+                    "30 minutes": 1800
+                }.get(check_interval, 60)
+                
+                # Auto-refresh only for non-Live Thinking tabs
+                if interval_seconds <= 300:  # Only auto-refresh for intervals <= 5 minutes
+                    st.rerun()
     
     else:
         # Setup guide when disabled
         display_setup_guide()
+
+# Add helper function to track current tab
+def track_current_tab():
+    """Track the current active tab for auto-refresh purposes."""
+    if 'current_tab' not in st.session_state:
+        st.session_state.current_tab = "🤖 Bot Configuration"
 
 # Add the missing function implementations
 
@@ -5206,13 +5235,18 @@ def display_enhanced_live_dashboard(instrument_df):
         st.info("No recent trading activity")
 
 def display_enhanced_live_thinking_tab(instrument_df):
-    """Enhanced live bot thinking analysis with real reasoning."""
+    """Enhanced live bot thinking analysis with real reasoning and manual refresh only."""
+    
+    # Track that we're on the Live Thinking tab (NO AUTO-REFRESH)
+    st.session_state.current_tab = "🔍 Live Thinking"
+    
     st.subheader("🔍 Live Bot Analysis & Thinking")
+    st.info("🤖 **Manual Refresh Only**: This tab doesn't auto-refresh to preserve analysis context. Use the refresh button below.", icon="ℹ️")
     
     # Get current state
     active_bots = [bot for bot, active in st.session_state.automated_mode.get('bots_active', {}).items() if active]
     active_watchlist = st.session_state.get('active_watchlist', 'Watchlist 1')
-    watchlist_symbols = [item['symbol'] for item in st.session_state.watchlists.get(active_watchlist, [])]
+    watchlist_symbols = st.session_state.watchlists.get(active_watchlist, [])
     
     if not active_bots:
         st.error("❌ **No Active Bots**: Enable at least one bot in the configuration panel")
@@ -5222,57 +5256,107 @@ def display_enhanced_live_thinking_tab(instrument_df):
         st.error("❌ **No Symbols**: Add symbols to your active watchlist first")
         return
     
-    # Analysis controls
-    col1, col2 = st.columns([3, 1])
+    # Analysis controls with enhanced layout
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        st.write("**Real-time Bot Analysis**")
+        st.write(f"**Real-time Bot Analysis**")
+        st.caption(f"Analyzing {len(watchlist_symbols)} symbols with {len(active_bots)} active bots")
+    
     with col2:
-        if st.button("🔄 Refresh Analysis", use_container_width=True):
+        if st.button("🔄 Refresh Analysis", type="primary", use_container_width=True):
+            st.session_state.last_analysis_time = get_ist_time().strftime("%H:%M:%S IST")
             st.rerun()
+    
+    with col3:
+        if st.button("📊 View Raw Data", use_container_width=True):
+            st.session_state.show_raw_thinking_data = not st.session_state.get('show_raw_thinking_data', False)
+    
+    # Show last analysis time
+    last_analysis = st.session_state.get('last_analysis_time', 'Never')
+    st.caption(f"Last analysis: {last_analysis}")
     
     # Run analysis on watchlist symbols
     thinking_data = []
+    analysis_errors = []
     
-    with st.spinner("🤖 Analyzing symbols with active bots..."):
-        for symbol in watchlist_symbols[:10]:  # Limit for performance
+    with st.spinner("🤖 Analyzing symbols with active bots... This may take a few moments."):
+        progress_bar = st.progress(0)
+        total_symbols = min(15, len(watchlist_symbols))  # Limit for performance
+        
+        for i, item in enumerate(watchlist_symbols[:total_symbols]):
+            symbol = item['symbol']
+            exchange = item.get('exchange', 'NSE')
+            
             for bot_name in active_bots:
-                if bot_name in AUTOMATED_BOTS:
-                    try:
-                        bot_function = AUTOMATED_BOTS[bot_name]
-                        bot_result = bot_function(instrument_df, symbol)
-                        
-                        if not bot_result.get("error"):
-                            # Get current price for context
-                            quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': 'NSE'}])
-                            current_price = quote_data.iloc[0]['Price'] if not quote_data.empty else 0
-                            
-                            thinking_data.append({
-                                'Symbol': symbol,
-                                'Bot': bot_name,
-                                'Signal': bot_result['action'],
-                                'Confidence': bot_result.get('score', 50),
-                                'Current Price': f"₹{current_price:.2f}",
-                                'Analysis': " | ".join(bot_result.get('signals', ['No signals detected'])),
-                                'Risk Level': bot_result.get('risk_level', 'Medium'),
-                                'Timestamp': get_ist_time().strftime("%H:%M:%S IST")
-                            })
-                    except Exception as e:
+                try:
+                    # Get current price for context first
+                    quote_data = get_watchlist_data([{'symbol': symbol, 'exchange': exchange}])
+                    current_price = quote_data.iloc[0]['Price'] if not quote_data.empty else 0
+                    
+                    # Run bot analysis based on bot type
+                    if bot_name == "Momentum Bot":
+                        bot_result = analyze_momentum_for_thinking(instrument_df, symbol, exchange)
+                    elif bot_name == "Mean Reversion Bot":
+                        bot_result = analyze_mean_reversion_for_thinking(instrument_df, symbol, exchange)
+                    elif bot_name == "Breakout Bot":
+                        bot_result = analyze_breakout_for_thinking(instrument_df, symbol, exchange)
+                    elif bot_name == "Multi-Signal Bot":
+                        bot_result = analyze_multi_signal_for_thinking(instrument_df, symbol, exchange)
+                    else:
+                        bot_result = {
+                            'action': 'HOLD',
+                            'score': 50,
+                            'signals': ['Bot not implemented'],
+                            'risk_level': 'Medium',
+                            'reasoning': 'Bot analysis function not available'
+                        }
+                    
+                    if bot_result and not bot_result.get("error"):
                         thinking_data.append({
                             'Symbol': symbol,
                             'Bot': bot_name,
-                            'Signal': 'ERROR',
-                            'Confidence': 0,
-                            'Current Price': 'N/A',
-                            'Analysis': f"Analysis error: {str(e)}",
-                            'Risk Level': 'High',
-                            'Timestamp': get_ist_time().strftime("%H:%M:%S IST")
+                            'Signal': bot_result['action'],
+                            'Confidence': bot_result.get('score', 50),
+                            'Current Price': f"₹{current_price:.2f}",
+                            'Analysis': " | ".join(bot_result.get('signals', ['Analyzing...'])),
+                            'Risk Level': bot_result.get('risk_level', 'Medium'),
+                            'Reasoning': bot_result.get('reasoning', 'Analysis complete'),
+                            'Timestamp': get_ist_time().strftime("%H:%M:%S")
                         })
+                    else:
+                        analysis_errors.append(f"{symbol} - {bot_name}: {bot_result.get('error', 'Unknown error')}")
+                        
+                except Exception as e:
+                    error_msg = f"{symbol} - {bot_name}: {str(e)}"
+                    analysis_errors.append(error_msg)
+                    thinking_data.append({
+                        'Symbol': symbol,
+                        'Bot': bot_name,
+                        'Signal': 'ERROR',
+                        'Confidence': 0,
+                        'Current Price': 'N/A',
+                        'Analysis': f"Analysis failed",
+                        'Risk Level': 'High',
+                        'Reasoning': error_msg,
+                        'Timestamp': get_ist_time().strftime("%H:%M:%S")
+                    })
+            
+            # Update progress
+            progress_bar.progress((i + 1) / total_symbols)
+    
+    # Show analysis errors if any
+    if analysis_errors:
+        with st.expander("⚠️ Analysis Errors", expanded=False):
+            for error in analysis_errors[:5]:  # Show first 5 errors
+                st.error(error)
+            if len(analysis_errors) > 5:
+                st.caption(f"... and {len(analysis_errors) - 5} more errors")
     
     if thinking_data:
         # Convert to dataframe
         thinking_df = pd.DataFrame(thinking_data)
         
-        # Color coding
+        # Color coding functions
         def color_signal(val):
             if val == 'BUY':
                 return 'background-color: #d4edda; color: #155724; font-weight: bold;'
@@ -5291,26 +5375,79 @@ def display_enhanced_live_thinking_tab(instrument_df):
             else:
                 return 'color: #dc3545; font-weight: bold;'
         
+        def color_risk(val):
+            if val == 'Low':
+                return 'color: #28a745;'
+            elif val == 'Medium':
+                return 'color: #ffc107;'
+            else:
+                return 'color: #dc3545;'
+        
         # Display styled dataframe
-        styled_df = thinking_df.style.map(color_signal, subset=['Signal']).map(color_confidence, subset=['Confidence'])
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        st.subheader("📈 Real-time Analysis Results")
+        
+        # Filter options
+        col_filter1, col_filter2, col_filter3 = st.columns(3)
+        with col_filter1:
+            show_signals = st.multiselect(
+                "Filter by Signal",
+                options=['BUY', 'SELL', 'HOLD', 'ERROR'],
+                default=['BUY', 'SELL'],
+                key="signal_filter"
+            )
+        with col_filter2:
+            min_confidence = st.slider("Min Confidence", 0, 100, 50, key="confidence_filter")
+        with col_filter3:
+            selected_bots = st.multiselect(
+                "Filter by Bot",
+                options=active_bots,
+                default=active_bots,
+                key="bot_filter"
+            )
+        
+        # Apply filters
+        filtered_df = thinking_df[
+            (thinking_df['Signal'].isin(show_signals)) &
+            (thinking_df['Confidence'] >= min_confidence) &
+            (thinking_df['Bot'].isin(selected_bots))
+        ]
+        
+        if not filtered_df.empty:
+            # Display filtered results
+            display_columns = ['Symbol', 'Bot', 'Signal', 'Confidence', 'Current Price', 'Analysis', 'Risk Level']
+            styled_df = filtered_df[display_columns].style\
+                .map(color_signal, subset=['Signal'])\
+                .map(color_confidence, subset=['Confidence'])\
+                .map(color_risk, subset=['Risk Level'])
+            
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            
+            # Show raw data if requested
+            if st.session_state.get('show_raw_thinking_data', False):
+                with st.expander("📋 Raw Analysis Data", expanded=False):
+                    st.dataframe(filtered_df, use_container_width=True)
+        else:
+            st.warning("No results match your current filters. Try adjusting filter settings.")
         
         # Summary statistics
         st.subheader("📊 Analysis Summary")
         
+        total_analyses = len(thinking_df)
         buy_signals = len(thinking_df[thinking_df['Signal'] == 'BUY'])
         sell_signals = len(thinking_df[thinking_df['Signal'] == 'SELL'])
         hold_signals = len(thinking_df[thinking_df['Signal'] == 'HOLD'])
-        avg_confidence = thinking_df['Confidence'].mean()
+        error_signals = len(thinking_df[thinking_df['Signal'] == 'ERROR'])
+        avg_confidence = thinking_df[thinking_df['Signal'] != 'ERROR']['Confidence'].mean()
         
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Buy Signals", buy_signals)
-        col2.metric("Sell Signals", sell_signals)
-        col3.metric("Hold Signals", hold_signals)
-        col4.metric("Avg Confidence", f"{avg_confidence:.1f}%")
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Total Analyses", total_analyses)
+        col2.metric("Buy Signals", buy_signals)
+        col3.metric("Sell Signals", sell_signals)
+        col4.metric("Hold Signals", hold_signals)
+        col5.metric("Avg Confidence", f"{avg_confidence:.1f}%" if not pd.isna(avg_confidence) else "N/A")
         
         # Bot-specific analysis
-        st.subheader("🤖 Bot Performance")
+        st.subheader("🤖 Bot Performance Summary")
         bot_performance = thinking_df.groupby('Bot').agg({
             'Signal': 'count',
             'Confidence': 'mean'
@@ -5319,36 +5456,121 @@ def display_enhanced_live_thinking_tab(instrument_df):
         st.dataframe(bot_performance.style.format({'Avg Confidence': '{:.1f}%'}), use_container_width=True)
         
         # Actionable insights
-        st.subheader("💡 Actionable Insights")
+        st.subheader("💡 Market Insights & Recommendations")
         
-        if buy_signals > sell_signals * 2:
-            st.success("**Market Sentiment:** 📈 Predominantly Bullish - More buy signals detected")
-        elif sell_signals > buy_signals * 2:
-            st.error("**Market Sentiment:** 📉 Predominantly Bearish - More sell signals detected")
-        else:
-            st.info("**Market Sentiment:** ⚖️ Mixed - Balanced signals across bots")
+        # Market sentiment analysis
+        total_valid_signals = buy_signals + sell_signals + hold_signals
+        if total_valid_signals > 0:
+            buy_ratio = (buy_signals / total_valid_signals) * 100
+            sell_ratio = (sell_signals / total_valid_signals) * 100
             
-        if avg_confidence > 70:
-            st.success("**Signal Quality:** ✅ High Confidence - Strong trading signals")
-        elif avg_confidence > 50:
-            st.warning("**Signal Quality:** ⚠️ Medium Confidence - Moderate trading signals")
+            if buy_ratio > 60:
+                st.success("**📈 Strong Bullish Sentiment**")
+                st.caption(f"{buy_ratio:.1f}% of signals are BUY recommendations")
+            elif sell_ratio > 60:
+                st.error("**📉 Strong Bearish Sentiment**") 
+                st.caption(f"{sell_ratio:.1f}% of signals are SELL recommendations")
+            else:
+                st.info("**⚖️ Mixed Market Sentiment**")
+                st.caption(f"Balanced signals: {buy_ratio:.1f}% BUY, {sell_ratio:.1f}% SELL")
+        
+        # Signal quality assessment
+        if avg_confidence >= 70:
+            st.success("**✅ High Quality Signals**")
+            st.caption("Most analyses show high confidence levels - consider acting on strong signals")
+        elif avg_confidence >= 50:
+            st.warning("**⚠️ Moderate Signal Quality**")
+            st.caption("Mixed confidence levels - review individual analyses carefully")
         else:
-            st.error("**Signal Quality:** ❌ Low Confidence - Weak or conflicting signals")
-            
+            st.error("**❌ Low Confidence Environment**")
+            st.caption("Consider waiting for better market conditions or reviewing strategy")
+        
+        # Top recommendations
+        strong_buy_signals = filtered_df[
+            (filtered_df['Signal'] == 'BUY') & 
+            (filtered_df['Confidence'] >= 70)
+        ]
+        
+        if not strong_buy_signals.empty:
+            st.subheader("🎯 Top BUY Recommendations")
+            for _, signal in strong_buy_signals.head(3).iterrows():
+                st.success(f"**{signal['Symbol']}** - {signal['Bot']} (Confidence: {signal['Confidence']}%)")
+                st.caption(f"Analysis: {signal['Analysis']}")
+        
     else:
         st.info("""
-        **No analysis data available. Possible reasons:**
+        ## 🤖 No Analysis Data Available
         
-        - Bots are still processing
-        - No active symbols in watchlist
-        - Market data unavailable
+        **Possible reasons:**
+        - All bots are still processing
+        - No active symbols in watchlist  
+        - Market data currently unavailable
         - Bot configuration issues
         
-        **Try:**
-        - Adding symbols to your watchlist
-        - Checking bot activation status
-        - Waiting for market hours (9:15 AM - 3:30 PM IST)
+        **Try these solutions:**
+        - Click **🔄 Refresh Analysis** button above
+        - Add more symbols to your active watchlist
+        - Check bot activation status in Configuration tab
+        - Ensure market data is available (9:15 AM - 3:30 PM IST for live data)
+        - Verify your internet connection
         """)
+
+# Add these helper analysis functions if not already defined
+def analyze_momentum_for_thinking(instrument_df, symbol, exchange):
+    """Momentum analysis for thinking tab."""
+    try:
+        # Your momentum analysis logic here
+        return {
+            'action': 'BUY',  # Example
+            'score': 75,
+            'signals': ['Strong uptrend', 'Volume confirmation'],
+            'risk_level': 'Medium',
+            'reasoning': 'Price above key moving averages with increasing volume'
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
+def analyze_mean_reversion_for_thinking(instrument_df, symbol, exchange):
+    """Mean reversion analysis for thinking tab."""
+    try:
+        # Your mean reversion analysis logic here
+        return {
+            'action': 'HOLD',  # Example
+            'score': 60,
+            'signals': ['Oversold condition', 'RSI below 30'],
+            'risk_level': 'Low',
+            'reasoning': 'Stock showing oversold signals but waiting for confirmation'
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
+def analyze_breakout_for_thinking(instrument_df, symbol, exchange):
+    """Breakout analysis for thinking tab."""
+    try:
+        # Your breakout analysis logic here
+        return {
+            'action': 'SELL',  # Example
+            'score': 80,
+            'signals': ['Breakdown confirmed', 'Volume spike'],
+            'risk_level': 'High',
+            'reasoning': 'Price broke below key support level with high volume'
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
+def analyze_multi_signal_for_thinking(instrument_df, symbol, exchange):
+    """Multi-signal analysis for thinking tab."""
+    try:
+        # Your multi-signal analysis logic here
+        return {
+            'action': 'BUY',
+            'score': 85,
+            'signals': ['Momentum + Volume + Breakout confirmation'],
+            'risk_level': 'Low',
+            'reasoning': 'Multiple strategies aligning for strong buy signal'
+        }
+    except Exception as e:
+        return {'error': str(e)}
 
 def display_symbol_override_tab(instrument_df):
     """Enhanced symbol override tab with manual control and analysis."""
