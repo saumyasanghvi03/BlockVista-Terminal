@@ -6531,21 +6531,6 @@ def page_market_sentiment_ai():
     with tab4:
         display_social_trends()
 
-def display_header():
-    """Display the page header."""
-    st.markdown("""
-    <style>
-    .main-header {
-        font-size: 2.5rem;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('<h1 class="main-header">BlockVista Terminal</h1>', unsafe_allow_html=True)
-
 def display_overall_sentiment():
     """Display overall market sentiment analysis with real-time data."""
     st.subheader("📊 Overall Market Sentiment")
