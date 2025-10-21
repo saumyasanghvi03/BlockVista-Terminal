@@ -3497,19 +3497,16 @@ def display_breakout_signals(signals_data, total_capital, risk_percent, auto_exe
                 confidence = signal['confidence']
                 if confidence > 80:
                     color = "🟢"
-                    badge = "st.success"
                 elif confidence > 65:
                     color = "🟡" 
-                    badge = "st.warning"
                 else:
                     color = "🟠"
-                    badge = "st.info"
                 
                 st.write(f"{color} **{signal['signal']}** - {signal['pattern_type']}")
                 st.progress(confidence / 100)
                 
-                # Signal details
-                st.caption(f"Breakout: ₹{signal['breakout_level']:.2f | Volume: {signal['volume_ratio']:.1f}x | Move: {signal['price_move_pct']:.1f}%"}})
+                # FIXED: Corrected the f-string syntax
+                st.caption(f"Breakout: ₹{signal['breakout_level']:.2f} | Volume: {signal['volume_ratio']:.1f}x | Move: {signal['price_move_pct']:.1f}%")
             
             with col3:
                 st.metric("Confidence", f"{confidence}%")
@@ -3536,6 +3533,64 @@ def display_breakout_signals(signals_data, total_capital, risk_percent, auto_exe
     if auto_execute and top_signals:
         if st.button("🤖 Execute All Breakout Trades", type="primary", use_container_width=True):
             execute_batch_breakout_trades(top_signals, total_capital, risk_percent)
+    
+    # AUTO-EXECUTION
+    if auto_execute and top_signals:
+        if st.button("🤖 Execute All Breakout Trades", type="primary", use_container_width=True):
+            execute_batch_breakout_trades(top_signals, total_capital, risk_percent)
+
+def execute_batch_breakout_trades(signals, total_capital, risk_percent):
+    """Execute multiple breakout trades in batch."""
+    executed_trades = []
+    failed_trades = []
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, signal in enumerate(signals):
+        status_text.text(f"Executing trade {i+1}/{len(signals)}: {signal['symbol']}")
+        
+        try:
+            risk_amount = total_capital * (risk_percent / 100)
+            position_size = calculate_breakout_position_size(signal, risk_amount)
+            
+            instrument_df = get_instrument_df()
+            place_order(
+                instrument_df,
+                signal['symbol'],
+                position_size,
+                'MARKET',
+                signal['signal'],
+                'MIS'
+            )
+            
+            executed_trades.append({
+                'symbol': signal['symbol'],
+                'action': signal['signal'],
+                'quantity': position_size,
+                'price': signal['current_price']
+            })
+            
+            log_breakout_trade(signal, position_size, 'AUTO_BATCH')
+            
+        except Exception as e:
+            failed_trades.append({
+                'symbol': signal['symbol'],
+                'error': str(e)
+            })
+        
+        progress_bar.progress((i + 1) / len(signals))
+    
+    # Display results
+    if executed_trades:
+        st.success(f"✅ Successfully executed {len(executed_trades)} breakout trades!")
+        for trade in executed_trades:
+            st.write(f"• {trade['action']} {trade['quantity']} shares of {trade['symbol']} @ ₹{trade['price']:.2f}")
+    
+    if failed_trades:
+        st.error(f"❌ {len(failed_trades)} trades failed")
+        for trade in failed_trades:
+            st.write(f"• {trade['symbol']}: {trade['error']}")
 
 def display_multi_signals(signals_data, total_capital, risk_percent, auto_execute, max_positions):
     """Display multi-signal analysis results."""
