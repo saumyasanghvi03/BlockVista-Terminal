@@ -3509,7 +3509,7 @@ def display_breakout_signals(signals_data, total_capital, risk_percent, auto_exe
                 st.progress(confidence / 100)
                 
                 # Signal details
-                st.caption(f"Breakout: ₹{signal['breakout_level']:.2f | Volume: {signal['volume_ratio']:.1f}x | Move: {signal['price_move_pct']:.1f}%"})
+                st.caption(f"Breakout: ₹{signal['breakout_level']:.2f | Volume: {signal['volume_ratio']:.1f}x | Move: {signal['price_move_pct']:.1f}%"}})
             
             with col3:
                 st.metric("Confidence", f"{confidence}%")
