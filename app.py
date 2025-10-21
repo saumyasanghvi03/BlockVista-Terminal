@@ -7768,9 +7768,17 @@ from datetime import datetime, timedelta
 import numpy as np
 import praw  # Reddit API
 
+import streamlit as st
+import pandas as pd
+import numpy as np
+import yfinance as yf
+import plotly.graph_objects as go
+from textblob import TextBlob
+from datetime import datetime
+import praw
+
 def page_market_sentiment_ai():
     """Innovative AI-powered market sentiment analysis with real-time data."""
-    display_header()
     st.title("🧠 AI Market Sentiment Analyzer")
     st.info("Real-time market sentiment analysis using AI and natural language processing.", icon="🌐")
     
@@ -7868,22 +7876,22 @@ def calculate_market_sentiment():
         # Analyze VIX (Fear Index)
         vix_price = market_data.get('vix_price', 20)
         if vix_price < 15:
-            base_score += 10  # Low VIX -> bullish (complacency)
+            base_score += 10
         elif vix_price > 25:
-            base_score -= 10  # High VIX -> bearish (fear)
+            base_score -= 10
         elif vix_price > 30:
-            base_score -= 15  # Very high VIX -> extreme fear
+            base_score -= 15
         
         # Analyze Put/Call ratio
         put_call_ratio = market_data.get('put_call_ratio', 0.7)
         if put_call_ratio > 1.2:
-            base_score += 10  # High put buying -> potentially oversold
+            base_score += 10
         elif put_call_ratio < 0.8:
-            base_score -= 5   # Low put buying -> potentially overbought
+            base_score -= 5
         
         # Add Reddit sentiment to overall score
         reddit_sentiment = get_reddit_sentiment_score()
-        base_score += (reddit_sentiment - 50) / 5  # Adjust based on Reddit sentiment
+        base_score += (reddit_sentiment - 50) / 5
         
         # Market hours adjustment
         if is_market_hours():
@@ -8178,7 +8186,7 @@ def fetch_yfinance_news():
                 news = stock.news
                 
                 if news:
-                    for item in news[:5]:  # Get first 5 news items per ticker
+                    for item in news[:5]:
                         title = item.get('title', '')
                         link = item.get('link', '')
                         publisher = item.get('publisher', 'Unknown')
@@ -8215,7 +8223,7 @@ def fetch_yfinance_news():
 def get_reddit_finance_posts():
     """Fetch finance-related posts from Reddit and analyze sentiment."""
     try:
-        # Initialize Reddit (assuming you have praw configured)
+        # Initialize Reddit using Streamlit secrets
         reddit = praw.Reddit(
             client_id=st.secrets["REDDIT_CLIENT_ID"],
             client_secret=st.secrets["REDDIT_CLIENT_SECRET"],
@@ -8416,7 +8424,7 @@ def get_reddit_trending_stocks():
         
         # Sort by mentions (most trending first)
         trending_data.sort(key=lambda x: x['mentions'], reverse=True)
-        return trending_data[:10]  # Return top 10
+        return trending_data[:10]
         
     except Exception as e:
         st.warning(f"Could not analyze Reddit trends: {e}")
